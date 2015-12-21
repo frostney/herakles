@@ -1,0 +1,33 @@
+{
+  "name": "herakles",
+  "version": "1.0.0",
+  "description": "Slay the multi-repository monster!",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frostney/herakles.git"
+  },
+  "keywords": [
+    "git",
+    "github",
+    "repository",
+    "multi",
+    "multi-repository",
+    "repo",
+    "repos"
+  ],
+  "author": "Johannes Stein",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/frostney/herakles/issues"
+  },
+  "homepage": "https://github.com/frostney/herakles#readme",
+  "dependencies": {
+    "commander": "^2.9.0",
+    "js-yaml": "^3.4.6",
+    "nodegit": "^0.6.3"
+  }
+}
