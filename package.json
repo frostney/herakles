@@ -29,5 +29,9 @@
     "commander": "^2.9.0",
     "js-yaml": "^3.4.6",
     "nodegit": "^0.6.3"
+  },
+  "devDependencies": {
+    "eslint": "^1.10.3",
+    "eslint-config-airbnb": "^2.1.1"
   }
 }
