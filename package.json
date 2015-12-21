@@ -28,7 +28,10 @@
   "dependencies": {
     "commander": "^2.9.0",
     "js-yaml": "^3.4.6",
-    "nodegit": "^0.6.3"
+    "mkdirp-promise": "^1.0.3",
+    "nodegit": "^0.6.3",
+    "opn": "^3.0.3",
+    "pinkie-promise": "^2.0.0"
   },
   "devDependencies": {
     "chai": "^3.4.1",
