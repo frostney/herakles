@@ -1,1 +1,0 @@
-var Herakles = require('../lib');
