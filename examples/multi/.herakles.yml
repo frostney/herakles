@@ -1,0 +1,13 @@
+scripts:
+  test: npm test
+repositories:
+  docs:
+    talks: github:frostney/talks
+    techstack: github:frostney/my-tech-stack
+
+  libs:
+    eventmap: github:freezedev/eventmap
+    udefine: github:freezedev/udefine
+
+  gamejams:
+    ggj-berlin: github:Polooo2/ggj2015-berlin
