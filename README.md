@@ -8,4 +8,7 @@ TODO:
 - [ ] Dogfood for a week
 - [ ] Unit tests
 
+Decisions:
+- I'm not liking the tree-like structure with passing down `root` and `name`. Maybe have two with groups and repositories and repositories linking to the group. Not sure about the serialization though :/
+
 If you are a fan of the monorepo approach, you might want to check out lerna.
