@@ -11,7 +11,9 @@ TODO:
 - [ ] Unit tests
 - [ ] Scripts
 
-Decisions:
+Oberservations:
 - I'm not liking the tree-like structure with passing down `root` and `name`. Maybe have two with groups and repositories and repositories linking to the group. Not sure about the serialization though :/
+- Events shouldn't be static -> for 1.2.0+
+- Events should be more granular -> for 1.2.0+
 
 If you are a fan of the monorepo approach, you might want to check out lerna.
