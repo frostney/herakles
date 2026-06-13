@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import type { Project, ProjectSource, ProjectState, ValidationResult } from "../domain";
 import { type ProjectStateTransition, planProjectStateTransition } from "../lifecycle/transitions";
 import type { LoadedConfig } from "./load";
+import { renderTomlDiff, renderTomlRemovalDiff, replaceTomlBlock } from "./toml-block";
 
 export type ProjectConfigChanges = {
   source?: ProjectSource;
@@ -58,7 +59,10 @@ export function createProjectConfigPlan(
     after,
     ...(transition === undefined ? {} : { transition }),
     toml: renderProjectConfig(projectId, after),
-    diff: renderProjectConfigDiff(projectId, beforeConfig, after),
+    diff: renderTomlDiff(
+      renderProjectConfigBlock(projectId, beforeConfig),
+      renderProjectConfig(projectId, after),
+    ),
     action: before === undefined ? "append" : "replace",
   };
 }
@@ -77,7 +81,7 @@ export function createRemoveProjectConfigPlan(
     before: beforeConfig,
     after: {},
     toml: "",
-    diff: renderProjectRemovalDiff(projectId, beforeConfig),
+    diff: renderTomlRemovalDiff(renderProjectConfig(projectId, beforeConfig)),
     action: "remove",
   };
 }
@@ -113,57 +117,18 @@ function renderProjectConfig(projectId: string, values: ProjectConfigChanges): s
   return `${lines.join("\n")}\n`;
 }
 
-function renderProjectConfigDiff(
+function renderProjectConfigBlock(
   projectId: string,
-  before: ProjectConfigChanges | undefined,
-  after: ProjectConfigChanges,
-): string {
-  const beforeLines = before ? renderProjectConfig(projectId, before).trimEnd().split("\n") : [];
-  const afterLines = renderProjectConfig(projectId, after).trimEnd().split("\n");
-  return [
-    "--- current",
-    "+++ planned",
-    ...beforeLines.map((line) => `- ${line}`),
-    ...afterLines.map((line) => `+ ${line}`),
-  ]
-    .join("\n")
-    .concat("\n");
-}
-
-function renderProjectRemovalDiff(projectId: string, before: ProjectConfigChanges): string {
-  return [
-    "--- current",
-    "+++ planned",
-    ...renderProjectConfig(projectId, before)
-      .trimEnd()
-      .split("\n")
-      .map((line) => `- ${line}`),
-  ]
-    .join("\n")
-    .concat("\n");
+  values: ProjectConfigChanges | undefined,
+): string | undefined {
+  return values === undefined ? undefined : renderProjectConfig(projectId, values);
 }
 
 function replaceProjectConfig(content: string, plan: ProjectConfigPlan): string {
-  const range = findProjectConfigRange(content, plan.projectId);
-  if (plan.action === "remove") {
-    if (!range) return content;
-    return `${content.slice(0, range.start)}${content.slice(range.end)}`.replace(/\n{3,}/g, "\n\n");
-  }
-  if (!range) {
-    const separator = content.endsWith("\n") ? "\n" : "\n\n";
-    return `${content}${separator}${plan.toml}`;
-  }
-  return `${content.slice(0, range.start)}${plan.toml}${content.slice(range.end)}`;
-}
-
-function findProjectConfigRange(
-  content: string,
-  projectId: string,
-): { start: number; end: number } | undefined {
-  const header = `[project.${JSON.stringify(projectId)}]`;
-  const start = content.indexOf(header);
-  if (start === -1) return undefined;
-  const nextHeader = content.slice(start + header.length).search(/\n\[/);
-  if (nextHeader === -1) return { start, end: content.length };
-  return { start, end: start + header.length + nextHeader + 1 };
+  return replaceTomlBlock(
+    content,
+    `[project.${JSON.stringify(plan.projectId)}]`,
+    plan.toml,
+    plan.action,
+  );
 }

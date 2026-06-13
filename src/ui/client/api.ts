@@ -61,6 +61,29 @@ export type ProjectConfigPlan = {
   action: "append" | "replace" | "remove";
 };
 
+export type AutomationJobConfigInput = {
+  jobId: string;
+  schedule: string;
+  mode: string;
+  prompt?: string;
+  output?: string;
+  repoFilter?: string;
+  issueLabels?: string[];
+  skill?: string;
+  slotTimezone?: string;
+  enabled?: boolean;
+};
+
+export type AutomationJobConfigPlan = {
+  configPath: string;
+  jobId: string;
+  before?: Record<string, unknown>;
+  after: Record<string, unknown>;
+  toml: string;
+  diff: string;
+  action: "append" | "replace";
+};
+
 export type SyncRunResult = Array<{
   item: {
     action: string;
@@ -96,10 +119,6 @@ export async function getProjectDetail(id: string): Promise<ProjectDetail> {
   return get(`/api/projects/${encodeURIComponent(id)}`);
 }
 
-export async function getLocalProjects(): Promise<Project[]> {
-  return get("/api/local-projects");
-}
-
 export async function getReports(): Promise<ReportSummary[]> {
   return get("/api/reports");
 }
@@ -132,12 +151,8 @@ export async function getPrunePlan(): Promise<PrunePlan> {
   return get("/api/sync/prune-plan");
 }
 
-export async function postSyncDryRun(): Promise<SyncRunResult> {
-  return post("/api/sync/dry-run");
-}
-
-export async function postSyncRun(): Promise<SyncRunResult> {
-  return post("/api/sync");
+export async function postConfigPull() {
+  return post("/api/config/pull");
 }
 
 export async function postProjectsRefresh(): Promise<ProjectDiscoveryRefreshResult> {
@@ -165,6 +180,13 @@ export async function postRemoveProject(projectId: string) {
   return post("/api/projects/remove", { projectId });
 }
 
+export async function postCheckoutProject(
+  projectId: string,
+  options: { dryRun?: boolean } = {},
+): Promise<SyncRunResult> {
+  return post("/api/projects/checkout", { projectId, dryRun: options.dryRun === true });
+}
+
 export async function postValidate(options: { strict?: boolean } = {}): Promise<ValidationResult> {
   return post(`/api/validate${options.strict ? "?strict=true" : ""}`);
 }
@@ -179,6 +201,18 @@ export async function postAutomationTick() {
 
 export async function postAutomationRun(jobId: string): Promise<AutomationRun> {
   return post("/api/automation/run", { jobId, slot: "now" });
+}
+
+export async function postAutomationJobPlan(
+  input: AutomationJobConfigInput,
+): Promise<AutomationJobConfigPlan> {
+  return post("/api/automation/job-plan", input);
+}
+
+export async function postAutomationJobApply(
+  input: AutomationJobConfigInput,
+): Promise<AutomationJobConfigPlan> {
+  return post("/api/automation/job-apply", input);
 }
 
 export async function postProjectConfigPlan(

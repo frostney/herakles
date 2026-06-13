@@ -318,9 +318,8 @@ async function runCodexJob(
 ): Promise<AutomationRun> {
   const relativeOutputPath = outputPath(job, slot);
   const reportPath = resolveUnder(reportsRoot(loaded), relativeOutputPath);
-  const promptPath = resolveUnder(loaded.paths.configDir, job.prompt!);
   const result = await runCodexReportOnly(loaded, {
-    promptPath,
+    prompt: job.prompt!,
     worktree: loaded.paths.workspaceRoot,
     reportPath,
     context: await renderJobContext(loaded, job, slot, eligibleProjects),

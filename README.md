@@ -1,6 +1,6 @@
 # Herakles
 
-Herakles is a Bun-first TypeScript workspace orchestrator for managing many GitHub repositories, local experiments, sync plans, reports, and recurring AI-harness automation from one CLI and local browser UI.
+Herakles is a Bun-first TypeScript workspace orchestrator for managing GitHub-backed projects, local experiments, cross-computer configuration sync, reports, and recurring AI-harness automation from one CLI and local browser UI.
 
 ## Install
 
@@ -16,17 +16,24 @@ Create the workspace scaffold:
 bun run herakles init --root ~/Code
 ```
 
-Add, import, inspect, and sync projects:
+Add, import, inspect, and check out projects:
 
 ```sh
-bun run herakles add --root ~/Code --source github --repo frostney/tool
+bun run herakles add --root ~/Code --source github --repo frostney/tool --checkout
 bun run herakles add --root ~/Code --source local --path local-spike --id local-spike
-bun run herakles projects import --root ~/Code --repo frostney/tool --repo frostney/app
+bun run herakles projects import --root ~/Code --repo frostney/tool --repo frostney/app --checkout
+bun run herakles projects checkout frostney-tool --root ~/Code
 bun run herakles projects refresh --root ~/Code
 bun run herakles projects list --root ~/Code
+bun run herakles remove local-spike --root ~/Code --yes
+```
+
+Synchronize config and hosted checkouts across machines:
+
+```sh
+bun run herakles config pull --root ~/Code
 bun run herakles sync --root ~/Code --dry-run
 bun run herakles sync --root ~/Code
-bun run herakles remove local-spike --root ~/Code --yes
 ```
 
 Open the local UI:

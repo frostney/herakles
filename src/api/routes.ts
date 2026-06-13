@@ -34,6 +34,20 @@ const automationRunBodySchema = z
     date: nonEmptyString.optional(),
   })
   .strict();
+const automationJobBodySchema = z
+  .object({
+    jobId: nonEmptyString,
+    schedule: nonEmptyString,
+    mode: nonEmptyString,
+    prompt: z.string().optional(),
+    output: z.string().optional(),
+    repoFilter: z.string().optional(),
+    issueLabels: z.array(nonEmptyString).optional(),
+    skill: z.string().optional(),
+    slotTimezone: z.string().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict();
 const projectConfigBodySchema = z
   .object({
     projectId: nonEmptyString,
@@ -69,6 +83,9 @@ const importProjectsBodySchema = z
   })
   .strict();
 const removeProjectBodySchema = z.object({ projectId: nonEmptyString }).strict();
+const checkoutProjectBodySchema = z
+  .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
+  .strict();
 const repoMoveBodySchema = z.object({ projectId: nonEmptyString, path: nonEmptyString }).strict();
 const pruneBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
@@ -152,6 +169,8 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/add": (context) => routeAddProject(context),
   "/api/projects/import": (context) => routeImportProjects(context),
   "/api/projects/remove": (context) => routeRemoveProject(context),
+  "/api/projects/checkout": (context) => routeCheckoutProject(context),
+  "/api/config/pull": ({ options }) => routeConfigPull(options.workspaceRoot),
   "/api/validate": ({ options, url }) =>
     routeValidation(options.workspaceRoot, { strict: isStrict(url) }),
   "/api/sync/dry-run": ({ options }) => routeSync(options.workspaceRoot, true),
@@ -159,6 +178,8 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/prune": (context) => routePrune(context),
   "/api/automation/tick": ({ options }) => routeAutomationTick(options.workspaceRoot),
   "/api/automation/run": (context) => routeAutomationRun(context),
+  "/api/automation/job-plan": (context) => routeAutomationJobPlan(context),
+  "/api/automation/job-apply": (context) => routeAutomationJobApply(context),
   "/api/config/project-plan": (context) => routeProjectConfigPlan(context),
   "/api/config/apply": (context) => routeConfigApply(context),
   "/api/repo/move-plan": (context) => routeRepoMovePlan(context),
@@ -297,6 +318,35 @@ async function routeRemoveProject(context: ApiContext): Promise<Response> {
   return json(await app.removeProject(context.options.workspaceRoot, body.data.projectId));
 }
 
+async function routeCheckoutProject(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, checkoutProjectBodySchema);
+  if (!body.ok) return body.response;
+  emitApiEvent("sync-started", `project checkout started for ${body.data.projectId}`, {
+    projectId: body.data.projectId,
+    dryRun: body.data.dryRun === true,
+  });
+  const result = await app.checkoutProject(context.options.workspaceRoot, body.data.projectId, {
+    dryRun: body.data.dryRun === true,
+    onProgress(progress) {
+      emitApiEvent("sync-progress", `${progress.item.project.repo}: ${progress.message}`, {
+        projectId: progress.item.project.id,
+        action: progress.item.action,
+        status: progress.status,
+      });
+    },
+  });
+  emitApiEvent("sync-finished", `project checkout finished for ${body.data.projectId}`, {
+    projectId: body.data.projectId,
+    dryRun: body.data.dryRun === true,
+    results: result.length,
+  });
+  return json(result);
+}
+
+async function routeConfigPull(workspaceRoot: string): Promise<Response> {
+  return json(await app.configPull(workspaceRoot));
+}
+
 async function routeValidation(
   workspaceRoot: string,
   options: { strict?: boolean } = {},
@@ -343,6 +393,32 @@ async function routeAutomationTick(workspaceRoot: string): Promise<Response> {
   }
   emitApiEvent("automation-finished", "automation tick finished", { runs: runs.length });
   return json(runs);
+}
+
+async function routeAutomationJobPlan(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, automationJobBodySchema);
+  if (!body.ok) return body.response;
+  return json(
+    await app.automationJobConfigPlan(
+      context.options.workspaceRoot,
+      body.data.jobId,
+      automationJobChanges(body.data),
+    ),
+  );
+}
+
+async function routeAutomationJobApply(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, automationJobBodySchema);
+  if (!body.ok) return body.response;
+  const result = await app.applyAutomationJobConfig(
+    context.options.workspaceRoot,
+    body.data.jobId,
+    automationJobChanges(body.data),
+  );
+  emitApiEvent("automation-log", `automation job ${body.data.jobId} saved`, {
+    jobId: body.data.jobId,
+  });
+  return json(result);
 }
 
 async function routeProjectConfigPlan(context: ApiContext): Promise<Response> {
@@ -527,5 +603,19 @@ function projectConfigChanges(body: z.infer<typeof projectConfigBodySchema>) {
     ...(body.state === undefined ? {} : { state: body.state }),
     ...(body.learning === undefined ? {} : { learning: body.learning }),
     ...(body.path === undefined ? {} : { path: body.path }),
+  };
+}
+
+function automationJobChanges(body: z.infer<typeof automationJobBodySchema>) {
+  return {
+    schedule: body.schedule,
+    mode: body.mode,
+    ...(body.prompt === undefined ? {} : { prompt: body.prompt }),
+    ...(body.output === undefined ? {} : { output: body.output }),
+    ...(body.repoFilter === undefined ? {} : { repo_filter: body.repoFilter }),
+    ...(body.issueLabels === undefined ? {} : { issue_labels: body.issueLabels }),
+    ...(body.skill === undefined ? {} : { skill: body.skill }),
+    ...(body.slotTimezone === undefined ? {} : { slot_timezone: body.slotTimezone }),
+    ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
   };
 }

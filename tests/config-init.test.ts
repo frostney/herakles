@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initConfig } from "../src/config/init";
@@ -14,9 +14,6 @@ describe("config init", () => {
     expect(existsSync(paths.localConfigPath)).toBe(true);
     expect(existsSync(join(root, "_cache"))).toBe(true);
     expect(existsSync(join(root, "_reports"))).toBe(true);
-    expect(existsSync(join(paths.configDir, "prompts", "morning-next-work.md"))).toBe(true);
-    expect(existsSync(join(paths.configDir, "prompts", "friday-summary.md"))).toBe(true);
-    expect(existsSync(join(paths.configDir, "prompts", "monday-maintenance.md"))).toBe(true);
     expect(existsSync(join(paths.configDir, "schemas", "recommendation.schema.json"))).toBe(true);
     expect(existsSync(join(paths.configDir, "schemas", "automation-result.schema.json"))).toBe(
       true,
@@ -29,6 +26,7 @@ describe("config init", () => {
       join(paths.configDir, "schemas", "recommendation.schema.json"),
     ).json();
     expect(synced).toContain("[job.morning_next_work]");
+    expect(synced).toContain("# Morning Next Work");
     expect(synced).toContain('mode = "coderabbit-review"');
     expect(synced).toContain('mode = "implementation-plan"');
     expect(local).toContain("[ui]");
@@ -45,6 +43,7 @@ describe("config init", () => {
     await writeFile(paths.syncedConfigPath, 'version = 2\nroot = "/custom"\n');
     await writeFile(paths.localConfigPath, "[ui]\nport = 5000\n");
     await writeFile(join(paths.configDir, ".gitignore"), "custom\n");
+    await mkdir(join(paths.configDir, "prompts"), { recursive: true });
     await writeFile(join(paths.configDir, "prompts", "morning-next-work.md"), "custom prompt\n");
     await writeFile(
       join(paths.configDir, "schemas", "recommendation.schema.json"),

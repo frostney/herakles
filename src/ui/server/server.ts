@@ -28,7 +28,6 @@ export async function startUiServer(options: UiServerOptions) {
       "/": index,
       "/projects": index,
       "/projects/:projectId": index,
-      "/local": index,
       "/reports": index,
       "/reports/*": index,
       "/automation": index,

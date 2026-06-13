@@ -11,7 +11,6 @@ import {
   Boxes,
   ClipboardCheck,
   FileText,
-  FolderGit2,
   Plus,
   RefreshCcw,
   Settings,
@@ -20,6 +19,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type {
   AutomationDueSlot,
+  AutomationJob,
   AutomationRun,
   DoctorResult,
   HostedImportCandidate,
@@ -33,6 +33,8 @@ import type {
   ValidationResult,
 } from "../../domain";
 import {
+  type AutomationJobConfigInput,
+  type AutomationJobConfigPlan,
   type AutomationPayload,
   type HeraklesEvent,
   type LocalArchiveResult,
@@ -41,11 +43,9 @@ import {
   type ProjectDiscoveryRefreshResult,
   type RepoMovePlan,
   type StatusPayload,
-  type SyncRunResult,
   getAutomations,
   getDoctor,
   getHostedImportCandidates,
-  getLocalProjects,
   getProjectDetail,
   getProjects,
   getPrunePlan,
@@ -53,8 +53,12 @@ import {
   getReports,
   getStatus,
   postAddProject,
+  postAutomationJobApply,
+  postAutomationJobPlan,
   postAutomationRun,
   postAutomationTick,
+  postCheckoutProject,
+  postConfigPull,
   postImportProjects,
   postLocalArchive,
   postLocalPromotion,
@@ -67,8 +71,6 @@ import {
   postRepoMove,
   postRepoMovePlan,
   postReportNote,
-  postSyncDryRun,
-  postSyncRun,
   postValidate,
   subscribeToEvents,
 } from "./api";
@@ -139,10 +141,6 @@ function Shell() {
             <Boxes size={18} aria-hidden />
             Projects
           </Link>
-          <Link to="/local" activeProps={{ className: "active" }}>
-            <FolderGit2 size={18} aria-hidden />
-            Local
-          </Link>
           <Link to="/reports" activeProps={{ className: "active" }}>
             <FileText size={18} aria-hidden />
             Reports
@@ -210,10 +208,10 @@ function Dashboard() {
       <div className="split">
         <WorkspacePanel status={status.data} />
         {doctor.status === "ready" ? (
-          <DoctorPanel data={doctor.data} title="Sync Health" />
+          <DoctorPanel data={doctor.data} title="Config Health" />
         ) : (
           <section className="panel">
-            <h2>Sync Health</h2>
+            <h2>Config Health</h2>
             <LoadState state={doctor} />
           </section>
         )}
@@ -310,6 +308,7 @@ function Projects() {
   const [projects, refresh] = useResource(getProjects);
   const [query, setQuery] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
   useRefreshOnEvents(refresh, ["projects-refresh-finished", "sync-finished", "validation-updated"]);
   const filtered = useMemo(() => {
     if (projects.status !== "ready") return [];
@@ -323,12 +322,26 @@ function Projects() {
   return (
     <Screen
       title="Projects"
-      actions={<IconButton label="Refresh" onClick={refresh} icon={<RefreshCcw size={16} />} />}
+      actions={
+        <>
+          <button type="button" onClick={() => setImportOpen(true)}>
+            Import from GitHub
+          </button>
+          <IconButton label="Refresh" onClick={refresh} icon={<RefreshCcw size={16} />} />
+        </>
+      }
     >
-      <div className="split">
-        <AddProjectPanel onChanged={refresh} />
-        <GitHubImportPanel onChanged={refresh} />
-      </div>
+      <AddProjectPanel onChanged={refresh} />
+      {importOpen && (
+        <Modal title="Import from GitHub" onClose={() => setImportOpen(false)}>
+          <GitHubImportPanel
+            onChanged={() => {
+              refresh();
+              setImportOpen(false);
+            }}
+          />
+        </Modal>
+      )}
       <label className="search">
         <span>Search</span>
         <input value={query} onChange={(event) => setQuery(event.target.value)} />
@@ -340,6 +353,7 @@ function Projects() {
             selectedProjectId={selectedProjectId}
             onSelectProject={setSelectedProjectId}
             onRemove={refresh}
+            onCheckout={refresh}
           />
           <ProjectSettingsPanel
             projects={projects.data}
@@ -363,17 +377,24 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
   const [repo, setRepo] = useState("");
   const [path, setPath] = useState("");
   const [state, setState] = useState<ProjectState>("experiment");
+  const [checkout, setCheckout] = useState(true);
   const [message, setMessage] = useState("");
   const add = async () => {
     setMessage("");
     try {
+      const projectId = id || defaultProjectId(source === "github" ? repo : path);
       await postAddProject({
-        id: id || defaultProjectId(source === "github" ? repo : path),
+        id: projectId,
         source,
         ...(source === "github" ? { repo } : { path }),
         state,
       });
-      setMessage("Project added.");
+      if (source === "github" && checkout) {
+        await postCheckoutProject(projectId);
+      }
+      setMessage(
+        source === "github" && checkout ? "Project added and checked out." : "Project added.",
+      );
       setId("");
       setRepo("");
       setPath("");
@@ -423,6 +444,16 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
           <span>State</span>
           <StateSelect id="add-project-state" value={state} onChange={setState} />
         </label>
+        {source === "github" && (
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={checkout}
+              onChange={(event) => setCheckout(event.target.checked)}
+            />
+            <span>Checkout after adding</span>
+          </label>
+        )}
       </div>
       <button type="button" onClick={add}>
         <Plus size={16} aria-hidden /> Add
@@ -436,6 +467,7 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
   const [candidates, refresh] = useResource(getHostedImportCandidates);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [states, setStates] = useState<Record<string, ProjectState>>({});
+  const [checkout, setCheckout] = useState(true);
   const [message, setMessage] = useState("");
   const rows = candidates.status === "ready" ? candidates.data : [];
   const importSelected = async () => {
@@ -452,8 +484,15 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
     }
     try {
       await postImportProjects(projects);
+      if (checkout) {
+        await Promise.all(projects.map((project) => postCheckoutProject(project.id)));
+      }
       setSelected({});
-      setMessage(`Imported ${projects.length} project${projects.length === 1 ? "" : "s"}.`);
+      setMessage(
+        checkout
+          ? `Imported and checked out ${projects.length} project${projects.length === 1 ? "" : "s"}.`
+          : `Imported ${projects.length} project${projects.length === 1 ? "" : "s"}.`,
+      );
       refresh();
       onChanged();
     } catch (error) {
@@ -461,8 +500,7 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
     }
   };
   return (
-    <section className="panel">
-      <h2>GitHub Import</h2>
+    <section>
       {candidates.status === "ready" ? (
         <div className="table-wrap compact-table">
           <table>
@@ -483,6 +521,14 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
       ) : (
         <LoadState state={candidates} />
       )}
+      <label className="checkbox-label modal-option">
+        <input
+          type="checkbox"
+          checked={checkout}
+          onChange={(event) => setCheckout(event.target.checked)}
+        />
+        <span>Checkout after import</span>
+      </label>
       <button type="button" onClick={importSelected}>
         Import Selected
       </button>
@@ -527,6 +573,31 @@ function ImportCandidateRow({
   );
 }
 
+function Modal({
+  title,
+  children,
+  onClose,
+}: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <dialog
+        open
+        className="modal-dialog"
+        aria-labelledby="modal-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <h2 id="modal-title">{title}</h2>
+          <button type="button" className="small-button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        {children}
+      </dialog>
+    </div>
+  );
+}
+
 function StateSelect({
   id,
   value,
@@ -562,7 +633,7 @@ function ProjectDetailScreen() {
   ]);
   return (
     <Screen
-      title="Repository"
+      title="Project"
       actions={<IconButton label="Refresh" onClick={refresh} icon={<RefreshCcw size={16} />} />}
     >
       {detail.status === "ready" ? (
@@ -723,31 +794,11 @@ function ReportLink({ report }: { report: ReportSummary }) {
   );
 }
 
-function LocalExperiments() {
-  const [projects, refresh] = useResource(getLocalProjects);
-  useRefreshOnEvents(refresh, ["projects-refresh-finished", "sync-finished"]);
-  return (
-    <Screen
-      title="Local"
-      actions={<IconButton label="Refresh" onClick={refresh} icon={<RefreshCcw size={16} />} />}
-    >
-      {projects.status === "ready" ? (
-        <>
-          <ProjectTable projects={projects.data} />
-          <LocalArchivePanel projects={projects.data} onArchived={refresh} />
-          <LocalPromotionPanel projects={projects.data} onPromoted={refresh} />
-        </>
-      ) : (
-        <LoadState state={projects} />
-      )}
-    </Screen>
-  );
-}
-
 function Automation() {
   const [automation, refresh] = useResource(getAutomations);
   const [busy, setBusy] = useState(false);
   const [busyJobId, setBusyJobId] = useState("");
+  const [selectedJobId, setSelectedJobId] = useState("");
   const [message, setMessage] = useState("");
   const [messageKind, setMessageKind] = useState<"success" | "error">("success");
   useRefreshOnEvents(refresh, ["automation-log", "automation-finished"]);
@@ -792,7 +843,25 @@ function Automation() {
     >
       {message && <p className={messageKind}>{message}</p>}
       {automation.status === "ready" ? (
-        <AutomationPanel data={automation.data} busyJobId={busyJobId} onRunJob={runJob} />
+        <>
+          <AutomationJobEditor
+            jobs={automation.data.jobs}
+            selectedJobId={selectedJobId}
+            onSaved={() => {
+              refresh();
+              setMessageKind("success");
+              setMessage("Automation saved.");
+            }}
+            onSelectJob={setSelectedJobId}
+          />
+          <AutomationPanel
+            data={automation.data}
+            busyJobId={busyJobId}
+            selectedJobId={selectedJobId}
+            onRunJob={runJob}
+            onSelectJob={setSelectedJobId}
+          />
+        </>
       ) : (
         <LoadState state={automation} />
       )}
@@ -805,8 +874,6 @@ function SettingsScreen() {
   const [doctor, refreshDoctor] = useResource(getDoctor);
   const [prunePlan, refreshPrunePlan] = useResource(getPrunePlan);
   const [busy, setBusy] = useState(false);
-  const [syncResults, setSyncResults] = useState<SyncRunResult>([]);
-  const [syncMode, setSyncMode] = useState<"dry-run" | "run">("dry-run");
   const [projectDiscoveryResult, setProjectDiscoveryResult] =
     useState<ProjectDiscoveryRefreshResult>();
   const [validationResult, setValidationResult] = useState<ValidationResult>();
@@ -818,31 +885,15 @@ function SettingsScreen() {
     "validation-updated",
   ]);
   useRefreshOnEvents(refreshPrunePlan, ["sync-finished", "projects-refresh-finished"]);
-  const dryRun = async () => {
+  const pullConfig = async () => {
     setBusy(true);
     setMessage("");
     try {
-      setSyncResults(await postSyncDryRun());
-      setSyncMode("dry-run");
-      setMessageKind("success");
-      setMessage("Sync dry run complete.");
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const syncRun = async () => {
-    setBusy(true);
-    setMessage("");
-    try {
-      setSyncResults(await postSyncRun());
-      setSyncMode("run");
+      await postConfigPull();
       refreshStatus();
-      refreshPrunePlan();
+      refreshDoctor();
       setMessageKind("success");
-      setMessage("Sync run complete.");
+      setMessage("Config pull complete.");
     } catch (error) {
       setMessageKind("error");
       setMessage(String(error));
@@ -901,11 +952,8 @@ function SettingsScreen() {
           <button type="button" onClick={() => validate(true)} disabled={busy}>
             Strict Validate
           </button>
-          <button type="button" onClick={dryRun} disabled={busy}>
-            Sync Dry Run
-          </button>
-          <button type="button" onClick={syncRun} disabled={busy}>
-            Sync Run
+          <button type="button" onClick={pullConfig} disabled={busy}>
+            Pull Config
           </button>
           <button type="button" onClick={refreshPrune} disabled={busy}>
             Prune Plan
@@ -917,7 +965,6 @@ function SettingsScreen() {
       {status.status === "ready" && <WorkspacePanel status={status.data} />}
       {projectDiscoveryResult && <ProjectDiscoveryResultPanel result={projectDiscoveryResult} />}
       {validationResult && <ValidationResultPanel result={validationResult} />}
-      <SyncResultsPanel mode={syncMode} results={syncResults} />
       {prunePlan.status === "ready" ? (
         <PrunePlanPanel plan={prunePlan.data} onChanged={refreshPrunePlan} />
       ) : (
@@ -995,29 +1042,6 @@ function ValidationSummary({
     <section className="inline-validation">
       <h3>{label}</h3>
       <ValidationIssueList issues={validation.issues} />
-    </section>
-  );
-}
-
-function SyncResultsPanel({ mode, results }: { mode: "dry-run" | "run"; results: SyncRunResult }) {
-  const title = mode === "dry-run" ? "Sync Dry Run" : "Sync Run";
-  return (
-    <section className="panel">
-      <h2>{title}</h2>
-      {results.length === 0 ? (
-        <p className="empty">No sync results.</p>
-      ) : (
-        <DataTable headers={["Project", "Action", "Status", "Reason"]}>
-          {results.map((result) => (
-            <tr key={`${result.item.project.id}-${result.item.action}`}>
-              <td>{result.item.project.slug}</td>
-              <td>{result.item.action}</td>
-              <td>{result.status}</td>
-              <td>{result.message}</td>
-            </tr>
-          ))}
-        </DataTable>
-      )}
     </section>
   );
 }
@@ -1115,91 +1139,201 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ProjectTable({
+type ProjectTableProps =
+  | {
+      projects: Project[];
+      compact: true;
+    }
+  | {
+      projects: Project[];
+      compact?: false;
+      selectedProjectId: string;
+      onSelectProject: (id: string) => void;
+      onRemove: () => void;
+      onCheckout: () => void;
+    };
+
+function ProjectTable(props: ProjectTableProps) {
+  if (props.projects.length === 0) return <p className="empty">No projects.</p>;
+  return props.compact === true ? (
+    <CompactProjectTable projects={props.projects} />
+  ) : (
+    <FullProjectTable {...props} />
+  );
+}
+
+function CompactProjectTable({ projects }: { projects: Project[] }) {
+  return (
+    <ProjectTableShell
+      header={
+        <tr>
+          <th>Project</th>
+          <th>State</th>
+          <th>Checkout eligible</th>
+        </tr>
+      }
+    >
+      {projects.map((project) => (
+        <CompactProjectRow key={project.id} project={project} />
+      ))}
+    </ProjectTableShell>
+  );
+}
+
+function CompactProjectRow({ project }: { project: Project }) {
+  return (
+    <tr>
+      <ProjectIdentityCell project={project} />
+      <td>{project.state}</td>
+      <td>{yesNo(project.sync)}</td>
+    </tr>
+  );
+}
+
+function FullProjectTable({
   projects,
-  compact = false,
   selectedProjectId,
   onSelectProject,
   onRemove,
+  onCheckout,
 }: {
   projects: Project[];
-  compact?: boolean;
-  selectedProjectId?: string;
-  onSelectProject?: (id: string) => void;
-  onRemove?: () => void;
+  selectedProjectId: string;
+  onSelectProject: (id: string) => void;
+  onRemove: () => void;
+  onCheckout: () => void;
 }) {
-  if (projects.length === 0) return <p className="empty">No projects.</p>;
+  return (
+    <ProjectTableShell
+      header={
+        <tr>
+          <th>Project</th>
+          <th>Source</th>
+          <th>State</th>
+          <th>Checkout eligible</th>
+          <th>Settings</th>
+          <th>Path</th>
+          <th>Checkout</th>
+          <th>Tracking</th>
+        </tr>
+      }
+    >
+      {projects.map((project) => (
+        <FullProjectTableRow
+          key={project.id}
+          onRemove={onRemove}
+          onCheckout={onCheckout}
+          onSelectProject={onSelectProject}
+          project={project}
+          selectedProjectId={selectedProjectId}
+        />
+      ))}
+    </ProjectTableShell>
+  );
+}
+
+function ProjectTableShell({
+  header,
+  children,
+}: {
+  header: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="table-wrap">
       <table>
-        <thead>
-          <tr>
-            <th>Project</th>
-            {!compact && <th>Source</th>}
-            <th>State</th>
-            <th>Sync</th>
-            {!compact && onSelectProject && <th>Settings</th>}
-            {!compact && <th>Path</th>}
-            {!compact && onRemove && <th>Tracking</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {projects.map((project) => (
-            <ProjectTableRow
-              key={project.id}
-              compact={compact}
-              onRemove={onRemove}
-              onSelectProject={onSelectProject}
-              project={project}
-              selectedProjectId={selectedProjectId}
-            />
-          ))}
-        </tbody>
+        <thead>{header}</thead>
+        <tbody>{children}</tbody>
       </table>
     </div>
   );
 }
 
-function ProjectTableRow({
-  compact,
+function FullProjectTableRow({
   onRemove,
+  onCheckout,
   onSelectProject,
   project,
   selectedProjectId,
 }: {
-  compact: boolean;
-  onRemove: (() => void) | undefined;
-  onSelectProject: ((id: string) => void) | undefined;
+  onRemove: () => void;
+  onCheckout: () => void;
+  onSelectProject: (id: string) => void;
   project: Project;
-  selectedProjectId: string | undefined;
+  selectedProjectId: string;
 }) {
   return (
     <tr>
-      <td>
-        <strong>
-          <Link
-            to="/projects/$projectId"
-            params={{ projectId: project.id }}
-            className="inline-link"
-          >
-            {project.slug}
-          </Link>
-        </strong>
-        <span>{project.visibility ?? "local"}</span>
-      </td>
-      {!compact && <td>{project.source}</td>}
+      <ProjectIdentityCell project={project} />
+      <td>{project.source}</td>
       <td>{project.state}</td>
-      <td>{project.sync ? "yes" : "no"}</td>
-      {!compact && onSelectProject && (
-        <ProjectSettingsCell
-          onSelectProject={onSelectProject}
-          project={project}
-          selectedProjectId={selectedProjectId}
-        />
-      )}
-      {!compact && <td className="mono">{project.path}</td>}
-      {!compact && onRemove && <ProjectRemoveCell onRemove={onRemove} project={project} />}
+      <td>{yesNo(project.sync)}</td>
+      <ProjectSettingsCell
+        onSelectProject={onSelectProject}
+        project={project}
+        selectedProjectId={selectedProjectId}
+      />
+      <td className="mono">{project.path}</td>
+      <ProjectCheckoutCell onCheckout={onCheckout} project={project} />
+      <ProjectRemoveCell onRemove={onRemove} project={project} />
     </tr>
+  );
+}
+
+function ProjectIdentityCell({ project }: { project: Project }) {
+  return (
+    <td>
+      <strong>
+        <Link to="/projects/$projectId" params={{ projectId: project.id }} className="inline-link">
+          {projectName(project)}
+        </Link>
+      </strong>
+      <span>{project.visibility ?? "local"}</span>
+    </td>
+  );
+}
+
+function yesNo(value: boolean) {
+  return value ? "yes" : "no";
+}
+
+function projectName(project: Project) {
+  return project.repo;
+}
+
+function ProjectCheckoutCell({
+  onCheckout,
+  project,
+}: { onCheckout: () => void; project: Project }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const checkout = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const results = await postCheckoutProject(project.id);
+      setMessage(results.map((result) => result.message).join("; "));
+      onCheckout();
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (project.source !== "github") {
+    return (
+      <td>
+        <span className="muted">local</span>
+      </td>
+    );
+  }
+  return (
+    <td>
+      <button type="button" className="small-button" disabled={busy} onClick={checkout}>
+        Checkout
+      </button>
+      {message && <span>{message}</span>}
+    </td>
   );
 }
 
@@ -1212,13 +1346,6 @@ function ProjectSettingsCell({
   project: Project;
   selectedProjectId: string | undefined;
 }) {
-  if (project.source !== "github") {
-    return (
-      <td>
-        <span className="muted">local</span>
-      </td>
-    );
-  }
   const selected = selectedProjectId === project.id;
   return (
     <td>
@@ -1270,7 +1397,7 @@ function ProjectMetadataPanel({ project }: { project: Project }) {
   const items = projectDetailItems(project);
   return (
     <section className="panel detail-panel">
-      <h2>{project.slug}</h2>
+      <h2>{projectName(project)}</h2>
       <div className="detail-grid">
         {items.map((item) => (
           <DetailItem
@@ -1297,7 +1424,7 @@ function projectDetailItems(project: Project): DetailItemModel[] {
     { label: "Source", value: project.source },
     { label: "State", value: project.state },
     { label: "Visibility", value: project.visibility ?? "local" },
-    { label: "Sync", value: project.sync ? "yes" : "no" },
+    { label: "Checkout eligible", value: project.sync ? "yes" : "no" },
     { label: "Automation", value: project.automationEnabled ? "yes" : "no" },
     { label: "Path", value: project.path, mono: true },
   ];
@@ -1417,7 +1544,14 @@ function ProjectSettingsPanel({
     <section className="panel project-settings-panel">
       <h2>Project Settings</h2>
       <ProjectStateControls key={`state-${project.id}`} project={project} onApplied={onApplied} />
-      <MoveProjectControls key={`move-${project.id}`} project={project} onApplied={onApplied} />
+      {project.source === "github" ? (
+        <MoveProjectControls key={`move-${project.id}`} project={project} onApplied={onApplied} />
+      ) : (
+        <>
+          <LocalArchivePanel projects={[project]} onArchived={onApplied} />
+          <LocalPromotionPanel projects={[project]} onPromoted={onApplied} />
+        </>
+      )}
     </section>
   );
 }
@@ -1895,8 +2029,16 @@ function LocalArchivePanel({
 function AutomationPanel({
   data,
   busyJobId,
+  selectedJobId,
   onRunJob,
-}: { data: AutomationPayload; busyJobId: string; onRunJob: (jobId: string) => void }) {
+  onSelectJob,
+}: {
+  data: AutomationPayload;
+  busyJobId: string;
+  selectedJobId: string;
+  onRunJob: (jobId: string) => void;
+  onSelectJob: (jobId: string) => void;
+}) {
   return (
     <>
       <div className="split">
@@ -1908,9 +2050,18 @@ function AutomationPanel({
                 <div>
                   <strong>{job.id}</strong>
                   <span>{automationJobDescription(job)}</span>
+                  {job.prompt && <span>{job.prompt.slice(0, 120)}</span>}
                 </div>
                 <div className="row-actions">
                   <code>{job.schedule}</code>
+                  <button
+                    type="button"
+                    className="small-button"
+                    aria-pressed={selectedJobId === job.id}
+                    onClick={() => onSelectJob(selectedJobId === job.id ? "" : job.id)}
+                  >
+                    {selectedJobId === job.id ? "Editing" : "Edit"}
+                  </button>
                   <button
                     type="button"
                     className="small-button"
@@ -1969,6 +2120,277 @@ function AutomationPanel({
       </section>
     </>
   );
+}
+
+function AutomationJobEditor({
+  jobs,
+  selectedJobId,
+  onSaved,
+  onSelectJob,
+}: {
+  jobs: AutomationJob[];
+  selectedJobId: string;
+  onSaved: () => void;
+  onSelectJob: (jobId: string) => void;
+}) {
+  const selected = jobs.find((job) => job.id === selectedJobId);
+  const controller = useAutomationJobEditor(selected, onSaved);
+  return (
+    <section className="panel automation-editor">
+      <AutomationEditorHeader selected={Boolean(selected)} onNew={() => onSelectJob("")} />
+      <AutomationJobFields
+        form={controller.form}
+        jobIdLocked={Boolean(selected)}
+        onUpdate={controller.update}
+      />
+      <AutomationEditorActions
+        busy={controller.busy}
+        jobId={controller.form.jobId}
+        onPreview={controller.preview}
+        onSave={controller.save}
+      />
+      <AutomationEditorFeedback plan={controller.plan} message={controller.message} />
+    </section>
+  );
+}
+
+function useAutomationJobEditor(selected: AutomationJob | undefined, onSaved: () => void) {
+  const [form, setForm] = useState<AutomationJobConfigInput>(() => automationJobInput(selected));
+  const [plan, setPlan] = useState<AutomationJobConfigPlan>();
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setForm(automationJobInput(selected));
+    setPlan(undefined);
+    setMessage("");
+  }, [selected]);
+
+  const update = (changes: Partial<AutomationJobConfigInput>) => {
+    setForm((current) => ({ ...current, ...changes }));
+    setPlan(undefined);
+  };
+
+  const preview = () =>
+    runAutomationJobConfigAction(form, setBusy, setMessage, setPlan, onSaved, false);
+  const save = () =>
+    runAutomationJobConfigAction(form, setBusy, setMessage, setPlan, onSaved, true);
+  return { form, plan, message, busy, update, preview, save };
+}
+
+async function runAutomationJobConfigAction(
+  form: AutomationJobConfigInput,
+  setBusy: (busy: boolean) => void,
+  setMessage: (message: string) => void,
+  setPlan: (plan: AutomationJobConfigPlan) => void,
+  onSaved: () => void,
+  apply: boolean,
+) {
+  setBusy(true);
+  setMessage("");
+  try {
+    const payload = normalizeAutomationJobInput(form);
+    const nextPlan = apply
+      ? await postAutomationJobApply(payload)
+      : await postAutomationJobPlan(payload);
+    setPlan(nextPlan);
+    if (apply) onSaved();
+  } catch (error) {
+    setMessage(String(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+function AutomationEditorHeader({
+  selected,
+  onNew,
+}: {
+  selected: boolean;
+  onNew: () => void;
+}) {
+  return (
+    <div className="panel-heading-row">
+      <h2>{selected ? "Edit Automation" : "New Automation"}</h2>
+      {selected && (
+        <button type="button" className="small-button" onClick={onNew}>
+          New
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AutomationJobFields({
+  form,
+  jobIdLocked,
+  onUpdate,
+}: {
+  form: AutomationJobConfigInput;
+  jobIdLocked: boolean;
+  onUpdate: (changes: Partial<AutomationJobConfigInput>) => void;
+}) {
+  return (
+    <div className="automation-form">
+      <label>
+        <span>Job id</span>
+        <input
+          value={form.jobId}
+          onChange={(event) => onUpdate({ jobId: event.target.value })}
+          disabled={jobIdLocked}
+        />
+      </label>
+      <label>
+        <span>Schedule</span>
+        <input
+          value={form.schedule}
+          onChange={(event) => onUpdate({ schedule: event.target.value })}
+        />
+      </label>
+      <label>
+        <span>Mode</span>
+        <input value={form.mode} onChange={(event) => onUpdate({ mode: event.target.value })} />
+      </label>
+      <label>
+        <span>Output</span>
+        <input
+          value={form.output ?? ""}
+          onChange={(event) => onUpdate({ output: event.target.value })}
+        />
+      </label>
+      <label>
+        <span>Repo filter</span>
+        <input
+          value={form.repoFilter ?? ""}
+          onChange={(event) => onUpdate({ repoFilter: event.target.value })}
+        />
+      </label>
+      <label>
+        <span>Issue labels</span>
+        <input
+          value={(form.issueLabels ?? []).join(", ")}
+          onChange={(event) => onUpdate({ issueLabels: splitCsv(event.target.value) })}
+        />
+      </label>
+      <label>
+        <span>Skill</span>
+        <input
+          value={form.skill ?? ""}
+          onChange={(event) => onUpdate({ skill: event.target.value })}
+        />
+      </label>
+      <label>
+        <span>Timezone</span>
+        <input
+          value={form.slotTimezone ?? ""}
+          onChange={(event) => onUpdate({ slotTimezone: event.target.value })}
+        />
+      </label>
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          checked={form.enabled !== false}
+          onChange={(event) => onUpdate({ enabled: event.target.checked })}
+        />
+        <span>Enabled</span>
+      </label>
+      <label className="automation-prompt">
+        <span>Prompt</span>
+        <textarea
+          value={form.prompt ?? ""}
+          onChange={(event) => onUpdate({ prompt: event.target.value })}
+        />
+      </label>
+    </div>
+  );
+}
+
+function AutomationEditorActions({
+  busy,
+  jobId,
+  onPreview,
+  onSave,
+}: {
+  busy: boolean;
+  jobId: string;
+  onPreview: () => void;
+  onSave: () => void;
+}) {
+  const disabled = busy || !jobId;
+  return (
+    <div className="row-actions">
+      <button type="button" onClick={onPreview} disabled={disabled}>
+        Preview TOML
+      </button>
+      <button type="button" onClick={onSave} disabled={disabled}>
+        Save Automation
+      </button>
+    </div>
+  );
+}
+
+function AutomationEditorFeedback({
+  plan,
+  message,
+}: {
+  plan: AutomationJobConfigPlan | undefined;
+  message: string;
+}) {
+  return (
+    <>
+      {plan && <pre className="toml-preview">{plan.diff}</pre>}
+      {message && <p className="error">{message}</p>}
+    </>
+  );
+}
+
+function automationJobInput(job: AutomationJob | undefined): AutomationJobConfigInput {
+  if (!job) {
+    return {
+      jobId: "",
+      schedule: "0 9 * * 1-5",
+      mode: "recommendation-only",
+      prompt: "",
+      output: "_reports/automation/{date}.md",
+      repoFilter: "not archived",
+      issueLabels: [],
+      enabled: true,
+    };
+  }
+  return {
+    jobId: job.id,
+    schedule: job.schedule,
+    mode: job.mode,
+    prompt: job.prompt ?? "",
+    output: job.output ?? "",
+    repoFilter: job.repoFilter ?? "",
+    issueLabels: job.issueLabels,
+    skill: job.skill ?? "",
+    slotTimezone: job.slotTimezone ?? "",
+    enabled: job.enabled,
+  };
+}
+
+function normalizeAutomationJobInput(input: AutomationJobConfigInput): AutomationJobConfigInput {
+  return {
+    jobId: input.jobId.trim(),
+    schedule: input.schedule.trim(),
+    mode: input.mode.trim(),
+    ...(input.prompt?.trim() ? { prompt: input.prompt } : {}),
+    ...(input.output?.trim() ? { output: input.output.trim() } : {}),
+    ...(input.repoFilter?.trim() ? { repoFilter: input.repoFilter.trim() } : {}),
+    ...(input.issueLabels?.length ? { issueLabels: input.issueLabels } : {}),
+    ...(input.skill?.trim() ? { skill: input.skill.trim() } : {}),
+    ...(input.slotTimezone?.trim() ? { slotTimezone: input.slotTimezone.trim() } : {}),
+    enabled: input.enabled !== false,
+  };
+}
+
+function splitCsv(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function automationJobDescription(job: AutomationPayload["jobs"][number]) {
@@ -2039,11 +2461,6 @@ const projectsDetailRoute = createRoute({
   path: "/projects/$projectId",
   component: ProjectDetailScreen,
 });
-const localRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/local",
-  component: LocalExperiments,
-});
 const reportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/reports",
@@ -2070,7 +2487,6 @@ const router = createRouter({
     dashboardRoute,
     projectsRoute,
     projectsDetailRoute,
-    localRoute,
     reportsRoute,
     reportsDetailRoute,
     automationRoute,

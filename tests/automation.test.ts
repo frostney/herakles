@@ -131,7 +131,7 @@ repo_filter = 'has_topic("current")'
 
 async function tempReportOnlyWorkspace() {
   const root = await mkdtemp(join(tmpdir(), "herakles-report-only-"));
-  await mkdir(join(root, "_herakles", "prompts"), { recursive: true });
+  await mkdir(join(root, "_herakles"), { recursive: true });
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
@@ -147,14 +147,10 @@ sandbox = "workspace-write"
 [job.morning_next_work]
 schedule = "30 08 * * 1-5"
 mode = "recommendation-only"
-prompt = "prompts/morning-next-work.md"
+prompt = "Recommend next work."
 output = "_reports/morning/{date}.md"
 repo_filter = 'has_roadmap'
 `,
-  );
-  await writeFile(
-    join(root, "_herakles", "prompts", "morning-next-work.md"),
-    "Recommend next work.",
   );
   await mkdir(join(root, "_reports", "previous"), { recursive: true });
   await writeFile(join(root, "_reports", "previous", "summary.md"), "# Previous Report\n");

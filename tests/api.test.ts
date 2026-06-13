@@ -637,6 +637,61 @@ owners = ["frostney"]
     expect(config).not.toContain('[project."scratch"]');
   });
 
+  test("checks out a tracked hosted project through the API dry-run path", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await configureGithubOwner(workspaceRoot);
+    await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
+    await withFakeGhRepo({ name: "public-tool" }, async () => {
+      const response = await routeApi(
+        new Request("http://x/api/projects/checkout", {
+          method: "POST",
+          body: JSON.stringify({ projectId: "public-tool", dryRun: true }),
+        }),
+        { workspaceRoot },
+      );
+      const body = await response?.json();
+
+      expect(response?.status).toBe(200);
+      expect(body).toHaveLength(1);
+      expect(body[0].status).toBe("planned");
+      expect(body[0].item.action).toBe("clone");
+      expect(body[0].item.project.id).toBe("github:frostney/public-tool");
+      expect(body[0].item.project.remote).toBe("git@github.com:frostney/public-tool.git");
+    });
+  });
+
+  test("automation job apply route writes prompt text into synced TOML", async () => {
+    const workspaceRoot = await tempWorkspace();
+    const response = await routeApi(
+      new Request("http://x/api/automation/job-apply", {
+        method: "POST",
+        body: JSON.stringify({
+          jobId: "weekly-review",
+          schedule: "0 9 * * 1",
+          mode: "report-only",
+          prompt: "Review all tracked projects.\nReturn a short report.",
+          output: "_reports/automation/weekly.md",
+          repoFilter: "not archived",
+          issueLabels: ["ready", "next"],
+          skill: "review-pr",
+          slotTimezone: "Europe/London",
+          enabled: true,
+        }),
+      }),
+      { workspaceRoot },
+    );
+    const body = await response?.json();
+    const config = await readFile(join(workspaceRoot, "_herakles", "herakles.toml"), "utf8");
+
+    expect(response?.status).toBe(200);
+    expect(body.toml).toContain('[job."weekly-review"]');
+    expect(config).toContain('[job."weekly-review"]');
+    expect(config).toContain("prompt = '''");
+    expect(config).toContain("Review all tracked projects.");
+    expect(config).toContain('repo_filter = "not archived"');
+    expect(config).toContain('issue_labels = ["ready", "next"]');
+  });
+
   test("repo move plan route includes projected validation", async () => {
     const workspaceRoot = await tempWorkspace();
     await withHostedPublicToolAndScratch(workspaceRoot, async () => {

@@ -2,6 +2,11 @@ import { existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { automateTick, configuredJobs, dueSlots, recentRuns, runAutomationJob } from "./automation";
 import { listLocks } from "./automation/locks";
+import {
+  type AutomationJobConfigChanges,
+  applyAutomationJobConfigPlan,
+  createAutomationJobConfigPlan,
+} from "./config/jobs";
 import { type LoadedConfig, loadConfig } from "./config/load";
 import { resolveUnder } from "./config/paths";
 import {
@@ -209,6 +214,23 @@ export async function importHostedProjects(
   }
   await maybePushConfigRepo(loaded, `Import ${results.length} Herakles project(s)`);
   return results;
+}
+
+export async function checkoutProject(
+  workspaceRoot: string,
+  projectId: string,
+  options: { dryRun?: boolean; onProgress?: (result: SyncExecution) => void | Promise<void> } = {},
+) {
+  const state = await loadWorkspace(workspaceRoot);
+  const target = findProject(state.projects, projectId);
+  if (!target) throw new Error(`Unknown project: ${projectId}`);
+  if (target.source !== "github") throw new Error("Only hosted projects can be checked out.");
+  const plan = applyValidationIssuesToSyncPlan(
+    createSyncPlan([target]),
+    [target],
+    state.validation,
+  );
+  return executeSyncPlan(plan, options);
 }
 
 function validateProjectInput(input: ProjectConfigChanges & { id: string }) {
@@ -486,6 +508,28 @@ export async function automateRun(
 ) {
   const state = await loadWorkspace(workspaceRoot);
   return runAutomationJob(state.loaded, jobId, { ...options, projects: state.projects });
+}
+
+export async function automationJobConfigPlan(
+  workspaceRoot: string,
+  jobId: string,
+  changes: AutomationJobConfigChanges,
+) {
+  const loaded = await loadOperationalConfig(workspaceRoot);
+  return createAutomationJobConfigPlan(loaded, jobId, changes);
+}
+
+export async function applyAutomationJobConfig(
+  workspaceRoot: string,
+  jobId: string,
+  changes: AutomationJobConfigChanges,
+) {
+  const loaded = await loadOperationalConfig(workspaceRoot);
+  const result = await applyAutomationJobConfigPlan(
+    createAutomationJobConfigPlan(loaded, jobId, changes),
+  );
+  await maybePushConfigRepo(loaded, `Update ${jobId} Herakles automation`);
+  return result;
 }
 
 export async function pullRequests(workspaceRoot: string) {

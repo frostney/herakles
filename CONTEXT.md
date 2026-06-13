@@ -139,7 +139,7 @@ _Avoid_: Local experiment
 A Herakles scheduler wake-up that calculates due prompt runs and attempts to hand claimed runs to the configured AI harness. The UI server can run ticks in-process while it is open, and OS-level ticks must be installed explicitly.
 _Avoid_: Cron job as duplicate-prevention mechanism
 
-Default prompt templates live under `_herakles/prompts/` and are synced orchestration assets. `herakles init` creates the standard report-only prompt files when they are absent, but never overwrites customized prompts.
+Automation jobs and their prompts live in `_herakles/herakles.toml` as synced orchestration configuration. `herakles init` creates standard report-only job definitions inline in the TOML scaffold, and the UI edits those same job definitions instead of writing separate prompt files.
 
 Startup catch-up is a special automation tick mode. It uses the local run ledger plus the configured catch-up window to enumerate missed slots, then still relies on normal lock claims and successful-run checks before executing anything.
 

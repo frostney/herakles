@@ -159,6 +159,26 @@ function shouldJson(flags: CommonFlags) {
   return flags.json === true;
 }
 
+function printAddProjectResult(
+  toml: string,
+  checkout: Awaited<ReturnType<typeof app.checkoutProject>> | undefined,
+) {
+  console.log(toml);
+  if (checkout) printCheckoutResults(checkout);
+}
+
+function printCheckoutResults(results: Awaited<ReturnType<typeof app.checkoutProject>>) {
+  printTable(
+    results.map((result) => ({
+      project: result.item.project.repo,
+      action: result.item.action,
+      status: result.status,
+      message: result.message,
+      path: result.item.project.path,
+    })),
+  );
+}
+
 const statusCommand = buildCommand<CommonFlags>({
   docs: { brief: "Show workspace status." },
   parameters: { flags: commonFlags },
@@ -368,6 +388,7 @@ const addProjectCommand = buildCommand<
     path?: string;
     state?: ProjectState;
     sync?: boolean;
+    checkout?: boolean;
   }
 >({
   docs: { brief: "Add a tracked project to Herakles config." },
@@ -416,12 +437,23 @@ const addProjectCommand = buildCommand<
         brief: "Project sync eligibility.",
         placeholder: "true|false",
       },
+      checkout: {
+        kind: "boolean",
+        optional: true,
+        brief: "Checkout the hosted project after adding it.",
+      },
     },
   },
   async func(flags) {
     const input = await promptProjectAdd(flags);
     const result = await app.addProject(root(flags), input);
-    shouldJson(flags) ? printJson(result) : console.log(result.toml);
+    const checkout =
+      flags.checkout === true && input.source === "github"
+        ? await app.checkoutProject(root(flags), input.id)
+        : undefined;
+    shouldJson(flags)
+      ? printJson(checkout ? { project: result, checkout } : result)
+      : printAddProjectResult(result.toml, checkout);
   },
 });
 
@@ -459,7 +491,7 @@ const removeProjectCommand = buildCommand<CommonFlags & { yes?: boolean }, [stri
 });
 
 const projectsImportCommand = buildCommand<
-  CommonFlags & { repo?: string[]; state?: ProjectState },
+  CommonFlags & { repo?: string[]; state?: ProjectState; checkout?: boolean },
   []
 >({
   docs: { brief: "Bulk import hosted repositories as tracked projects." },
@@ -480,6 +512,11 @@ const projectsImportCommand = buildCommand<
         optional: true,
         brief: "Lifecycle state to apply to every imported project.",
         placeholder: "state",
+      },
+      checkout: {
+        kind: "boolean",
+        optional: true,
+        brief: "Checkout imported hosted projects after adding them.",
       },
     },
   },
@@ -504,9 +541,37 @@ const projectsImportCommand = buildCommand<
         ...(flags.state === undefined ? {} : { state: flags.state }),
       })),
     );
+    const checkout =
+      flags.checkout === true
+        ? await Promise.all(result.map((plan) => app.checkoutProject(root(flags), plan.projectId)))
+        : undefined;
     shouldJson(flags)
-      ? printJson(result)
+      ? printJson(checkout ? { projects: result, checkout } : result)
       : printTable(result.map((plan) => ({ id: plan.projectId, action: plan.action })));
+  },
+});
+
+const projectsCheckoutCommand = buildCommand<CommonFlags & { dryRun?: boolean }, [string]>({
+  docs: { brief: "Checkout or update one hosted project." },
+  parameters: {
+    flags: {
+      ...commonFlags,
+      dryRun: {
+        kind: "boolean",
+        optional: true,
+        brief: "Preview the checkout action without running git.",
+      },
+    },
+    positional: {
+      kind: "tuple",
+      parameters: [
+        { parse: String, brief: "Project id, slug, or repository name.", placeholder: "project" },
+      ],
+    },
+  },
+  async func(flags, id) {
+    const result = await app.checkoutProject(root(flags), id, { dryRun: flags.dryRun === true });
+    shouldJson(flags) ? printJson(result) : printCheckoutResults(result);
   },
 });
 
@@ -1358,6 +1423,7 @@ export const rootRoute = buildRouteMap({
         list: repoListCommand,
         show: repoShowCommand,
         import: projectsImportCommand,
+        checkout: projectsCheckoutCommand,
         refresh: projectsRefreshCommand,
         discovery: projectsDiscoveryCommand,
         "set-state": repoSetStateCommand,

@@ -301,7 +301,34 @@ nav a.active {
   max-width: 420px;
 }
 
-.search input {
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.form-grid label,
+.automation-form label,
+.checkbox-label {
+  display: grid;
+  gap: 6px;
+}
+
+.checkbox-label {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-label span {
+  display: inline;
+}
+
+.search input,
+.form-grid input,
+.automation-form input {
   min-height: 42px;
   border: 1px solid #34414f;
   border-radius: 6px;
@@ -360,6 +387,44 @@ code {
   padding: 0 10px;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 10, 15, 0.72);
+  padding: 24px;
+}
+
+.modal-dialog {
+  width: min(960px, 100%);
+  max-height: min(760px, 90vh);
+  overflow: auto;
+  border: 1px solid #34414f;
+  border-radius: 8px;
+  background: #141b23;
+  padding: 18px;
+}
+
+.modal-header,
+.panel-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.modal-header h2,
+.panel-heading-row h2 {
+  margin: 0;
+}
+
+.modal-option {
+  margin: 14px 0;
+}
+
 .project-settings-panel {
   margin-top: 16px;
 }
@@ -401,6 +466,22 @@ code {
   gap: 12px;
 }
 
+.automation-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.automation-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.automation-prompt {
+  grid-column: 1 / -1;
+}
+
 .report-note-controls {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px);
@@ -439,7 +520,8 @@ code {
 .promotion-controls input,
 .local-archive-controls input,
 .report-note-controls input,
-.report-note-body textarea {
+.report-note-body textarea,
+.automation-form textarea {
   min-height: 40px;
   border: 1px solid #34414f;
   border-radius: 6px;
@@ -448,7 +530,8 @@ code {
   padding: 0 10px;
 }
 
-.report-note-body textarea {
+.report-note-body textarea,
+.automation-form textarea {
   min-height: 130px;
   padding: 10px;
   resize: vertical;
@@ -554,7 +637,7 @@ code {
   }
 
   nav {
-    grid-template-columns: repeat(6, minmax(44px, 1fr));
+    grid-template-columns: repeat(5, minmax(44px, 1fr));
   }
 
   nav a {
@@ -574,6 +657,7 @@ code {
   .split,
   .project-settings-controls,
   .move-controls,
+  .automation-form,
   .promotion-controls,
   .local-archive-controls {
     grid-template-columns: 1fr;

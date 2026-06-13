@@ -26,18 +26,17 @@ export async function codexDoctor(loaded: LoadedConfig): Promise<DoctorCheck[]> 
 export async function runCodexReportOnly(
   loaded: LoadedConfig,
   options: {
-    promptPath: string;
+    prompt: string;
     worktree: string;
     reportPath: string;
     context?: string;
   },
 ): Promise<CodexRunResult> {
-  if (!existsSync(options.promptPath)) {
-    throw new Error(`Missing Codex prompt file: ${options.promptPath}`);
+  if (!options.prompt.trim()) {
+    throw new Error("Codex prompt is required.");
   }
   await mkdir(dirname(options.reportPath), { recursive: true });
-  const prompt = await Bun.file(options.promptPath).text();
-  const stdin = options.context ? `${prompt}\n\n${options.context}` : prompt;
+  const stdin = options.context ? `${options.prompt}\n\n${options.context}` : options.prompt;
   const result = await runCommand(
     [
       "codex",

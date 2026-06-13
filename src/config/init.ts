@@ -30,8 +30,14 @@ and not has_topic("no-agent")
 [job.morning_next_work]
 schedule = "30 08 * * 1-5"
 slot_timezone = "Europe/London"
-prompt = "prompts/morning-next-work.md"
 mode = "recommendation-only"
+prompt = '''
+# Morning Next Work
+
+You are helping choose a small set of good next work items for today.
+
+Use the Herakles automation context below as source data. Recommend at most five concrete items. For each item include the project, task, reason, expected effort, and risk. Do not write code, create branches, push commits, or mutate GitHub.
+'''
 output = "_reports/morning/{date}.md"
 repo_filter = '''
 not archived
@@ -52,15 +58,27 @@ and not has_topic("no-agent")
 [job.friday_summary]
 schedule = "00 16 * * FRI"
 slot_timezone = "Europe/London"
-prompt = "prompts/friday-summary.md"
 mode = "summary"
+prompt = '''
+# Friday Summary
+
+Summarize the week's workspace activity from the Herakles automation context below.
+
+Include factual highlights, notable risks or stale areas, useful report links when present, and a short set of strategic candidates for next week. Stay evidence-grounded. Do not write code, create branches, push commits, or mutate GitHub.
+'''
 output = "_reports/weekly/{iso_week}.md"
 
 [job.monday_maintenance]
 schedule = "00 09 * * MON"
 slot_timezone = "Europe/London"
-prompt = "prompts/monday-maintenance.md"
 mode = "maintenance-candidates"
+prompt = '''
+# Monday Maintenance
+
+Identify maintenance candidates from the Herakles automation context below.
+
+Look for low-risk dependency updates, bugfix candidates, failing or stale areas, and repositories that may need follow-up. Return recommendations only. Do not write code, create branches, push commits, or mutate GitHub.
+'''
 output = "_reports/maintenance/{date}.md"
 repo_filter = '''
 not archived
@@ -80,27 +98,6 @@ const sampleGitignore = `herakles.local.toml
 .herakles-state/
 *.log
 `;
-
-const promptFiles = {
-  "morning-next-work.md": `# Morning Next Work
-
-You are helping choose a small set of good next work items for today.
-
-Use the Herakles automation context below as source data. Recommend at most five concrete items. For each item include the project, task, reason, expected effort, and risk. Do not write code, create branches, push commits, or mutate GitHub.
-`,
-  "friday-summary.md": `# Friday Summary
-
-Summarize the week's workspace activity from the Herakles automation context below.
-
-Include factual highlights, notable risks or stale areas, useful report links when present, and a short set of strategic candidates for next week. Stay evidence-grounded. Do not write code, create branches, push commits, or mutate GitHub.
-`,
-  "monday-maintenance.md": `# Monday Maintenance
-
-Identify maintenance candidates from the Herakles automation context below.
-
-Look for low-risk dependency updates, bugfix candidates, failing or stale areas, and repositories that may need follow-up. Return recommendations only. Do not write code, create branches, push commits, or mutate GitHub.
-`,
-};
 
 const schemaFiles = {
   "recommendation.schema.json": {
@@ -198,20 +195,8 @@ export async function initConfig(workspaceRoot: string) {
   if (!existsSync(gitignorePath)) {
     await writeFile(gitignorePath, sampleGitignore);
   }
-  await writeDefaultPrompts(paths.configDir);
   await writeDefaultSchemas(paths.configDir);
   return paths;
-}
-
-async function writeDefaultPrompts(configDir: string) {
-  const promptsDir = join(configDir, "prompts");
-  await mkdir(promptsDir, { recursive: true });
-  for (const [name, content] of Object.entries(promptFiles)) {
-    const path = join(promptsDir, name);
-    if (!existsSync(path)) {
-      await writeFile(path, content);
-    }
-  }
 }
 
 async function writeDefaultSchemas(configDir: string) {

@@ -23,7 +23,7 @@ printf '{"event":"done"}\\n'
 `,
       async () => {
         const result = await runCodexReportOnly(workspace.loaded, {
-          promptPath: workspace.promptPath,
+          prompt: workspace.prompt,
           worktree: workspace.root,
           reportPath: workspace.reportPath,
           context: "Project context.",
@@ -45,7 +45,7 @@ exit 7
 `,
       async () => {
         const result = await runCodexReportOnly(workspace.loaded, {
-          promptPath: workspace.promptPath,
+          prompt: workspace.prompt,
           worktree: workspace.root,
           reportPath: workspace.reportPath,
         });
@@ -63,8 +63,7 @@ exit 7
 
 async function tempCodexWorkspace(prefix: string) {
   const root = await mkdtemp(join(tmpdir(), prefix));
-  const promptPath = join(root, "_herakles", "prompts", "summary.md");
-  await mkdir(join(root, "_herakles", "prompts"), { recursive: true });
+  await mkdir(join(root, "_herakles"), { recursive: true });
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
@@ -78,10 +77,9 @@ profile = "fake-profile"
 sandbox = "workspace-write"
 `,
   );
-  await writeFile(promptPath, "Summarize this.");
   return {
     root,
-    promptPath,
+    prompt: "Summarize this.",
     reportPath: join(root, "_reports", "summary.md"),
     loaded: await loadConfig(root),
   };
