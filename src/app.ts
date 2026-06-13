@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { TOML } from "bun";
 import { automateTick, configuredJobs, dueSlots, recentRuns, runAutomationJob } from "./automation";
 import { listLocks } from "./automation/locks";
 import {
@@ -21,23 +23,20 @@ import {
   pullConfigRepo,
   pushConfigRepo,
 } from "./config/repo";
+import { heraklesConfigSchema } from "./config/schema";
 import { type ProjectDiscovery, normalizeRemote, refreshProjectDiscovery } from "./discovery";
 import { readProjectDiscoverySnapshot, writeProjectDiscoverySnapshot } from "./discovery/cache";
 import { runDoctor } from "./doctor";
 import type {
-  AutomationRun,
   GitHubRepository,
   HostedImportCandidate,
   LocalRepository,
   Project,
   ProjectDetail,
   ProjectState,
-  PrunePlan,
-  PruneResult,
   ReportDetail,
-  ReportSummary,
-  SyncPlan,
-  SyncPlanItem,
+  UpPlan,
+  UpPlanItem,
   ValidationIssue,
   ValidationResult,
 } from "./domain";
@@ -53,7 +52,6 @@ import { writeLocalProjectState } from "./local/state";
 import { resolveProjects } from "./project/resolve";
 import { generateCodeRabbitRecommendations } from "./recommendations/coderabbit";
 import { generateIssueRecommendations } from "./recommendations/issues";
-import { applyRepoMove, createRepoMovePlan } from "./repo/move";
 import {
   createReportNote,
   latestReport,
@@ -61,9 +59,8 @@ import {
   listReports,
   readReport,
 } from "./reports";
-import { type SyncExecution, executeSyncPlan } from "./sync/execute";
-import { createSyncPlan } from "./sync/plan";
-import { createPrunePlan, executePrune } from "./sync/prune";
+import { type UpExecution, executeUpPlan } from "./up/execute";
+import { createUpPlan } from "./up/plan";
 
 type WorkspaceState = {
   loaded: LoadedConfig;
@@ -197,7 +194,13 @@ export async function removeProject(workspaceRoot: string, projectId: string) {
 
 export async function importHostedProjects(
   workspaceRoot: string,
-  inputs: Array<{ id: string; repo: string; state?: ProjectState; path?: string }>,
+  inputs: Array<{
+    id: string;
+    repo: string;
+    state?: ProjectState;
+    group?: string;
+    tags?: string[];
+  }>,
 ) {
   const loaded = await loadOperationalConfig(workspaceRoot);
   const results = [];
@@ -207,7 +210,8 @@ export async function importHostedProjects(
         source: "github",
         repo: input.repo,
         ...(input.state === undefined ? {} : { state: input.state }),
-        ...(input.path === undefined ? {} : { path: input.path }),
+        ...(input.group === undefined ? {} : { group: input.group }),
+        ...(input.tags === undefined ? {} : { tags: input.tags }),
       }),
     );
     loaded.config.project[input.id] = result.after as (typeof loaded.config.project)[string];
@@ -220,57 +224,20 @@ export async function importHostedProjects(
 export async function checkoutProject(
   workspaceRoot: string,
   projectId: string,
-  options: { dryRun?: boolean; onProgress?: (result: SyncExecution) => void | Promise<void> } = {},
+  options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},
 ) {
   const state = await loadWorkspace(workspaceRoot);
   const target = findProject(state.projects, projectId);
   if (!target) throw new Error(`Unknown project: ${projectId}`);
   if (target.source !== "github") throw new Error("Only hosted projects can be checked out.");
-  const plan = applyValidationIssuesToSyncPlan(
-    createSyncPlan([target]),
-    [target],
-    state.validation,
-  );
-  return executeSyncPlan(plan, options);
+  const plan = applyValidationIssuesToUpPlan(createUpPlan([target]), [target], state.validation);
+  return executeUpPlan(plan, options);
 }
 
 function validateProjectInput(input: ProjectConfigChanges & { id: string }) {
   if (input.source === "github" && !input.repo) {
     throw new Error("GitHub projects require repo as owner/name.");
   }
-  if (input.source === "local" && !input.path) {
-    throw new Error("Local projects require path.");
-  }
-}
-
-export async function repoMovePlan(workspaceRoot: string, projectId: string, path: string) {
-  const state = await loadWorkspace(workspaceRoot);
-  const target = findProject(state.projects, projectId);
-  if (!target) throw new Error(`Unknown project: ${projectId}`);
-  const plan = createRepoMovePlan(
-    state.loaded,
-    target,
-    path,
-    projectConfigId(state.loaded, target),
-  );
-  return {
-    ...plan,
-    validation: validateProjectedWorkspace(state, target, { path: plan.relativePath }),
-  };
-}
-
-export async function repoMove(workspaceRoot: string, projectId: string, path: string) {
-  const state = await loadWorkspace(workspaceRoot);
-  const target = findProject(state.projects, projectId);
-  if (!target) throw new Error(`Unknown project: ${projectId}`);
-  const result = await applyRepoMove(
-    state.loaded,
-    target,
-    path,
-    projectConfigId(state.loaded, target),
-  );
-  await maybePushConfigRepo(state.loaded, `Move ${target.owner}/${target.repo}`);
-  return result;
 }
 
 export async function archiveLocalProject(
@@ -380,83 +347,53 @@ export async function configPull(workspaceRoot: string) {
   return pullConfigRepo(await loadConfig(workspaceRoot));
 }
 
-export async function syncPlan(workspaceRoot: string, server?: string): Promise<SyncPlan> {
+export async function configToml(workspaceRoot: string) {
+  const loaded = await loadConfig(workspaceRoot);
+  return {
+    path: loaded.paths.syncedConfigPath,
+    toml: await readFile(loaded.paths.syncedConfigPath, "utf8"),
+  };
+}
+
+export async function configTomlPlan(workspaceRoot: string, toml: string) {
+  const loaded = await loadConfig(workspaceRoot);
+  return {
+    path: loaded.paths.syncedConfigPath,
+    toml,
+    validation: validateConfigToml(toml),
+    applied: false,
+  };
+}
+
+export async function applyConfigToml(workspaceRoot: string, toml: string) {
+  const loaded = await loadConfig(workspaceRoot);
+  const validation = validateConfigToml(toml);
+  if (!validation.valid) {
+    throw new Error(validation.issues.map((issue) => issue.message).join("; "));
+  }
+  await writeFile(loaded.paths.syncedConfigPath, toml);
+  return {
+    path: loaded.paths.syncedConfigPath,
+    toml,
+    validation,
+    applied: true,
+  };
+}
+
+export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
   const state = await loadWorkspace(workspaceRoot);
-  return applyValidationIssuesToSyncPlan(
-    createSyncPlan(state.projects, server),
+  return applyValidationIssuesToUpPlan(
+    createUpPlan(state.projects),
     state.projects,
     state.validation,
   );
 }
 
-export async function remoteSyncPlan(workspaceRoot: string, server: string): Promise<SyncPlan> {
-  const state = await loadWorkspace(workspaceRoot);
-  return createSyncPlan(remoteProjectsFromState(state), server);
-}
-
-export async function remoteStatus(workspaceRoot: string, server: string) {
-  const state = await loadWorkspace(workspaceRoot);
-  const remoteProjects = remoteProjectsFromState(state);
-  const counts = remoteProjects.reduce<Record<string, number>>((acc, project) => {
-    acc[project.state] = (acc[project.state] ?? 0) + 1;
-    return acc;
-  }, {});
-  return {
-    generatedAt: new Date().toISOString(),
-    server,
-    projectCount: remoteProjects.length,
-    hostedCount: remoteProjects.length,
-    counts,
-    validation: validateProjects(remoteProjects),
-  };
-}
-
-export async function remoteProjects(workspaceRoot: string): Promise<Project[]> {
-  return remoteProjectsFromState(await loadWorkspace(workspaceRoot));
-}
-
-export async function remoteReports(workspaceRoot: string): Promise<ReportSummary[]> {
-  const loaded = await loadOperationalConfig(workspaceRoot);
-  return (await listReports(loaded)).map((report) => remoteReportSummary(loaded, report));
-}
-
-export async function remoteReport(workspaceRoot: string, id: string): Promise<ReportDetail> {
-  const loaded = await loadOperationalConfig(workspaceRoot);
-  const report = await readReport(loaded, id);
-  return {
-    ...remoteReportSummary(loaded, report),
-    content: report.content,
-  };
-}
-
-export async function remoteAutomations(workspaceRoot: string) {
-  const state = await loadWorkspace(workspaceRoot);
-  return {
-    jobs: configuredJobs(state.loaded),
-    due: dueSlots(state.loaded),
-    runs: (await recentRuns(state.loaded)).map((run) => remoteAutomationRun(state.loaded, run)),
-    locks: await listLocks(state.loaded),
-  };
-}
-
-export async function sync(
+export async function up(
   workspaceRoot: string,
-  options: { dryRun?: boolean; onProgress?: (result: SyncExecution) => void | Promise<void> } = {},
+  options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},
 ) {
-  return executeSyncPlan(await syncPlan(workspaceRoot), options);
-}
-
-export async function prunePlan(workspaceRoot: string): Promise<PrunePlan> {
-  const state = await loadWorkspace(workspaceRoot);
-  return createPrunePlan(state.loaded, state.projects);
-}
-
-export async function prune(
-  workspaceRoot: string,
-  projectId: string,
-  options: { dryRun?: boolean } = {},
-): Promise<PruneResult> {
-  return executePrune(await prunePlan(workspaceRoot), projectId, options);
+  return executeUpPlan(await upPlan(workspaceRoot), options);
 }
 
 export async function doctor(workspaceRoot: string) {
@@ -535,13 +472,13 @@ export async function applyAutomationJobConfig(
 
 export async function pullRequests(workspaceRoot: string) {
   const state = await loadWorkspace(workspaceRoot);
-  return listProjectPullRequests(state.projects.filter((project) => project.sync));
+  return listProjectPullRequests(state.projects.filter((project) => project.up));
 }
 
 export async function issues(workspaceRoot: string, labels: readonly string[] = []) {
   const state = await loadWorkspace(workspaceRoot);
   return listProjectIssues(
-    state.projects.filter((project) => project.sync),
+    state.projects.filter((project) => project.up),
     labels,
   );
 }
@@ -603,21 +540,27 @@ function projectConfigProjection(
 ): Project[] {
   return projects.map((project) => {
     if (project.id !== target.id) return project;
-    const path = changes.path
-      ? resolveUnder(loaded.paths.workspaceRoot, changes.path)
-      : project.path;
+    const projectedState = changes.state ?? project.state;
+    const group = changes.group === undefined ? project.group : changes.group || undefined;
+    const path = join(
+      loaded.paths.workspaceRoot,
+      projectedState,
+      ...(group ? [group] : []),
+      project.repo,
+    );
     const learningPath = changes.learning
       ? resolveUnder(path, changes.learning)
       : project.learningPath;
-    const state = changes.state ?? project.state;
     const base = changes.learning === undefined ? project : withoutArchiveEvidence(project);
+    const { group: _currentGroup, ...baseWithoutGroup } = base;
+    const projectBase = changes.group === undefined ? base : baseWithoutGroup;
     const projected: Project = {
-      ...base,
+      ...projectBase,
       ...(changes.tags === undefined ? {} : { tags: changes.tags }),
-      ...(changes.sync === undefined ? {} : { sync: changes.sync }),
+      ...(group ? { group } : {}),
       path,
-      state,
-      archived: state === "archived" || project.archived,
+      state: projectedState,
+      archived: projectedState === "archived" || project.archived,
     };
     if (changes.learning !== undefined) {
       if (learningPath && existsSync(learningPath)) {
@@ -652,6 +595,24 @@ function validateWorkspaceProjects(
     ...options,
     ...validationOptions(loaded, discovery, projects),
   });
+}
+
+function validateConfigToml(toml: string): ValidationResult {
+  try {
+    heraklesConfigSchema.parse(TOML.parse(toml));
+    return { valid: true, issues: [] };
+  } catch (error) {
+    return {
+      valid: false,
+      issues: [
+        {
+          severity: "error",
+          code: "config-toml-invalid",
+          message: error instanceof Error ? error.message : String(error),
+        },
+      ],
+    };
+  }
 }
 
 function validateProjectedWorkspace(
@@ -691,12 +652,10 @@ function hostedClonePathMismatches(
 }
 
 function projectConfigId(loaded: LoadedConfig, project: Project): string {
-  const existing = Object.entries(loaded.config.project).find(([_, config]) => {
+  const existing = Object.entries(loaded.config.project).find(([id, config]) => {
     if (project.source !== config.source) return false;
     if (config.source === "github") return config.repo === `${project.owner}/${project.repo}`;
-    return (
-      config.path === project.repo || config.path === relativeWorkspacePath(loaded, project.path)
-    );
+    return id === project.slug;
   });
   return existing?.[0] ?? project.slug;
 }
@@ -710,11 +669,11 @@ function hostedClonesByRemote(repositories: readonly LocalRepository[]): Map<str
   return clones;
 }
 
-function applyValidationIssuesToSyncPlan(
-  plan: SyncPlan,
+function applyValidationIssuesToUpPlan(
+  plan: UpPlan,
   projects: readonly Project[],
   validation: ValidationResult,
-): SyncPlan {
+): UpPlan {
   const byProjectId = validationIssuesByProject(validation.issues);
   if (byProjectId.size === 0) return plan;
   const seen = new Set<string>();
@@ -722,13 +681,12 @@ function applyValidationIssuesToSyncPlan(
     const issues = byProjectId.get(item.project.id);
     if (!issues?.length) return item;
     seen.add(item.project.id);
-    return validationSyncItem(item, issues);
+    return validationUpItem(item, issues);
   });
   for (const [projectId, issues] of byProjectId) {
     if (seen.has(projectId)) continue;
     const project = issuesProject(projects, projectId);
-    if (project)
-      items.push(validationSyncItem({ project, action: "validate", reason: "" }, issues));
+    if (project) items.push(validationUpItem({ project, action: "validate", reason: "" }, issues));
   }
   return {
     ...plan,
@@ -749,7 +707,7 @@ function validationIssuesByProject(
   return byProjectId;
 }
 
-function validationSyncItem(item: SyncPlanItem, issues: readonly ValidationIssue[]): SyncPlanItem {
+function validationUpItem(item: UpPlanItem, issues: readonly ValidationIssue[]): UpPlanItem {
   return {
     ...item,
     action: "validate",
@@ -759,47 +717,4 @@ function validationSyncItem(item: SyncPlanItem, issues: readonly ValidationIssue
 
 function issuesProject(projects: readonly Project[], projectId: string): Project | undefined {
   return projects.find((project) => project.id === projectId);
-}
-
-function remoteProjectsFromState(state: WorkspaceState): Project[] {
-  return state.projects
-    .filter((project) => project.source === "github" && !project.archived)
-    .map((project) => remoteProject(state.loaded, project));
-}
-
-function remoteProject(loaded: LoadedConfig, project: Project): Project {
-  const projected: Project = {
-    ...project,
-    path: relativeWorkspacePath(loaded, project.path),
-  };
-  if (project.learningPath) {
-    projected.learningPath = relativeWorkspacePath(loaded, project.learningPath);
-  }
-  if (project.archiveNote?.startsWith("Learning file: ") && projected.learningPath) {
-    projected.archiveNote = `Learning file: ${projected.learningPath}`;
-  }
-  return projected;
-}
-
-function remoteReportSummary(loaded: LoadedConfig, report: ReportSummary): ReportSummary {
-  return {
-    ...report,
-    path: normalizeRelativePath(join(loaded.config.layout.reports_path, report.id)),
-  };
-}
-
-function remoteAutomationRun(loaded: LoadedConfig, run: AutomationRun): AutomationRun {
-  if (!run.reportPath) return run;
-  return {
-    ...run,
-    reportPath: relativeWorkspacePath(loaded, run.reportPath),
-  };
-}
-
-function relativeWorkspacePath(loaded: LoadedConfig, path: string): string {
-  return normalizeRelativePath(relative(loaded.paths.workspaceRoot, path));
-}
-
-function normalizeRelativePath(path: string): string {
-  return sep === "/" ? path : path.split(sep).join("/");
 }

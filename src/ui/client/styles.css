@@ -17,7 +17,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -37,7 +38,8 @@ button:hover {
 
 button:focus-visible,
 a:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible {
   outline: 2px solid #77a7ff;
   outline-offset: 2px;
 }
@@ -526,12 +528,12 @@ code {
   display: inline;
 }
 
-.move-controls input,
 .promotion-controls input,
 .local-archive-controls input,
 .report-note-controls input,
 .report-note-body textarea,
-.automation-form textarea {
+.automation-form textarea,
+.config-editor {
   min-height: 40px;
   border: 1px solid #34414f;
   border-radius: 6px;
@@ -544,6 +546,13 @@ code {
 .automation-form textarea {
   min-height: 130px;
   padding: 10px;
+  resize: vertical;
+}
+
+.config-editor {
+  width: 100%;
+  min-height: 320px;
+  padding: 12px;
   resize: vertical;
 }
 

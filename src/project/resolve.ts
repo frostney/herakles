@@ -21,10 +21,6 @@ function slug(owner: string | undefined, repo: string): string {
   return owner ? `${owner}-${repo}` : repo;
 }
 
-function applyPathTemplate(template: string, repo: GitHubRepository): string {
-  return template.replaceAll("{owner}", repo.owner).replaceAll("{repo}", repo.name);
-}
-
 function visibility(repo: GitHubRepository): "public" | "private" {
   return repo.visibility === "PRIVATE" || repo.isPrivate ? "private" : "public";
 }
@@ -94,11 +90,8 @@ function resolveGitHubProject(
   const repoId = required(config.repo, `Tracked hosted project ${projectId} is missing repo.`);
   const [owner, name] = splitOwnerRepo(repoId);
   const repo = hostedByNameWithOwner.get(repoId.toLowerCase()) ?? syntheticHostedRepo(owner, name);
-  const projectPath = resolveUnder(
-    loaded.paths.workspaceRoot,
-    config.path ?? applyPathTemplate(loaded.config.layout.repo_path, repo),
-  );
   const state = repo.isArchived ? "archived" : (config.state ?? inferredState(loaded, repo));
+  const projectPath = derivedProjectPath(loaded, state, config.group, repo.name);
   const learningPath = findLearningPath(loaded, projectPath, config.learning);
   const project: Project = {
     source: "github",
@@ -107,33 +100,29 @@ function resolveGitHubProject(
     repo: repo.name,
     slug: slug(repo.owner, repo.name),
     path: projectPath,
+    ...(config.group === undefined ? {} : { group: config.group }),
     visibility: visibility(repo),
     state,
     archived: repo.isArchived || state === "archived",
-    pinned: loaded.config.sync.pin_topics.some((topic) => repo.repositoryTopics.includes(topic)),
+    pinned: false,
     topics: repo.repositoryTopics,
     tags: config.tags ?? [],
     languages: repo.languages,
     hasRoadmap: hasAnyFile(projectPath, loaded.config.defaults.roadmap_files),
-    sync: false,
+    up: false,
     automationEnabled: false,
   };
   enrichGitHubProject(project, loaded, repo, learningPath);
-  project.sync = syncEnabled(loaded, project, config.sync);
+  project.up = upEnabled(loaded, project);
   project.automationEnabled = automationEnabled(loaded, project, repo);
   return project;
 }
 
-function syncEnabled(
-  loaded: LoadedConfig,
-  project: Project,
-  configuredSync: boolean | undefined,
-): boolean {
-  if (configuredSync !== undefined) return configuredSync;
-  if (loaded.config.sync.exclude_topics.some((topic) => project.topics.includes(topic))) {
+function upEnabled(loaded: LoadedConfig, project: Project): boolean {
+  if (loaded.config.up.exclude_topics.some((topic) => project.topics.includes(topic))) {
     return false;
   }
-  return matchesProjectFilter(project, loaded.config.sync.include);
+  return !project.archived;
 }
 
 function automationEnabled(
@@ -143,7 +132,7 @@ function automationEnabled(
 ): boolean {
   return (
     loaded.config.automation.enabled &&
-    project.sync &&
+    project.up &&
     !automationExcluded(loaded, repo) &&
     matchesProjectFilter(project, loaded.config.automation.include)
   );
@@ -182,7 +171,11 @@ function resolveLocalProject(
   localByName: Map<string, LocalRepository>,
   localByPath: Map<string, LocalRepository>,
 ): Project {
-  const configuredPath = config.path ?? projectId;
+  const state = config.state ?? loaded.config.defaults.state_for_local;
+  const configuredPath = relativeOrAbsolutePath(
+    loaded,
+    derivedProjectPath(loaded, state, config.group, projectId),
+  );
   const repo =
     localByPath.get(configuredPath) ??
     localByName.get(configuredPath) ??
@@ -190,22 +183,23 @@ function resolveLocalProject(
     syntheticLocalRepo(loaded, configuredPath);
   const localState = readLocalProjectState(loaded, repo.name);
   const learningPath = findLearningPath(loaded, repo.path, config.learning);
-  const state = config.state ?? localState.state ?? loaded.config.defaults.state_for_local;
+  const resolvedState = config.state ?? localState.state ?? loaded.config.defaults.state_for_local;
   const project: Project = {
     source: "local",
     id: `local:${repo.name}`,
     repo: repo.name,
     slug: repo.name,
     path: repo.path,
+    ...(config.group === undefined ? {} : { group: config.group }),
     visibility: null,
-    state,
-    archived: state === "archived",
+    state: resolvedState,
+    archived: resolvedState === "archived",
     pinned: false,
     topics: [],
     tags: config.tags ?? [],
     languages: [],
     hasRoadmap: hasAnyFile(repo.path, loaded.config.defaults.roadmap_files),
-    sync: config.sync ?? false,
+    up: false,
     automationEnabled: false,
   };
   if (repo.remote) project.remote = repo.remote;
@@ -224,6 +218,16 @@ function relativeOrAbsolutePath(loaded: LoadedConfig, path: string): string {
     return path.slice(loaded.paths.workspaceRoot.length).replace(/^\/+/, "") || ".";
   }
   return path;
+}
+
+function derivedProjectPath(
+  loaded: LoadedConfig,
+  state: ProjectState,
+  group: string | undefined,
+  repo: string,
+): string {
+  const segments = group ? [state, group, repo] : [state, repo];
+  return resolveUnder(loaded.paths.workspaceRoot, join(...segments));
 }
 
 function required(value: string | undefined, message: string): string {

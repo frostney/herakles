@@ -18,7 +18,7 @@ const project: Project = {
   primaryLanguage: "TypeScript",
   languages: ["TypeScript", "Shell"],
   hasRoadmap: true,
-  sync: true,
+  up: true,
   automationEnabled: true,
 };
 

@@ -1,20 +1,20 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { SyncPlan, SyncPlanItem } from "../domain";
+import type { UpPlan, UpPlanItem } from "../domain";
 import { runCommand } from "../utils/command";
 
-export type SyncExecution = {
-  item: SyncPlanItem;
+export type UpExecution = {
+  item: UpPlanItem;
   status: "planned" | "done" | "skipped" | "failed";
   message: string;
 };
 
-export async function executeSyncPlan(
-  plan: SyncPlan,
-  options: { dryRun?: boolean; onProgress?: (result: SyncExecution) => void | Promise<void> } = {},
-): Promise<SyncExecution[]> {
-  const results: SyncExecution[] = [];
+export async function executeUpPlan(
+  plan: UpPlan,
+  options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},
+): Promise<UpExecution[]> {
+  const results: UpExecution[] = [];
   for (const item of plan.items) {
     if (options.dryRun) {
       await pushResult(results, { item, status: "planned", message: item.reason }, options);
@@ -38,15 +38,15 @@ export async function executeSyncPlan(
 }
 
 async function pushResult(
-  results: SyncExecution[],
-  result: SyncExecution,
-  options: { onProgress?: (result: SyncExecution) => void | Promise<void> },
+  results: UpExecution[],
+  result: UpExecution,
+  options: { onProgress?: (result: UpExecution) => void | Promise<void> },
 ) {
   results.push(result);
   await options.onProgress?.(result);
 }
 
-async function executeItem(item: SyncPlanItem): Promise<SyncExecution> {
+async function executeItem(item: UpPlanItem): Promise<UpExecution> {
   const project = item.project;
   if (item.action === "skip" || item.action === "validate") {
     return { item, status: "skipped", message: item.reason };

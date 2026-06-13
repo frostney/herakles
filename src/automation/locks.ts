@@ -8,11 +8,11 @@ import { runCommand } from "../utils/command";
 import { walkFiles } from "../utils/walk";
 
 function lockRelativePath(slot: AutomationDueSlot): string {
-  return join(".herakles-state", "locks", slot.jobId, `${safeSlotId(slot)}.json`);
+  return join("state", "locks", slot.jobId, `${safeSlotId(slot)}.json`);
 }
 
 function lockPath(loaded: LoadedConfig, slot: AutomationDueSlot): string {
-  return join(loaded.paths.workspaceRoot, lockRelativePath(slot));
+  return join(loaded.paths.configDir, lockRelativePath(slot));
 }
 
 function safeSlotId(slot: AutomationDueSlot): string {
@@ -49,7 +49,7 @@ export async function claimLock(
 }
 
 export async function listLocks(loaded: LoadedConfig): Promise<AutomationLock[]> {
-  const root = join(loaded.paths.workspaceRoot, ".herakles-state", "locks");
+  const root = join(loaded.paths.stateDir, "locks");
   if (!existsSync(root)) return [];
   const files = await walkFiles(root, (name) => name.endsWith(".json"));
   const locks = await Promise.all(
@@ -105,12 +105,7 @@ async function claimGitBranchLock(
   if (existing.stdout.trim()) return undefined;
 
   const payload = lockPayload(slot, "git-branch");
-  const claimDir = join(
-    loaded.paths.workspaceRoot,
-    loaded.config.layout.cache_path,
-    "lock-claims",
-    safeSlotId(slot),
-  );
+  const claimDir = join(loaded.paths.cacheDir, "lock-claims", safeSlotId(slot));
   await writeBranchClaim(claimDir, slot, payload);
   const result = await runCommand(["git", "push", remote, `HEAD:refs/heads/${branch}`], {
     cwd: claimDir,
@@ -130,12 +125,12 @@ async function writeBranchClaim(
   payload: AutomationLock,
 ): Promise<void> {
   await rm(claimDir, { recursive: true, force: true });
-  await mkdir(join(claimDir, ".herakles-state"), { recursive: true });
+  await mkdir(join(claimDir, "state"), { recursive: true });
   await runCommand(["git", "init", "--initial-branch", "main"], { cwd: claimDir });
   const payloadPath = join(claimDir, lockRelativePath(slot));
   await mkdir(join(payloadPath, ".."), { recursive: true });
   await writeFile(payloadPath, `${JSON.stringify(payload, null, 2)}\n`);
-  await runCommand(["git", "add", ".herakles-state"], { cwd: claimDir });
+  await runCommand(["git", "add", "state"], { cwd: claimDir });
   await runCommand(
     [
       "git",

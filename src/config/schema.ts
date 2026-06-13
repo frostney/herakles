@@ -9,19 +9,26 @@ const projectStateSchema = z.enum([
   "archived",
 ]);
 
-const projectConfigSchema = z.object({
-  source: z.enum(["github", "local"]),
-  repo: z.string().optional(),
-  path: z.string().optional(),
-  state: projectStateSchema.optional(),
-  sync: z.boolean().optional(),
-  tags: z.array(z.string()).default([]),
-  learning: z.string().optional(),
-});
+const groupSchema = z
+  .string()
+  .min(1)
+  .refine((value) => !value.includes("/") && !value.includes("\\"), {
+    message: "Project group must be a single path segment.",
+  });
+
+const projectConfigSchema = z
+  .object({
+    source: z.enum(["github", "local"]),
+    repo: z.string().optional(),
+    group: groupSchema.optional(),
+    state: projectStateSchema.optional(),
+    tags: z.array(z.string()).default([]),
+    learning: z.string().optional(),
+  })
+  .strict();
 
 export const heraklesConfigSchema = z.object({
   version: z.number().default(2),
-  root: z.string().default("~/Code"),
   timezone: z.string().default("Europe/London"),
   config: z
     .object({
@@ -40,10 +47,11 @@ export const heraklesConfigSchema = z.object({
     .default({}),
   layout: z
     .object({
-      repo_path: z.string().default("{repo}"),
       collision_path: z.string().default("{owner}-{repo}"),
-      reports_path: z.string().default("_reports"),
-      cache_path: z.string().default("_cache"),
+      reports_path: z.string().default("reports"),
+      cache_path: z.string().default("cache"),
+      worktrees_path: z.string().default("worktrees"),
+      state_path: z.string().default("state"),
     })
     .default({}),
   defaults: z
@@ -56,17 +64,11 @@ export const heraklesConfigSchema = z.object({
       learning_files: z.array(z.string()).default(["LEARNING.md", "docs/LEARNING.md"]),
     })
     .default({}),
-  sync: z
-    .object({
-      include: z.string().default("not archived"),
-      exclude_topics: z.array(z.string()).default(["no-sync"]),
-      pin_topics: z.array(z.string()).default(["pinned", "current", "travel"]),
-    })
-    .default({}),
+  up: z.object({ exclude_topics: z.array(z.string()).default(["no-up"]) }).default({}),
   automation: z
     .object({
       enabled: z.boolean().default(true),
-      include: z.string().default("sync == true"),
+      include: z.string().default("not archived"),
       lock_backend: z.enum(["git-branch"]).default("git-branch"),
       exclude_topics: z.array(z.string()).default(["no-agent", "manual-only"]),
       catch_up_window_minutes: z
@@ -79,10 +81,6 @@ export const heraklesConfigSchema = z.object({
   ui: z
     .object({
       enabled: z.boolean().default(true),
-      host: z.string().default("127.0.0.1"),
-      port: z.number().int().positive().default(4783),
-      open_browser: z.boolean().default(true),
-      access_token_file: z.string().optional(),
     })
     .default({}),
   codex: z

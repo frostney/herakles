@@ -5,14 +5,14 @@ import { join } from "node:path";
 import {
   archiveLocalProject,
   project as loadProject,
-  syncPlan as loadSyncPlan,
+  upPlan as loadUpPlan,
   validation as validateWorkspace,
 } from "../src/app";
 import { loadConfig } from "../src/config/load";
 import type { GitHubRepository } from "../src/domain";
 import { validateProjects } from "../src/lifecycle/validate";
 import { resolveProjects } from "../src/project/resolve";
-import { createSyncPlan } from "../src/sync/plan";
+import { createUpPlan } from "../src/up/plan";
 import { fakeGhRepositoryJson, withFakeGhScript } from "./helpers/gh";
 
 const fixtureRoot = join(import.meta.dir, "fixtures", "workspace");
@@ -32,7 +32,7 @@ function repo(
 }
 
 describe("project resolution", () => {
-  test("infers lifecycle states and explicit commercial project config", async () => {
+  test("infers lifecycle states and derived Herakles Workspace paths", async () => {
     const loaded = await loadConfig(fixtureRoot);
     const projects = resolveProjects(loaded, {
       hosted: [
@@ -52,19 +52,29 @@ describe("project resolution", () => {
           description: "Archived because the work moved to frostney/new-tool.",
         }),
       ],
-      local: [{ name: "local-spike", path: join(fixtureRoot, "local-spike") }],
+      local: [{ name: "local-spike", path: join(fixtureRoot, "experiment", "local-spike") }],
       hostedClones: [],
     });
 
-    expect(projects.find((project) => project.repo === "herakles")?.state).toBe("open-source");
-    expect(projects.find((project) => project.repo === "paid-api")?.state).toBe("commercial");
-    expect(projects.find((project) => project.repo === "old-tool")?.state).toBe("archived");
+    expect(projects.find((project) => project.repo === "herakles")).toMatchObject({
+      state: "open-source",
+      path: join(fixtureRoot, "open-source", "herakles"),
+    });
+    expect(projects.find((project) => project.repo === "paid-api")).toMatchObject({
+      state: "commercial",
+      group: "clients",
+      path: join(fixtureRoot, "commercial", "clients", "paid-api"),
+    });
+    expect(projects.find((project) => project.repo === "old-tool")).toMatchObject({
+      state: "archived",
+      path: join(fixtureRoot, "archived", "old-tool"),
+    });
     expect(projects.find((project) => project.repo === "local-spike")?.visibility).toBeNull();
   });
 
-  test("sync plan includes non-archived remote repositories only", async () => {
+  test("up plan includes non-archived hosted repositories only", async () => {
     const root = await tempTrackedWorkspace(
-      "herakles-sync-plan-",
+      "herakles-up-plan-",
       `
 [project."active"]
 source = "github"
@@ -76,7 +86,6 @@ repo = "frostney/archived"
 
 [project."local-spike"]
 source = "local"
-path = "local-spike"
 `,
     );
     const loaded = await loadConfig(root);
@@ -91,35 +100,28 @@ path = "local-spike"
           description: "Archived because it was replaced by active.",
         }),
       ],
-      local: [{ name: "local-spike", path: join(root, "local-spike") }],
+      local: [{ name: "local-spike", path: join(root, "experiment", "local-spike") }],
       hostedClones: [],
     });
 
-    const plan = createSyncPlan(projects);
+    const plan = createUpPlan(projects);
     expect(plan.items.map((item) => item.project.repo)).toEqual(["active"]);
     expect(plan.items.find((item) => item.project.repo === "active")?.action).toBe("clone");
     expect(plan.items.some((item) => item.project.source === "local")).toBe(false);
   });
 
-  test("sync and automation filters evaluate against resolved project fields", async () => {
+  test("up and automation filters evaluate against resolved project fields", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-filters-"));
     await mkdir(join(root, "_herakles"), { recursive: true });
     await writeFile(
       join(root, "_herakles", "herakles.toml"),
       `version = 2
-root = "."
 
 [github]
 owners = ["frostney"]
 
-[sync]
-include = '''
-not archived
-and (
-  visibility == "public"
-  or has_topic("current")
-)
-'''
+[up]
+exclude_topics = ["no-up"]
 
 [automation]
 include = 'has_language("TypeScript") and not has_topic("manual-only")'
@@ -128,18 +130,9 @@ include = 'has_language("TypeScript") and not has_topic("manual-only")'
 source = "github"
 repo = "frostney/public-ts"
 
-[project."private-current"]
-source = "github"
-repo = "frostney/private-current"
-
 [project."private-hidden"]
 source = "github"
 repo = "frostney/private-hidden"
-
-[project."force-sync"]
-source = "github"
-repo = "frostney/force-sync"
-sync = true
 `,
     );
     const projects = resolveProjects(await loadConfig(root), {
@@ -151,44 +144,25 @@ sync = true
           languages: ["TypeScript"],
         }),
         repo({
-          name: "private-current",
-          nameWithOwner: "frostney/private-current",
-          owner: "frostney",
-          visibility: "PRIVATE",
-          isPrivate: true,
-          repositoryTopics: ["current"],
-          languages: ["Rust"],
-        }),
-        repo({
           name: "private-hidden",
           nameWithOwner: "frostney/private-hidden",
           owner: "frostney",
           visibility: "PRIVATE",
           isPrivate: true,
-        }),
-        repo({
-          name: "force-sync",
-          nameWithOwner: "frostney/force-sync",
-          owner: "frostney",
-          visibility: "PRIVATE",
-          isPrivate: true,
+          repositoryTopics: ["no-up"],
+          languages: ["TypeScript"],
         }),
       ],
       local: [],
       hostedClones: [],
     });
 
-    expect(projects.find((project) => project.repo === "public-ts")?.sync).toBe(true);
+    expect(projects.find((project) => project.repo === "public-ts")?.up).toBe(true);
     expect(projects.find((project) => project.repo === "public-ts")?.automationEnabled).toBe(true);
-    expect(projects.find((project) => project.repo === "private-current")?.sync).toBe(true);
-    expect(projects.find((project) => project.repo === "private-current")?.automationEnabled).toBe(
-      false,
-    );
-    expect(projects.find((project) => project.repo === "private-hidden")?.sync).toBe(false);
-    expect(projects.find((project) => project.repo === "force-sync")?.sync).toBe(true);
+    expect(projects.find((project) => project.repo === "private-hidden")?.up).toBe(false);
   });
 
-  test("hosted clones at unexpected paths are validation-only sync items", async () => {
+  test("hosted clones at unexpected paths are validation-only up items", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-hosted-path-"));
     await mkdir(join(root, "_herakles"), { recursive: true });
     await mkdir(join(root, "old-tool", ".git"), { recursive: true });
@@ -202,7 +176,6 @@ sync = true
     await writeFile(
       join(root, "_herakles", "herakles.toml"),
       `version = 2
-root = "."
 
 [github]
 owners = ["frostney"]
@@ -215,7 +188,7 @@ repo = "frostney/tool"
 
     await withFakeGhReposByOwner(async () => {
       const validation = await validateWorkspace(root);
-      const plan = await loadSyncPlan(root);
+      const plan = await loadUpPlan(root);
 
       expect(validation.valid).toBe(false);
       expect(validation.issues[0]).toMatchObject({
@@ -226,16 +199,16 @@ repo = "frostney/tool"
         action: "validate",
         reason: expect.stringContaining("hosted-clone-path-mismatch"),
       });
+      expect(plan.items[0]?.project.path).toBe(join(root, "open-source", "tool"));
     });
   });
 
-  test("path collisions are validation-only sync items", async () => {
-    const root = await mkdtemp(join(tmpdir(), "herakles-sync-collision-"));
+  test("derived path collisions are validation-only up items", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-collision-"));
     await mkdir(join(root, "_herakles"), { recursive: true });
     await writeFile(
       join(root, "_herakles", "herakles.toml"),
       `version = 2
-root = "."
 
 [github]
 owners = ["frostney", "alt"]
@@ -243,17 +216,15 @@ owners = ["frostney", "alt"]
 [project."frostney-tool"]
 source = "github"
 repo = "frostney/tool"
-path = "shared-tool"
 
 [project."alt-tool"]
 source = "github"
 repo = "alt/tool"
-path = "shared-tool"
 `,
     );
 
     await withFakeGhReposByOwner(async () => {
-      const plan = await loadSyncPlan(root);
+      const plan = await loadUpPlan(root);
 
       expect(plan.items).toHaveLength(2);
       expect(plan.items.map((item) => item.action)).toEqual(["validate", "validate"]);
@@ -290,17 +261,10 @@ repo = "frostney/silent-archive"
     expect(validation.issues[0]?.code).toBe("missing-archive-note");
   });
 
-  test("missing archive learning evidence is a validation-only sync item", async () => {
-    const root = await mkdtemp(join(tmpdir(), "herakles-sync-archive-note-"));
-    await mkdir(join(root, "_herakles"), { recursive: true });
-    await writeFile(
-      join(root, "_herakles", "herakles.toml"),
-      `version = 2
-root = "."
-
-[github]
-owners = ["frostney"]
-
+  test("missing archive learning evidence is a validation-only up item", async () => {
+    const root = await tempTrackedWorkspace(
+      "herakles-up-archive-note-",
+      `
 [project."silent-archive"]
 source = "github"
 repo = "frostney/silent-archive"
@@ -308,7 +272,7 @@ repo = "frostney/silent-archive"
     );
 
     await withFakeArchivedGhRepo(async () => {
-      const plan = await loadSyncPlan(root);
+      const plan = await loadUpPlan(root);
 
       expect(plan.items).toHaveLength(1);
       expect(plan.items[0]).toMatchObject({
@@ -327,21 +291,20 @@ repo = "frostney/silent-archive"
 
   test("local archive writes local state without changing synced config", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-local-"));
+    const projectPath = join(root, "experiment", "spike");
     await mkdir(join(root, "_herakles"), { recursive: true });
-    await mkdir(join(root, "spike", ".git"), { recursive: true });
-    await writeFile(join(root, "spike", ".git", "HEAD"), "ref: refs/heads/main\n");
-    await writeFile(join(root, "spike", "LEARNING.md"), "Useful experiment.\n");
+    await mkdir(join(projectPath, ".git"), { recursive: true });
+    await writeFile(join(projectPath, ".git", "HEAD"), "ref: refs/heads/main\n");
+    await writeFile(join(projectPath, "LEARNING.md"), "Useful experiment.\n");
     await writeFile(
       join(root, "_herakles", "herakles.toml"),
       `version = 2
-root = "."
 
 [github]
 owners = []
 
 [project."spike"]
 source = "local"
-path = "spike"
 `,
     );
 
@@ -351,8 +314,8 @@ path = "spike"
 
     expect(archived.state).toBe("archived");
     expect(archived.archiveNote).toContain("LEARNING.md");
-    expect(syncedConfig).not.toContain("[repo.");
     expect(syncedConfig).toContain('[project."spike"]');
+    expect(syncedConfig).not.toContain("learning");
   });
 });
 
@@ -385,7 +348,7 @@ async function tempTrackedWorkspace(prefix: string, projectsToml: string): Promi
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
+timezone = "Europe/London"
 
 [github]
 owners = ["frostney"]

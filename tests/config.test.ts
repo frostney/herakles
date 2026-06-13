@@ -12,46 +12,26 @@ async function tempConfigWorkspace(config: string) {
 }
 
 describe("configuration loading", () => {
-  test("local config is limited to UI machine preferences", async () => {
+  test("loads only the canonical Herakles Workspace config", async () => {
     const root = await tempConfigWorkspace(
       `version = 2
-root = "."
 
 [github]
 owners = ["synced-owner"]
 
 [ui]
-host = "127.0.0.1"
-port = 4783
+enabled = true
 `,
     );
-    await writeFile(
-      join(root, "_herakles", "herakles.local.toml"),
-      `root = "/tmp/not-authoritative"
-
-[github]
-owners = ["local-owner"]
-
-[ui]
-host = "localhost"
-port = 4900
-open_browser = false
-`,
-    );
-
     const loaded = await loadConfig(root);
 
-    expect(loaded.config.root).toBe(".");
     expect(loaded.config.github.owners).toEqual(["synced-owner"]);
-    expect(loaded.config.ui.host).toBe("localhost");
-    expect(loaded.config.ui.port).toBe(4900);
-    expect(loaded.config.ui.open_browser).toBe(false);
+    expect(loaded.config.ui.enabled).toBe(true);
   });
 
-  test("synced root controls the effective workspace root", async () => {
+  test("workspace root is the folder containing the _herakles folder", async () => {
     const root = await tempConfigWorkspace(
       `version = 2
-root = "checkout-root"
 
 [github]
 owners = []
@@ -62,6 +42,6 @@ owners = []
 
     expect(loaded.paths.configDir).toBe(join(root, "_herakles"));
     expect(loaded.paths.syncedConfigPath).toBe(join(root, "_herakles", "herakles.toml"));
-    expect(loaded.paths.workspaceRoot).toBe(join(root, "checkout-root"));
+    expect(loaded.paths.workspaceRoot).toBe(root);
   });
 });

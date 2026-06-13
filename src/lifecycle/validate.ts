@@ -23,7 +23,7 @@ export function validateProjects(
       severity: "error",
       code: "hosted-clone-path-mismatch",
       projectId: mismatch.projectId,
-      message: `${mismatch.projectId} is already cloned at ${mismatch.actualPath}, but Herakles expects ${mismatch.expectedPath}. Use repo move before syncing to avoid duplicate clones.`,
+      message: `${mismatch.projectId} is already cloned at ${mismatch.actualPath}, but Herakles expects ${mismatch.expectedPath}. Resolve the existing checkout before running up to avoid duplicate clones.`,
     });
   }
 

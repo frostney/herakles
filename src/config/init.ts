@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { ensureConfigScaffold } from "./load";
 
 const sampleConfig = `version = 2
-root = "."
 timezone = "Europe/London"
 
 [github]
@@ -12,16 +11,11 @@ owners = []
 remote_style = "ssh"
 include_archived = true
 
-[ui]
-host = "127.0.0.1"
-port = 4783
-open_browser = true
-
 [job.review_context]
 schedule = "0 */4 * * *"
 slot_timezone = "UTC"
 mode = "coderabbit-review"
-output = "_reports/reviews/{slot}.md"
+output = "reviews/{slot}.md"
 repo_filter = '''
 not archived
 and not has_topic("no-agent")
@@ -38,7 +32,7 @@ You are helping choose a small set of good next work items for today.
 
 Use the Herakles automation context below as source data. Recommend at most five concrete items. For each item include the project, task, reason, expected effort, and risk. Do not write code, create branches, push commits, or mutate GitHub.
 '''
-output = "_reports/morning/{date}.md"
+output = "morning/{date}.md"
 repo_filter = '''
 not archived
 and has_roadmap
@@ -49,7 +43,7 @@ schedule = "00 19 * * 1-5"
 slot_timezone = "Europe/London"
 mode = "implementation-plan"
 issue_labels = ["well-defined", "ready-for-agent"]
-output = "_reports/evening/{date}.md"
+output = "evening/{date}.md"
 repo_filter = '''
 not archived
 and not has_topic("no-agent")
@@ -66,7 +60,7 @@ Summarize the week's workspace activity from the Herakles automation context bel
 
 Include factual highlights, notable risks or stale areas, useful report links when present, and a short set of strategic candidates for next week. Stay evidence-grounded. Do not write code, create branches, push commits, or mutate GitHub.
 '''
-output = "_reports/weekly/{iso_week}.md"
+output = "weekly/{iso_week}.md"
 
 [job.monday_maintenance]
 schedule = "00 09 * * MON"
@@ -79,23 +73,17 @@ Identify maintenance candidates from the Herakles automation context below.
 
 Look for low-risk dependency updates, bugfix candidates, failing or stale areas, and repositories that may need follow-up. Return recommendations only. Do not write code, create branches, push commits, or mutate GitHub.
 '''
-output = "_reports/maintenance/{date}.md"
+output = "maintenance/{date}.md"
 repo_filter = '''
 not archived
 and not has_topic("no-maintenance")
 '''
 `;
 
-const sampleLocalConfig = `[ui]
-host = "127.0.0.1"
-port = 4783
-open_browser = true
-`;
-
-const sampleGitignore = `herakles.local.toml
-.cache/
-.runs/
-.herakles-state/
+const sampleGitignore = `cache/
+reports/
+worktrees/
+state/
 *.log
 `;
 
@@ -187,9 +175,6 @@ export async function initConfig(workspaceRoot: string) {
   const paths = await ensureConfigScaffold(workspaceRoot);
   if (!existsSync(paths.syncedConfigPath)) {
     await writeFile(paths.syncedConfigPath, sampleConfig);
-  }
-  if (!existsSync(paths.localConfigPath)) {
-    await writeFile(paths.localConfigPath, sampleLocalConfig);
   }
   const gitignorePath = join(paths.configDir, ".gitignore");
   if (!existsSync(gitignorePath)) {

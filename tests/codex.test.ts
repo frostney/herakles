@@ -67,8 +67,6 @@ async function tempCodexWorkspace(prefix: string) {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 
@@ -80,7 +78,7 @@ sandbox = "workspace-write"
   return {
     root,
     prompt: "Summarize this.",
-    reportPath: join(root, "_reports", "summary.md"),
+    reportPath: join(root, "_herakles", "reports", "summary.md"),
     loaded: await loadConfig(root),
   };
 }

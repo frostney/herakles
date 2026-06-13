@@ -1,9 +1,7 @@
-import { dirname } from "node:path";
 import { routeApi } from "../../api/routes";
 import { startUiCron } from "../../automation/cron";
 import { loadConfig } from "../../config/load";
 import index from "../client/index.html";
-import { ensureAccessToken } from "./token";
 
 export type UiServerOptions = {
   workspaceRoot: string;
@@ -14,13 +12,10 @@ export type UiServerOptions = {
 
 export async function startUiServer(options: UiServerOptions) {
   const loaded = await loadConfig(options.workspaceRoot);
-  const host = options.host ?? loaded.config.ui.host;
-  const port = options.port ?? loaded.config.ui.port;
-  const openBrowser = options.openBrowser ?? loaded.config.ui.open_browser;
-  const token = await ensureAccessToken(loaded);
-  const remoteSyncOnly = !isLoopbackHost(host);
+  const host = options.host ?? "127.0.0.1";
+  const port = options.port ?? 4783;
+  const openBrowser = options.openBrowser ?? true;
   const cron = startUiCron(loaded);
-  const configRoot = dirname(loaded.paths.configDir);
 
   const server = Bun.serve({
     hostname: host,
@@ -35,15 +30,12 @@ export async function startUiServer(options: UiServerOptions) {
       "/automation": index,
       "/settings": index,
       "/favicon.ico": () => new Response(null, { status: 204 }),
-      "/api/*": (req) => routeApi(req, { workspaceRoot: configRoot, token, remoteSyncOnly }),
+      "/api/*": (req) => routeApi(req, { workspaceRoot: loaded.paths.workspaceRoot }),
     },
   } as Parameters<typeof Bun.serve>[0]);
 
   const url = `http://${host}:${server.port}`;
   console.log(`Herakles UI listening on ${url}`);
-  if (remoteSyncOnly) {
-    console.log("Remote API is limited to token-protected sync routes.");
-  }
   if (openBrowser) {
     openUrl(url);
   }
@@ -65,8 +57,4 @@ function openUrl(url: string) {
         ? ["cmd", "/c", "start", url]
         : ["xdg-open", url];
   Bun.spawn(command, { stdout: "ignore", stderr: "ignore" });
-}
-
-function isLoopbackHost(host: string) {
-  return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }

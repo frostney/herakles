@@ -13,7 +13,7 @@ export type ReportNoteInput = {
 };
 
 export function reportsRoot(loaded: LoadedConfig): string {
-  return join(loaded.paths.workspaceRoot, loaded.config.layout.reports_path);
+  return join(loaded.paths.configDir, loaded.config.layout.reports_path);
 }
 
 export async function listReports(loaded: LoadedConfig): Promise<ReportSummary[]> {

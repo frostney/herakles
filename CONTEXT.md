@@ -1,6 +1,6 @@
 # Herakles
 
-Herakles coordinates a personal multi-repository workspace across machines. Its language distinguishes source-control facts from the resolved operating model Herakles uses for sync, validation, automation, and review.
+Herakles coordinates a personal multi-repository workspace across machines. Its language distinguishes source-control facts from the resolved operating model Herakles uses for workspace spin-up, validation, automation, and review.
 
 ## Language
 
@@ -9,7 +9,7 @@ A Git or GitHub source-control unit with facts such as owner, name, remote URL, 
 _Avoid_: Project when referring only to Git or GitHub facts
 
 **Project**:
-Herakles's resolved operating model for a repository or local experiment, including lifecycle state, local path, sync decision, automation eligibility, reports, and validation.
+Herakles's resolved operating model for a repository or local experiment, including lifecycle state, derived local path, up eligibility, automation eligibility, reports, and validation.
 _Avoid_: Repository when referring to Herakles-specific resolved state
 
 **Tracked Project**:
@@ -35,11 +35,19 @@ Archived hosted repositories suggest `archived`; public non-archived hosted repo
 The primary Herakles flow for stopping tracking of a project. Removal requires confirmation and removes the Herakles project entry without deleting local files or hosted repositories by default.
 _Avoid_: Delete project
 
+**Spin Up Workspace**:
+The Herakles flow that makes a local Herakles Workspace match its configuration by creating required folders, checking out missing projects, safely updating existing projects, and reporting conflicts without destructive cleanup.
+_Avoid_: File sync, apply config, slay
+
+**Config Exchange**:
+The user-directed act of copying Herakles configuration into or out of the UI. It moves configuration text, not repositories, runtime state, reports, or remote commands.
+_Avoid_: Remote sync, machine profile, file sync
+
 **Project Discovery**:
 The Herakles refresh flow that reads hosted repositories and local Git folders, then updates the resolved project model. It is user-facing as project discovery or project refresh; cached discovery data stays an implementation detail.
 
 **Project Settings**:
-The user-facing place for changing a project's connection and interpretation, including lifecycle state, path, archive evidence, sync behavior, and promotion from a local experiment to a hosted repository.
+The user-facing place for changing a project's connection and interpretation, including lifecycle state, project group, project tags, archive evidence, up behavior, and promotion from a local experiment to a hosted repository.
 _Avoid_: Separate promotion workflow
 
 **Hosted Visibility**:
@@ -95,52 +103,31 @@ The Herakles-owned output of a harness run. It records what the AI harness retur
 _Avoid_: Patch candidate, publish candidate
 
 **Synced Configuration**:
-The desired Herakles workspace and orchestration configuration stored in `_herakles/herakles.toml`. It should be sufficient to bootstrap the Herakles orchestrator for the configured remote repositories.
+The desired Herakles workspace and orchestration configuration stored in `_herakles/herakles.toml`. It is configuration as code and should be sufficient to bootstrap the Herakles orchestrator, but Herakles does not require a specific storage or synchronization provider for it.
 _Avoid_: Project-local config
 
-**Config Root**:
-The local folder that contains `_herakles`. CLI and UI `--root` flags point at this folder so Herakles can find the synced configuration checkout.
-_Avoid_: Checkout root
+**Herakles Workspace**:
+The initialized local directory that contains `_herakles` and mandatory lifecycle folders where project repositories are checked out. It is the orchestrator workspace from which editors, AI development harnesses, and other tools can open or operate on managed repositories.
+_Avoid_: Config root, workspace root, inventory root
 
-**Workspace Root**:
-The effective local folder where Herakles resolves project paths, checkouts, local reports, caches, worktrees, and ignored runtime state. It comes from the `root` value in `_herakles/herakles.toml`, resolved relative to the config root unless absolute.
-_Avoid_: Config root
+**Herakles Folder**:
+The `_herakles` folder inside a Herakles Workspace. It contains Herakles configuration as code plus Herakles-owned runtime artifacts such as caches, reports, and worktrees.
+_Avoid_: Local config folder, hidden project
 
-**Local Configuration**:
-Optional machine-specific Herakles settings stored outside synced configuration, limited to UI host, UI port, browser opening, and access token location.
-_Avoid_: Required config
+**Lifecycle Folder**:
+A mandatory top-level Herakles Workspace folder for projects in a lifecycle state, with at most one optional grouping level inside it. Projects move between lifecycle folders when their lifecycle changes.
+_Avoid_: Arbitrary repository root, project-local root
 
-**Herakles Server**:
-A Herakles UI server process that serves the local browser UI and its API, and can expose token-protected remote sync routes when configured for that role.
-_Avoid_: Machine profile
+**Project Group**:
+An optional single grouping level inside a lifecycle folder. It changes where a project repository is checked out in the Herakles Workspace, but it is not inferred by default.
+_Avoid_: Nested path, owner folder, arbitrary path
 
-**Herakles Client**:
-A Herakles instance that syncs against a Herakles server endpoint instead of independently selecting repositories through a synced machine profile.
-_Avoid_: Secondary machine profile
-
-**Sync Plan**:
-A server-provided description of which projects a Herakles client should clone, fetch, skip, or validate. The client executes the Git and filesystem operations locally.
-_Avoid_: File sync
-
-Remote sync plans carry workspace-relative paths. Clients resolve those paths under their own workspace root and reject paths that would escape it.
-
-**Validation-Only Sync Item**:
-A sync plan item that reports a project-level validation issue instead of executing Git work. It is used for correction-required conditions such as path collisions, missing archive evidence, and hosted clone path mismatches.
-_Avoid_: Failed clone item, dry-run-only error
-
-**Access Token**:
-A local secret generated by a Herakles server and required by non-localhost clients that request sync plans or other remote API data.
-_Avoid_: Synced token, config token
-
-**Remote Sync API**:
-The token-protected Herakles server API used by clients to read workspace state and sync plans. It does not allow a remote client to start automations or mutate another machine's workspace.
-_Avoid_: Remote control API
-
-Remote sync clients see hosted workspace state only. A server's local experiments are not exposed to remote clients. Remote project paths, report paths, and automation run report paths are workspace-relative so a server's local filesystem layout is not part of the API contract.
-When a Herakles server binds beyond loopback, the exposed API remains sync-only: token-authenticated remote sync routes are served, and broader command routes are refused.
+**Project Tag**:
+A user-defined project label used for filtering, search, automation selection, and lightweight classification without changing where the repository is checked out.
+_Avoid_: Folder, lifecycle state, GitHub topic
 
 **Remote Repository**:
-A hosted repository discovered by Herakles, such as a GitHub repository. Non-archived remote repositories are included in the default server-provided sync plan for clients.
+A hosted repository discovered by Herakles, such as a GitHub repository. Non-archived remote repositories are included in the default `herakles up` eligible set unless excluded by configured topics.
 _Avoid_: Local experiment
 
 **Automation Tick**:

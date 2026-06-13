@@ -7,9 +7,8 @@ import { renderTomlDiff, renderTomlRemovalDiff, replaceTomlBlock } from "./toml-
 export type ProjectConfigChanges = {
   source?: ProjectSource;
   repo?: string;
-  path?: string;
+  group?: string;
   state?: ProjectState;
-  sync?: boolean;
   tags?: string[];
   learning?: string;
 };
@@ -17,9 +16,8 @@ export type ProjectConfigChanges = {
 type LooseProjectConfigChanges = {
   source?: ProjectSource | undefined;
   repo?: string | undefined;
-  path?: string | undefined;
+  group?: string | undefined;
   state?: ProjectState | undefined;
-  sync?: boolean | undefined;
   tags?: string[] | undefined;
   learning?: string | undefined;
 };
@@ -96,9 +94,8 @@ function compactProjectConfig(values: LooseProjectConfigChanges): ProjectConfigC
   return {
     ...(values.source === undefined ? {} : { source: values.source }),
     ...(values.repo === undefined ? {} : { repo: values.repo }),
-    ...(values.path === undefined ? {} : { path: values.path }),
+    ...(values.group === undefined ? {} : { group: values.group }),
     ...(values.state === undefined ? {} : { state: values.state }),
-    ...(values.sync === undefined ? {} : { sync: values.sync }),
     ...(values.tags === undefined || values.tags.length === 0 ? {} : { tags: values.tags }),
     ...(values.learning === undefined ? {} : { learning: values.learning }),
   };
@@ -108,9 +105,8 @@ function renderProjectConfig(projectId: string, values: ProjectConfigChanges): s
   const lines = [`[project.${JSON.stringify(projectId)}]`];
   if (values.source) lines.push(`source = ${JSON.stringify(values.source)}`);
   if (values.repo) lines.push(`repo = ${JSON.stringify(values.repo)}`);
-  if (values.path) lines.push(`path = ${JSON.stringify(values.path)}`);
+  if (values.group) lines.push(`group = ${JSON.stringify(values.group)}`);
   if (values.state) lines.push(`state = ${JSON.stringify(values.state)}`);
-  if (values.sync !== undefined) lines.push(`sync = ${values.sync ? "true" : "false"}`);
   if (values.tags)
     lines.push(`tags = [${values.tags.map((tag) => JSON.stringify(tag)).join(", ")}]`);
   if (values.learning) lines.push(`learning = ${JSON.stringify(values.learning)}`);

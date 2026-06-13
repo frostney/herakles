@@ -16,8 +16,6 @@ async function tempWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 `,
@@ -41,7 +39,7 @@ function project(overrides: Partial<Project> = {}): Project {
     tags: [],
     languages: [],
     hasRoadmap: true,
-    sync: true,
+    up: true,
     automationEnabled: true,
     ...overrides,
   };

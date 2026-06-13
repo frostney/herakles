@@ -17,7 +17,7 @@ const fields = new Set([
   "slug",
   "archived",
   "pinned",
-  "sync",
+  "up",
   "automation_enabled",
   "has_roadmap",
   "primary_language",

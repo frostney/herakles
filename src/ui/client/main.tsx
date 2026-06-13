@@ -26,7 +26,6 @@ import type {
   Project,
   ProjectDetail,
   ProjectState,
-  PrunePlan,
   ReportDetail,
   ReportSummary,
   ValidationIssue,
@@ -40,15 +39,16 @@ import {
   type LocalArchiveResult,
   type LocalPromotionResult,
   type ProjectConfigPlan,
+  type ProjectConfigValues,
   type ProjectDiscoveryRefreshResult,
-  type RepoMovePlan,
   type StatusPayload,
+  type UpRunResult,
   getAutomations,
+  getConfigToml,
   getDoctor,
   getHostedImportCandidates,
   getProjectDetail,
   getProjects,
-  getPrunePlan,
   getReport,
   getReports,
   getStatus,
@@ -58,7 +58,7 @@ import {
   postAutomationRun,
   postAutomationTick,
   postCheckoutProject,
-  postConfigPull,
+  postConfigToml,
   postImportProjects,
   postLocalArchive,
   postLocalPromotion,
@@ -66,11 +66,9 @@ import {
   postProjectConfigApply,
   postProjectConfigPlan,
   postProjectsRefresh,
-  postPrune,
   postRemoveProject,
-  postRepoMove,
-  postRepoMovePlan,
   postReportNote,
+  postUp,
   postValidate,
   subscribeToEvents,
 } from "./api";
@@ -180,15 +178,15 @@ function Dashboard() {
   const [doctor, refreshDoctor] = useResource(getDoctor);
   useRefreshOnEvents(refresh, [
     "projects-refresh-finished",
-    "sync-finished",
+    "up-finished",
     "validation-updated",
     "automation-finished",
   ]);
-  useRefreshOnEvents(refreshProjects, ["projects-refresh-finished", "sync-finished"]);
+  useRefreshOnEvents(refreshProjects, ["projects-refresh-finished", "up-finished"]);
   useRefreshOnEvents(refreshAutomation, ["automation-log", "automation-finished"]);
   useRefreshOnEvents(refreshDoctor, [
     "projects-refresh-finished",
-    "sync-finished",
+    "up-finished",
     "validation-updated",
   ]);
   if (status.status !== "ready") return <LoadState state={status} />;
@@ -309,7 +307,7 @@ function Projects() {
   const [query, setQuery] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [importOpen, setImportOpen] = useState(false);
-  useRefreshOnEvents(refresh, ["projects-refresh-finished", "sync-finished", "validation-updated"]);
+  useRefreshOnEvents(refresh, ["projects-refresh-finished", "up-finished", "validation-updated"]);
   const filtered = useMemo(() => {
     if (projects.status !== "ready") return [];
     const needle = query.toLowerCase();
@@ -375,17 +373,21 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
   const [source, setSource] = useState<"github" | "local">("github");
   const [id, setId] = useState("");
   const [repo, setRepo] = useState("");
-  const [path, setPath] = useState("");
+  const [group, setGroup] = useState("");
+  const [tags, setTags] = useState("");
   const [state, setState] = useState<ProjectState>("experiment");
   const [message, setMessage] = useState("");
   const add = async () => {
     setMessage("");
     try {
-      const projectId = id || defaultProjectId(source === "github" ? repo : path);
+      const projectId = id || defaultProjectId(repo);
+      const tagList = splitTags(tags);
       await postAddProject({
         id: projectId,
         source,
-        ...(source === "github" ? { repo } : { path }),
+        ...(source === "github" ? { repo } : {}),
+        ...(group.trim() ? { group: group.trim() } : {}),
+        ...(tagList.length > 0 ? { tags: tagList } : {}),
         state,
       });
       if (source === "github") {
@@ -394,7 +396,8 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
       setMessage(source === "github" ? "Project added and checked out." : "Project added.");
       setId("");
       setRepo("");
-      setPath("");
+      setGroup("");
+      setTags("");
       onChanged();
     } catch (error) {
       setMessage(String(error));
@@ -428,18 +431,19 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
             />
           </label>
         ) : (
-          <label>
-            <span>Path</span>
-            <input
-              value={path}
-              onChange={(event) => setPath(event.target.value)}
-              placeholder="local-spike"
-            />
-          </label>
+          <p className="muted">Local projects are tracked by project id inside the workspace.</p>
         )}
         <label htmlFor="add-project-state">
           <span>State</span>
           <StateSelect id="add-project-state" value={state} onChange={setState} />
+        </label>
+        <label>
+          <span>Group</span>
+          <input value={group} onChange={(event) => setGroup(event.target.value)} />
+        </label>
+        <label>
+          <span>Tags</span>
+          <input value={tags} onChange={(event) => setTags(event.target.value)} />
         </label>
       </div>
       <button type="button" onClick={add}>
@@ -454,6 +458,8 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
   const [candidates, refresh] = useResource(getHostedImportCandidates);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [states, setStates] = useState<Record<string, ProjectState>>({});
+  const [groups, setGroups] = useState<Record<string, string>>({});
+  const [tags, setTags] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
   const [owner, setOwner] = useState("all");
   const [message, setMessage] = useState("");
@@ -463,11 +469,17 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
   const importSelected = async () => {
     const projects = filteredRows
       .filter((candidate) => selected[candidate.repo])
-      .map((candidate) => ({
-        id: candidate.id,
-        repo: candidate.repo,
-        state: states[candidate.repo] ?? candidate.suggestedState,
-      }));
+      .map((candidate) => {
+        const group = groups[candidate.repo]?.trim();
+        const tagList = splitTags(tags[candidate.repo] ?? "");
+        return {
+          id: candidate.id,
+          repo: candidate.repo,
+          state: states[candidate.repo] ?? candidate.suggestedState,
+          ...(group ? { group } : {}),
+          ...(tagList.length > 0 ? { tags: tagList } : {}),
+        };
+      });
     if (projects.length === 0) {
       setMessage("Select at least one repository.");
       return;
@@ -507,9 +519,13 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
                   key={candidate.repo}
                   candidate={candidate}
                   checked={selected[candidate.repo] === true}
+                  group={groups[candidate.repo] ?? ""}
                   state={states[candidate.repo] ?? candidate.suggestedState}
+                  tags={tags[candidate.repo] ?? ""}
                   onChecked={(checked) => setSelected({ ...selected, [candidate.repo]: checked })}
+                  onGroup={(next) => setGroups({ ...groups, [candidate.repo]: next })}
                   onState={(next) => setStates({ ...states, [candidate.repo]: next })}
+                  onTags={(next) => setTags({ ...tags, [candidate.repo]: next })}
                 />
               ))}
             </tbody>
@@ -580,15 +596,23 @@ function importCandidateMatches(candidate: HostedImportCandidate, query: string,
 function ImportCandidateRow({
   candidate,
   checked,
+  group,
   state,
+  tags,
   onChecked,
+  onGroup,
   onState,
+  onTags,
 }: {
   candidate: HostedImportCandidate;
   checked: boolean;
+  group: string;
   state: ProjectState;
+  tags: string;
   onChecked: (checked: boolean) => void;
+  onGroup: (group: string) => void;
   onState: (state: ProjectState) => void;
+  onTags: (tags: string) => void;
 }) {
   return (
     <tr>
@@ -608,6 +632,12 @@ function ImportCandidateRow({
       </td>
       <td>
         <StateSelect value={state} onChange={onState} />
+      </td>
+      <td>
+        <input value={group} onChange={(event) => onGroup(event.target.value)} />
+      </td>
+      <td>
+        <input value={tags} onChange={(event) => onTags(event.target.value)} />
       </td>
     </tr>
   );
@@ -662,12 +692,19 @@ function defaultProjectId(value: string): string {
   return value.replace("/", "-").split(/[\\/]/).filter(Boolean).at(-1) ?? value;
 }
 
+function splitTags(value: string): string[] {
+  return value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
 function ProjectDetailScreen() {
   const { projectId } = projectsDetailRoute.useParams();
   const [detail, refresh] = useResource(() => getProjectDetail(projectId));
   useRefreshOnEvents(refresh, [
     "projects-refresh-finished",
-    "sync-finished",
+    "up-finished",
     "validation-updated",
     "report-created",
   ]);
@@ -912,42 +949,24 @@ function Automation() {
 function SettingsScreen() {
   const [status, refreshStatus] = useResource(getStatus);
   const [doctor, refreshDoctor] = useResource(getDoctor);
-  const [prunePlan, refreshPrunePlan] = useResource(getPrunePlan);
   const [busy, setBusy] = useState(false);
   const [projectDiscoveryResult, setProjectDiscoveryResult] =
     useState<ProjectDiscoveryRefreshResult>();
   const [validationResult, setValidationResult] = useState<ValidationResult>();
+  const [upResult, setUpResult] = useState<UpRunResult>();
   const [message, setMessage] = useState("");
   const [messageKind, setMessageKind] = useState<"success" | "error">("success");
   useRefreshOnEvents(refreshStatus, [
     "projects-refresh-finished",
-    "sync-finished",
+    "up-finished",
     "validation-updated",
   ]);
-  useRefreshOnEvents(refreshPrunePlan, ["sync-finished", "projects-refresh-finished"]);
-  const pullConfig = async () => {
-    setBusy(true);
-    setMessage("");
-    try {
-      await postConfigPull();
-      refreshStatus();
-      refreshDoctor();
-      setMessageKind("success");
-      setMessage("Config pull complete.");
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
   const refreshProjects = async () => {
     setBusy(true);
     setMessage("");
     try {
       setProjectDiscoveryResult(await postProjectsRefresh());
       refreshStatus();
-      refreshPrunePlan();
       refreshDoctor();
       setMessageKind("success");
       setMessage("Projects refreshed.");
@@ -973,10 +992,21 @@ function SettingsScreen() {
       setBusy(false);
     }
   };
-  const refreshPrune = () => {
-    refreshPrunePlan();
-    setMessageKind("success");
-    setMessage("Prune plan refreshed.");
+  const runUp = async (plan: boolean) => {
+    setBusy(true);
+    setMessage("");
+    try {
+      setUpResult(await postUp({ plan }));
+      refreshStatus();
+      refreshDoctor();
+      setMessageKind("success");
+      setMessage(plan ? "Workspace up plan complete." : "Workspace up complete.");
+    } catch (error) {
+      setMessageKind("error");
+      setMessage(String(error));
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <Screen
@@ -986,36 +1016,122 @@ function SettingsScreen() {
           <button type="button" onClick={refreshProjects} disabled={busy}>
             Refresh Projects
           </button>
+          <button type="button" onClick={() => runUp(true)} disabled={busy}>
+            Plan Up
+          </button>
+          <button type="button" onClick={() => runUp(false)} disabled={busy}>
+            Run Up
+          </button>
           <button type="button" onClick={() => validate(false)} disabled={busy}>
             Validate
           </button>
           <button type="button" onClick={() => validate(true)} disabled={busy}>
             Strict Validate
           </button>
-          <button type="button" onClick={pullConfig} disabled={busy}>
-            Pull Config
-          </button>
-          <button type="button" onClick={refreshPrune} disabled={busy}>
-            Prune Plan
-          </button>
         </>
       }
     >
       {message && <p className={messageKind}>{message}</p>}
       {status.status === "ready" && <WorkspacePanel status={status.data} />}
+      <ConfigExchangePanel
+        onApplied={() => {
+          refreshStatus();
+          refreshDoctor();
+        }}
+      />
       {projectDiscoveryResult && <ProjectDiscoveryResultPanel result={projectDiscoveryResult} />}
+      {upResult && <UpResultPanel result={upResult} />}
       {validationResult && <ValidationResultPanel result={validationResult} />}
-      {prunePlan.status === "ready" ? (
-        <PrunePlanPanel plan={prunePlan.data} onChanged={refreshPrunePlan} />
-      ) : (
-        <LoadState state={prunePlan} />
-      )}
       {doctor.status === "ready" ? (
         <DoctorPanel data={doctor.data} />
       ) : (
         <LoadState state={doctor} />
       )}
     </Screen>
+  );
+}
+
+function UpResultPanel({ result }: { result: UpRunResult }) {
+  return (
+    <section className="panel">
+      <h2>Workspace Up</h2>
+      {result.length === 0 ? (
+        <p className="empty">No eligible hosted projects.</p>
+      ) : (
+        <div className="list">
+          {result.map((item) => (
+            <article
+              className="list-row"
+              key={`${item.item.project.id}-${item.item.action}-${item.status}`}
+            >
+              <div>
+                <strong>{item.item.project.repo}</strong>
+                <span>{item.message}</span>
+              </div>
+              <span className={`badge ${item.status}`}>{item.status}</span>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ConfigExchangePanel({ onApplied }: { onApplied: () => void }) {
+  const [loaded, refresh] = useResource(getConfigToml);
+  const [toml, setToml] = useState("");
+  const [validation, setValidation] = useState<ValidationResult>();
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (loaded.status === "ready") setToml(loaded.data.toml);
+  }, [loaded]);
+
+  const run = async (apply: boolean) => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await postConfigToml(toml, { apply });
+      setValidation(result.validation);
+      setMessage(result.applied ? "Configuration applied." : "Configuration parsed.");
+      if (result.applied) {
+        refresh();
+        onApplied();
+      }
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="panel">
+      <h2>Config Exchange</h2>
+      {loaded.status === "ready" ? (
+        <>
+          <p className="mono">{loaded.data.path}</p>
+          <textarea
+            className="config-editor"
+            value={toml}
+            onChange={(event) => setToml(event.target.value)}
+          />
+          <div className="actions">
+            <button type="button" onClick={() => run(false)} disabled={busy}>
+              Validate
+            </button>
+            <button type="button" onClick={() => run(true)} disabled={busy}>
+              Apply
+            </button>
+          </div>
+        </>
+      ) : (
+        <LoadState state={loaded} />
+      )}
+      {validation && <ValidationResultPanel result={validation} title="Config Parse" />}
+      {message && <p className={message.includes("applied") ? "success" : "error"}>{message}</p>}
+    </section>
   );
 }
 
@@ -1026,11 +1142,6 @@ function WorkspacePanel({ status }: { status: StatusPayload }) {
       <div className="detail-grid">
         <DetailItem label="Root" value={status.root} mono />
         <DetailItem label="Synced config" value={status.config.syncedConfigPath} mono />
-        <DetailItem
-          label="Local UI config"
-          value={status.config.localConfigPath ?? "not present"}
-          mono
-        />
       </div>
     </section>
   );
@@ -1082,54 +1193,6 @@ function ValidationSummary({
     <section className="inline-validation">
       <h3>{label}</h3>
       <ValidationIssueList issues={validation.issues} />
-    </section>
-  );
-}
-
-function PrunePlanPanel({
-  plan,
-  onChanged,
-}: {
-  plan: PrunePlan;
-  onChanged: () => void;
-}) {
-  const [busyProject, setBusyProject] = useState("");
-  const prune = async (projectId: string) => {
-    setBusyProject(projectId);
-    try {
-      await postPrune(projectId);
-      onChanged();
-    } finally {
-      setBusyProject("");
-    }
-  };
-  return (
-    <section className="panel">
-      <h2>Prune Plan</h2>
-      {plan.items.length === 0 ? (
-        <p className="empty">No prune-eligible clones.</p>
-      ) : (
-        <DataTable headers={["Project", "Reason", "Path", "Destination", "Action"]}>
-          {plan.items.map((item) => (
-            <tr key={item.project.id}>
-              <td>{item.project.slug}</td>
-              <td>{item.reason}</td>
-              <td className="mono">{item.fromPath}</td>
-              <td className="mono">{item.toPath}</td>
-              <td>
-                <button
-                  type="button"
-                  className="small-button"
-                  disabled={busyProject === item.project.id}
-                  onClick={() => prune(item.project.id)}
-                >
-                  Prune
-                </button>
-              </td>
-            </tr>
-          ))}
-        </DataTable>
-      )}
     </section>
   );
 }
@@ -1225,7 +1288,7 @@ function CompactProjectRow({ project }: { project: Project }) {
     <tr>
       <ProjectIdentityCell project={project} />
       <td>{project.state}</td>
-      <td>{yesNo(project.sync)}</td>
+      <td>{yesNo(project.up)}</td>
     </tr>
   );
 }
@@ -1307,7 +1370,7 @@ function FullProjectTableRow({
       <ProjectIdentityCell project={project} />
       <td>{project.source}</td>
       <td>{project.state}</td>
-      <td>{yesNo(project.sync)}</td>
+      <td>{yesNo(project.up)}</td>
       <ProjectSettingsCell
         onSelectProject={onSelectProject}
         project={project}
@@ -1464,7 +1527,7 @@ function projectDetailItems(project: Project): DetailItemModel[] {
     { label: "Source", value: project.source },
     { label: "State", value: project.state },
     { label: "Visibility", value: project.visibility ?? "local" },
-    { label: "Checkout eligible", value: project.sync ? "yes" : "no" },
+    { label: "Checkout eligible", value: project.up ? "yes" : "no" },
     { label: "Automation", value: project.automationEnabled ? "yes" : "no" },
     { label: "Path", value: project.path, mono: true },
   ];
@@ -1584,9 +1647,7 @@ function ProjectSettingsPanel({
     <section className="panel project-settings-panel">
       <h2>Project Settings</h2>
       <ProjectStateControls key={`state-${project.id}`} project={project} onApplied={onApplied} />
-      {project.source === "github" ? (
-        <MoveProjectControls key={`move-${project.id}`} project={project} onApplied={onApplied} />
-      ) : (
+      {project.source === "local" && (
         <>
           <LocalArchivePanel projects={[project]} onArchived={onApplied} />
           <LocalPromotionPanel projects={[project]} onPromoted={onApplied} />
@@ -1598,6 +1659,8 @@ function ProjectSettingsPanel({
 
 function ProjectStateControls({ project, onApplied }: { project: Project; onApplied: () => void }) {
   const [state, setState] = useState(project.state);
+  const [group, setGroup] = useState(project.group ?? "");
+  const [tags, setTags] = useState(project.tags.join(", "));
   const [force, setForce] = useState(false);
   const [plan, setPlan] = useState<ProjectConfigPlan | undefined>();
   const [previewKey, setPreviewKey] = useState("");
@@ -1609,19 +1672,26 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
     setPreviewKey("");
     setMessage("");
     setState(project.state);
+    setGroup(project.group ?? "");
+    setTags(project.tags.join(", "));
     setForce(false);
-  }, [project.state]);
+  }, [project.state, project.group, project.tags]);
 
-  const currentKey = projectConfigPreviewKey(project.id, state, force);
+  const currentKey = projectConfigPreviewKey(project.id, state, group, tags, force);
   const canApply = plan !== undefined && previewKey === currentKey;
 
   const run = async (apply: boolean) => {
     setBusy(true);
     setMessage("");
     try {
+      const changes: ProjectConfigValues = {
+        state,
+        group: group.trim(),
+        tags: splitTags(tags),
+      };
       const nextPlan = apply
-        ? await postProjectConfigApply(project.id, state, { force })
-        : await postProjectConfigPlan(project.id, state, { force });
+        ? await postProjectConfigApply(project.id, changes, { force })
+        : await postProjectConfigPlan(project.id, changes, { force });
       setPlan(nextPlan);
       setPreviewKey(currentKey);
       if (apply) {
@@ -1640,16 +1710,26 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
         busy={busy}
         canApply={canApply}
         force={force}
+        group={group}
         project={project}
         state={state}
+        tags={tags}
         onApply={() => run(true)}
         onForceChange={(nextForce) => {
           setForce(nextForce);
           setPreviewKey("");
         }}
+        onGroupChange={(nextGroup) => {
+          setGroup(nextGroup);
+          setPreviewKey("");
+        }}
         onPreview={() => run(false)}
         onStateChange={(nextState) => {
           setState(nextState);
+          setPreviewKey("");
+        }}
+        onTagsChange={(nextTags) => {
+          setTags(nextTags);
           setPreviewKey("");
         }}
       />
@@ -1659,30 +1739,44 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
   );
 }
 
-function projectConfigPreviewKey(projectId: string, state: Project["state"], force: boolean) {
-  return `${projectId}:${state}:${force ? "force" : "normal"}`;
+function projectConfigPreviewKey(
+  projectId: string,
+  state: Project["state"],
+  group: string,
+  tags: string,
+  force: boolean,
+) {
+  return `${projectId}:${state}:${group}:${tags}:${force ? "force" : "normal"}`;
 }
 
 function ProjectStateForm({
   busy,
   canApply,
   force,
+  group,
   project,
   state,
+  tags,
   onApply,
   onForceChange,
+  onGroupChange,
   onPreview,
   onStateChange,
+  onTagsChange,
 }: {
   busy: boolean;
   canApply: boolean;
   force: boolean;
+  group: string;
   project: Project;
   state: Project["state"];
+  tags: string;
   onApply: () => void;
   onForceChange: (force: boolean) => void;
+  onGroupChange: (group: string) => void;
   onPreview: () => void;
   onStateChange: (state: Project["state"]) => void;
+  onTagsChange: (tags: string) => void;
 }) {
   return (
     <div className="project-settings-controls">
@@ -1702,6 +1796,14 @@ function ProjectStateForm({
             </option>
           ))}
         </select>
+      </label>
+      <label>
+        <span>Group</span>
+        <input value={group} onChange={(event) => onGroupChange(event.target.value)} />
+      </label>
+      <label>
+        <span>Tags</span>
+        <input value={tags} onChange={(event) => onTagsChange(event.target.value)} />
       </label>
       <label className="checkbox-label">
         <input
@@ -1737,80 +1839,6 @@ function ProjectConfigPlanPreview({ plan }: { plan: ProjectConfigPlan | undefine
       <pre className="toml-preview">{plan.diff}</pre>
       {plan.validation && (
         <ValidationSummary validation={plan.validation} label={validationLabel} />
-      )}
-    </>
-  );
-}
-
-function MoveProjectControls({ project, onApplied }: { project: Project; onApplied: () => void }) {
-  const [movePath, setMovePath] = useState("");
-  const [movePlan, setMovePlan] = useState<RepoMovePlan>();
-  const [previewPath, setPreviewPath] = useState("");
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const trimmedMovePath = movePath.trim();
-  const canMove =
-    movePlan !== undefined && previewPath === trimmedMovePath && movePlan.projectId === project.id;
-
-  const run = async (apply: boolean) => {
-    setBusy(true);
-    setMessage("");
-    try {
-      const result = apply
-        ? await postRepoMove(project.id, movePath)
-        : await postRepoMovePlan(project.id, movePath);
-      setMovePlan(result);
-      setPreviewPath(trimmedMovePath);
-      if (apply) {
-        setMessage("Moved");
-        onApplied();
-      }
-    } catch (error) {
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <div className="move-controls">
-        <label>
-          <span>Move path</span>
-          <input
-            value={movePath}
-            onChange={(event) => {
-              setMovePath(event.target.value);
-              setPreviewPath("");
-            }}
-            placeholder="new-relative-path"
-          />
-        </label>
-        <button type="button" onClick={() => run(false)} disabled={busy || !trimmedMovePath}>
-          Preview Move
-        </button>
-        <button type="button" onClick={() => run(true)} disabled={busy || !canMove}>
-          Move
-        </button>
-      </div>
-      {movePlan && <MovePlanPreview plan={movePlan} />}
-      {message && <p className={message === "Moved" ? "success" : "error"}>{message}</p>}
-    </>
-  );
-}
-
-function MovePlanPreview({ plan }: { plan: RepoMovePlan }) {
-  return (
-    <>
-      <pre className="toml-preview">{plan.diff ?? plan.toml ?? plan.relativePath}</pre>
-      {plan.validation && (
-        <ValidationSummary
-          validation={plan.validation}
-          label={
-            plan.validation.valid ? "Projected validation: valid" : "Projected validation issues"
-          }
-        />
       )}
     </>
   );
@@ -2391,7 +2419,7 @@ function automationJobInput(job: AutomationJob | undefined): AutomationJobConfig
       schedule: "0 9 * * 1-5",
       mode: "recommendation-only",
       prompt: "",
-      output: "_reports/automation/{date}.md",
+      output: "automation/{date}.md",
       repoFilter: "not archived",
       issueLabels: [],
       enabled: true,

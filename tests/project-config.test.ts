@@ -13,8 +13,6 @@ async function tempWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 
@@ -44,7 +42,7 @@ function hostedProject(repo = "paid-api"): Project {
     tags: [],
     languages: [],
     hasRoadmap: false,
-    sync: true,
+    up: true,
     automationEnabled: true,
   };
 }

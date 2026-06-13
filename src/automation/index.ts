@@ -338,8 +338,7 @@ async function runCodexJob(
 function outputPath(job: AutomationJob, slot: AutomationDueSlot): string {
   const date = slotDateKey(slot) ?? slot.dueAt.slice(0, 10);
   const isoWeek = slotIsoWeekKey(slot) ?? isoWeekKey(new Date(slot.dueAt));
-  return (job.output ?? `_reports/automation/${job.id}/${slot.slotId.replaceAll("/", "__")}.md`)
-    .replace(/^_reports\//, "")
+  return (job.output ?? `automation/${job.id}/${slot.slotId.replaceAll("/", "__")}.md`)
     .replaceAll("{date}", date)
     .replaceAll("{slot}", slot.slotId.replaceAll("/", "__").replaceAll(":", "-"))
     .replaceAll("{iso_week}", isoWeek);
@@ -398,10 +397,7 @@ export function eligibleProjectsForJob(
   return projects
     .filter(
       (project) =>
-        project.source === "github" &&
-        project.sync &&
-        project.automationEnabled &&
-        !project.archived,
+        project.source === "github" && project.up && project.automationEnabled && !project.archived,
     )
     .filter((project) => (job.repoFilter ? matchesProjectFilter(project, job.repoFilter) : true));
 }
@@ -444,7 +440,7 @@ function renderProjectContext(project: Project): string {
     `state=${project.state}`,
     `visibility=${project.visibility ?? "local"}`,
     `path=${project.path}`,
-    `sync=${project.sync}`,
+    `up=${project.up}`,
     `automation=${project.automationEnabled}`,
     project.url ? `url=${project.url}` : undefined,
     project.defaultBranchRef ? `default_branch=${project.defaultBranchRef}` : undefined,

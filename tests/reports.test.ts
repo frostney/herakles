@@ -11,8 +11,6 @@ async function tempWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 `,
@@ -24,17 +22,17 @@ describe("report notes", () => {
   test("creates a local markdown note under reports", async () => {
     const loaded = await loadConfig(await tempWorkspace());
     const note = await createReportNote(loaded, {
-      title: "Review sync & prune",
-      body: "Follow up on the prune wording.",
+      title: "Review workspace up",
+      body: "Follow up on the checkout wording.",
       projectId: "github:frostney/herakles",
       now: new Date("2026-06-13T10:00:00Z"),
     });
     const content = await readFile(note.path, "utf8");
     const reports = await listReports(loaded);
 
-    expect(note.id).toBe("notes/github-frostney-herakles/2026-06-13-review-sync-prune.md");
+    expect(note.id).toBe("notes/github-frostney-herakles/2026-06-13-review-workspace-up.md");
     expect(note.kind).toBe("notes");
-    expect(content).toContain("# Review sync & prune");
+    expect(content).toContain("# Review workspace up");
     expect(content).toContain("Project: github:frostney/herakles");
     expect(reports.map((report) => report.id)).toContain(note.id);
   });

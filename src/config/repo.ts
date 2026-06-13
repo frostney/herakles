@@ -45,13 +45,16 @@ async function inspectStateIgnore(loaded: LoadedConfig): Promise<DoctorCheck> {
   const ignored = content
     .split("\n")
     .map((line) => line.trim())
-    .some((line) => line === ".herakles-state" || line === ".herakles-state/");
+    .filter(Boolean);
+  const required = ["cache/", "reports/", "worktrees/", "state/"];
+  const missing = required.filter((line) => !ignored.includes(line));
   return {
     name: "config-state-ignore",
-    status: ignored ? "ok" : "warn",
-    message: ignored
-      ? ".herakles-state/ is ignored on the config branch"
-      : "_herakles/.gitignore should include .herakles-state/",
+    status: missing.length === 0 ? "ok" : "warn",
+    message:
+      missing.length === 0
+        ? "Herakles generated state is ignored in _herakles"
+        : `_herakles/.gitignore should include ${missing.join(", ")}`,
   };
 }
 

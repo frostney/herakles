@@ -5,8 +5,6 @@ import { createEventStream, emitApiEvent } from "./events";
 
 export type ApiOptions = {
   workspaceRoot: string;
-  token?: string;
-  remoteSyncOnly?: boolean;
 };
 
 type ApiContext = {
@@ -52,8 +50,9 @@ const projectConfigBodySchema = z
   .object({
     projectId: nonEmptyString,
     state: projectStateSchema.optional(),
+    group: z.string().optional(),
+    tags: z.array(nonEmptyString).optional(),
     learning: nonEmptyString.optional(),
-    path: nonEmptyString.optional(),
     force: z.boolean().optional(),
   })
   .strict();
@@ -62,9 +61,8 @@ const addProjectBodySchema = z
     id: nonEmptyString,
     source: z.enum(["github", "local"]),
     repo: nonEmptyString.optional(),
-    path: nonEmptyString.optional(),
+    group: nonEmptyString.optional(),
     state: projectStateSchema.optional(),
-    sync: z.boolean().optional(),
     tags: z.array(nonEmptyString).optional(),
   })
   .strict();
@@ -76,7 +74,8 @@ const importProjectsBodySchema = z
           id: nonEmptyString,
           repo: nonEmptyString,
           state: projectStateSchema.optional(),
-          path: nonEmptyString.optional(),
+          group: nonEmptyString.optional(),
+          tags: z.array(nonEmptyString).optional(),
         })
         .strict(),
     ),
@@ -86,10 +85,7 @@ const removeProjectBodySchema = z.object({ projectId: nonEmptyString }).strict()
 const checkoutProjectBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
   .strict();
-const repoMoveBodySchema = z.object({ projectId: nonEmptyString, path: nonEmptyString }).strict();
-const pruneBodySchema = z
-  .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
-  .strict();
+const configTomlBodySchema = z.object({ toml: z.string() }).strict();
 const issueRecommendationsBodySchema = z
   .object({
     labels: z.array(nonEmptyString).optional(),
@@ -123,14 +119,6 @@ function json(value: unknown, init?: ResponseInit): Response {
   });
 }
 
-function requireToken(req: Request, token?: string): Response | undefined {
-  if (!token) return json({ error: "access token required" }, { status: 401 });
-  const auth = req.headers.get("authorization");
-  if (auth !== `Bearer ${token}`) {
-    return json({ error: "unauthorized" }, { status: 401 });
-  }
-}
-
 const getRoutes: Record<string, ApiHandler> = {
   "/api/status": ({ options }) => jsonAsync(app.status(options.workspaceRoot)),
   "/api/projects/discovery": ({ options }) =>
@@ -143,20 +131,12 @@ const getRoutes: Record<string, ApiHandler> = {
     ),
   "/api/projects": ({ options }) => jsonAsync(app.projects(options.workspaceRoot)),
   "/api/local-projects": ({ options }) => jsonAsync(app.localProjects(options.workspaceRoot)),
-  "/api/sync/remote/status": ({ options, url }) =>
-    jsonAsync(app.remoteStatus(options.workspaceRoot, url.origin)),
-  "/api/sync/remote/projects": ({ options }) =>
-    jsonAsync(app.remoteProjects(options.workspaceRoot)),
-  "/api/sync/remote/plan": ({ options, url }) =>
-    jsonAsync(app.remoteSyncPlan(options.workspaceRoot, url.origin)),
-  "/api/sync/remote/automation": ({ options }) =>
-    jsonAsync(app.remoteAutomations(options.workspaceRoot)),
-  "/api/sync/remote/reports": ({ options }) => jsonAsync(app.remoteReports(options.workspaceRoot)),
-  "/api/sync/prune-plan": ({ options }) => jsonAsync(app.prunePlan(options.workspaceRoot)),
+  "/api/up/plan": ({ options }) => jsonAsync(app.upPlan(options.workspaceRoot)),
   "/api/validate": ({ options, url }) =>
     jsonAsync(app.validation(options.workspaceRoot, { strict: isStrict(url) })),
   "/api/reports": ({ options }) => jsonAsync(app.reports(options.workspaceRoot)),
   "/api/doctor": ({ options }) => jsonAsync(app.doctor(options.workspaceRoot)),
+  "/api/config/toml": ({ options }) => jsonAsync(app.configToml(options.workspaceRoot)),
   "/api/automation/jobs": ({ options }) => jsonAsync(app.automations(options.workspaceRoot)),
   "/api/automation/due": ({ options }) =>
     jsonAsync(app.automations(options.workspaceRoot).then((result) => result.due)),
@@ -171,19 +151,20 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/remove": (context) => routeRemoveProject(context),
   "/api/projects/checkout": (context) => routeCheckoutProject(context),
   "/api/config/pull": ({ options }) => routeConfigPull(options.workspaceRoot),
+  "/api/config/toml/plan": (context) =>
+    routeConfigToml(context, context.options.workspaceRoot, false),
+  "/api/config/toml/apply": (context) =>
+    routeConfigToml(context, context.options.workspaceRoot, true),
   "/api/validate": ({ options, url }) =>
     routeValidation(options.workspaceRoot, { strict: isStrict(url) }),
-  "/api/sync/dry-run": ({ options }) => routeSync(options.workspaceRoot, true),
-  "/api/sync": ({ options }) => routeSync(options.workspaceRoot, false),
-  "/api/prune": (context) => routePrune(context),
+  "/api/up/plan": ({ options }) => routeUp(options.workspaceRoot, true),
+  "/api/up": ({ options }) => routeUp(options.workspaceRoot, false),
   "/api/automation/tick": ({ options }) => routeAutomationTick(options.workspaceRoot),
   "/api/automation/run": (context) => routeAutomationRun(context),
   "/api/automation/job-plan": (context) => routeAutomationJobPlan(context),
   "/api/automation/job-apply": (context) => routeAutomationJobApply(context),
   "/api/config/project-plan": (context) => routeProjectConfigPlan(context),
   "/api/config/apply": (context) => routeConfigApply(context),
-  "/api/repo/move-plan": (context) => routeRepoMovePlan(context),
-  "/api/repo/move": (context) => routeRepoMove(context),
   "/api/reports/note": (context) => routeReportNote(context),
   "/api/recommendations/issues": (context) => routeIssueRecommendations(context),
   "/api/recommendations/coderabbit": (context) => routeCodeRabbitRecommendations(context),
@@ -193,15 +174,7 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
   const url = new URL(req.url);
   const path = url.pathname;
   if (!path.startsWith("/api/")) return undefined;
-  if (options.remoteSyncOnly && !path.startsWith("/api/sync/remote")) {
-    return json({ error: "remote API is sync-only" }, { status: 403 });
-  }
   if (req.method === "GET" && path === "/api/events") return createEventStream();
-
-  if (path.startsWith("/api/sync/remote")) {
-    const unauthorized = requireToken(req, options.token);
-    if (unauthorized) return unauthorized;
-  }
 
   try {
     const routed = await routeKnownApi(req.method, { req, path, url, options });
@@ -226,10 +199,6 @@ async function routeGet(context: ApiContext): Promise<Response | undefined> {
   if (context.path.startsWith("/api/project-details/")) {
     const id = decodeURIComponent(context.path.slice("/api/project-details/".length));
     return json(await app.projectDetail(context.options.workspaceRoot, id));
-  }
-  if (context.path.startsWith("/api/sync/remote/reports/")) {
-    const id = decodeURIComponent(context.path.slice("/api/sync/remote/reports/".length));
-    return json(await app.remoteReport(context.options.workspaceRoot, id));
   }
   if (context.path.startsWith("/api/projects/")) {
     const id = decodeURIComponent(context.path.slice("/api/projects/".length));
@@ -288,9 +257,8 @@ async function routeAddProject(context: ApiContext): Promise<Response> {
       id: body.data.id,
       source: body.data.source,
       ...(body.data.repo === undefined ? {} : { repo: body.data.repo }),
-      ...(body.data.path === undefined ? {} : { path: body.data.path }),
+      ...(body.data.group === undefined ? {} : { group: body.data.group }),
       ...(body.data.state === undefined ? {} : { state: body.data.state }),
-      ...(body.data.sync === undefined ? {} : { sync: body.data.sync }),
       ...(body.data.tags === undefined ? {} : { tags: body.data.tags }),
     }),
   );
@@ -306,7 +274,8 @@ async function routeImportProjects(context: ApiContext): Promise<Response> {
         id: project.id,
         repo: project.repo,
         ...(project.state === undefined ? {} : { state: project.state }),
-        ...(project.path === undefined ? {} : { path: project.path }),
+        ...(project.group === undefined ? {} : { group: project.group }),
+        ...(project.tags === undefined ? {} : { tags: project.tags }),
       })),
     ),
   );
@@ -321,21 +290,21 @@ async function routeRemoveProject(context: ApiContext): Promise<Response> {
 async function routeCheckoutProject(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, checkoutProjectBodySchema);
   if (!body.ok) return body.response;
-  emitApiEvent("sync-started", `project checkout started for ${body.data.projectId}`, {
+  emitApiEvent("up-started", `project checkout started for ${body.data.projectId}`, {
     projectId: body.data.projectId,
     dryRun: body.data.dryRun === true,
   });
   const result = await app.checkoutProject(context.options.workspaceRoot, body.data.projectId, {
     dryRun: body.data.dryRun === true,
     onProgress(progress) {
-      emitApiEvent("sync-progress", `${progress.item.project.repo}: ${progress.message}`, {
+      emitApiEvent("up-progress", `${progress.item.project.repo}: ${progress.message}`, {
         projectId: progress.item.project.id,
         action: progress.item.action,
         status: progress.status,
       });
     },
   });
-  emitApiEvent("sync-finished", `project checkout finished for ${body.data.projectId}`, {
+  emitApiEvent("up-finished", `project checkout finished for ${body.data.projectId}`, {
     projectId: body.data.projectId,
     dryRun: body.data.dryRun === true,
     results: result.length,
@@ -345,6 +314,25 @@ async function routeCheckoutProject(context: ApiContext): Promise<Response> {
 
 async function routeConfigPull(workspaceRoot: string): Promise<Response> {
   return json(await app.configPull(workspaceRoot));
+}
+
+async function routeConfigToml(
+  context: ApiContext,
+  workspaceRoot: string,
+  apply: boolean,
+): Promise<Response> {
+  const body = await readJsonBody(context, configTomlBodySchema);
+  if (!body.ok) return body.response;
+  const result = apply
+    ? await app.applyConfigToml(workspaceRoot, body.data.toml)
+    : await app.configTomlPlan(workspaceRoot, body.data.toml);
+  if (apply) {
+    emitApiEvent("validation-updated", "configuration applied", {
+      valid: result.validation.valid,
+      issues: result.validation.issues.length,
+    });
+  }
+  return json(result);
 }
 
 async function routeValidation(
@@ -359,19 +347,21 @@ async function routeValidation(
   return json(validation);
 }
 
-async function routeSync(workspaceRoot: string, dryRun: boolean): Promise<Response> {
-  emitApiEvent("sync-started", dryRun ? "sync dry run started" : "sync started", { dryRun });
-  const result = await app.sync(workspaceRoot, {
+async function routeUp(workspaceRoot: string, dryRun: boolean): Promise<Response> {
+  emitApiEvent("up-started", dryRun ? "workspace up plan started" : "workspace up started", {
+    dryRun,
+  });
+  const result = await app.up(workspaceRoot, {
     dryRun,
     onProgress(progress) {
-      emitApiEvent("sync-progress", `${progress.item.project.slug}: ${progress.message}`, {
+      emitApiEvent("up-progress", `${progress.item.project.slug}: ${progress.message}`, {
         projectId: progress.item.project.id,
         action: progress.item.action,
         status: progress.status,
       });
     },
   });
-  emitApiEvent("sync-finished", dryRun ? "sync dry run finished" : "sync finished", {
+  emitApiEvent("up-finished", dryRun ? "workspace up plan finished" : "workspace up finished", {
     dryRun,
     results: result.length,
   });
@@ -444,31 +434,6 @@ async function routeConfigApply(context: ApiContext): Promise<Response> {
       projectConfigChanges(body.data),
       { force: body.data.force === true },
     ),
-  );
-}
-
-async function routeRepoMovePlan(context: ApiContext): Promise<Response> {
-  return routeRepoMoveAction(context, "plan");
-}
-
-async function routeRepoMove(context: ApiContext): Promise<Response> {
-  return routeRepoMoveAction(context, "apply");
-}
-
-async function routeRepoMoveAction(context: ApiContext, mode: "plan" | "apply"): Promise<Response> {
-  const body = await readJsonBody(context, repoMoveBodySchema);
-  if (!body.ok) return body.response;
-  const action = mode === "plan" ? app.repoMovePlan : app.repoMove;
-  return json(await action(context.options.workspaceRoot, body.data.projectId, body.data.path));
-}
-
-async function routePrune(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, pruneBodySchema);
-  if (!body.ok) return body.response;
-  return json(
-    await app.prune(context.options.workspaceRoot, body.data.projectId, {
-      dryRun: body.data.dryRun === true,
-    }),
   );
 }
 
@@ -601,8 +566,9 @@ async function readJsonBody<T extends z.ZodTypeAny>(
 function projectConfigChanges(body: z.infer<typeof projectConfigBodySchema>) {
   return {
     ...(body.state === undefined ? {} : { state: body.state }),
+    ...(body.group === undefined ? {} : { group: body.group }),
+    ...(body.tags === undefined ? {} : { tags: body.tags }),
     ...(body.learning === undefined ? {} : { learning: body.learning }),
-    ...(body.path === undefined ? {} : { path: body.path }),
   };
 }
 

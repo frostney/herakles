@@ -24,15 +24,13 @@ async function tempWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 
 [job.friday_summary]
 schedule = "00 16 * * FRI"
 mode = "summary"
-output = "_reports/weekly/{iso_week}.md"
+output = "weekly/{iso_week}.md"
 repo_filter = 'has_topic("current")'
 issue_labels = ["ready-for-agent", "well-defined"]
 skill = "summary-skill"
@@ -47,8 +45,6 @@ async function tempHourlyWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 
@@ -58,7 +54,7 @@ catch_up_window_minutes = 1440
 [job.coderabbit]
 schedule = "0 */4 * * *"
 mode = "summary"
-output = "_reports/coderabbit/{slot}.md"
+output = "coderabbit/{slot}.md"
 `,
   );
   return root;
@@ -70,8 +66,6 @@ async function tempManualGateWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 
@@ -79,7 +73,7 @@ owners = []
 schedule = "0 12 * * *"
 slot_timezone = "UTC"
 mode = "ai-harness-report"
-output = "_reports/harness/{date}.md"
+output = "harness/{date}.md"
 repo_filter = 'state == "open-source"'
 `,
   );
@@ -92,15 +86,13 @@ async function tempImplementationPlanWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 
 [job.evening_issues]
 schedule = "0 18 * * *"
 mode = "implementation-plan"
-output = "_reports/issues/{date}.md"
+output = "issues/{date}.md"
 repo_filter = 'has_topic("current")'
 issue_labels = ["ready-for-agent"]
 `,
@@ -114,15 +106,13 @@ async function tempCodeRabbitReviewWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 
 [job.coderabbit]
 schedule = "0 */4 * * *"
 mode = "coderabbit-review"
-output = "_reports/coderabbit/{slot}.md"
+output = "coderabbit/{slot}.md"
 repo_filter = 'has_topic("current")'
 `,
   );
@@ -135,8 +125,6 @@ async function tempReportOnlyWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 
@@ -148,12 +136,15 @@ sandbox = "workspace-write"
 schedule = "30 08 * * 1-5"
 mode = "recommendation-only"
 prompt = "Recommend next work."
-output = "_reports/morning/{date}.md"
+output = "morning/{date}.md"
 repo_filter = 'has_roadmap'
 `,
   );
-  await mkdir(join(root, "_reports", "previous"), { recursive: true });
-  await writeFile(join(root, "_reports", "previous", "summary.md"), "# Previous Report\n");
+  await mkdir(join(root, "_herakles", "reports", "previous"), { recursive: true });
+  await writeFile(
+    join(root, "_herakles", "reports", "previous", "summary.md"),
+    "# Previous Report\n",
+  );
   return root;
 }
 
@@ -163,8 +154,6 @@ async function tempDisabledAutomationWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 
@@ -195,7 +184,7 @@ function project(repo: string, options: Partial<Project> = {}): Project {
     tags: [],
     languages: [],
     hasRoadmap: false,
-    sync: true,
+    up: true,
     automationEnabled: true,
     ...options,
   };
@@ -301,7 +290,7 @@ describe("automation", () => {
     const workerPath = await writeDefaultCronWorker(loaded);
     const source = await Bun.file(workerPath).text();
 
-    expect(workerPath).toBe(join(root, "_cache", "herakles-automate-tick.ts"));
+    expect(workerPath).toBe(join(root, "_herakles", "cache", "herakles-automate-tick.ts"));
     expect(source).toContain("export default");
     expect(source).toContain("async scheduled()");
     expect(source).toContain(`await automate(${JSON.stringify(root)})`);
@@ -383,7 +372,8 @@ describe("automation", () => {
     };
     const lockPath = join(
       root,
-      ".herakles-state",
+      "_herakles",
+      "state",
       "locks",
       "stale",
       "stale__2026-06-12T12-00Z.json",
@@ -475,7 +465,7 @@ describe("automation", () => {
       date: "2026-06-12",
       projects: [
         project("active", { topics: ["current"] }),
-        project("unsynced", { topics: ["current"], sync: false }),
+        project("unsynced", { topics: ["current"], up: false }),
         project("other"),
       ],
       issueLoader: async (projects, labels) => {
@@ -528,7 +518,7 @@ describe("automation", () => {
       date: "2026-06-12",
       projects: [
         project("active", { topics: ["current"] }),
-        project("unsynced", { topics: ["current"], sync: false }),
+        project("unsynced", { topics: ["current"], up: false }),
         project("other"),
       ],
       codeRabbitPullRequestLoader: async (projects) => {

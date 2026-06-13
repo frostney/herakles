@@ -27,7 +27,7 @@ export async function generateCodeRabbitRecommendations(
   const now = options.now ?? new Date();
   const eligibleProjects = projects.filter(
     (project) =>
-      project.source === "github" && project.sync && project.automationEnabled && !project.archived,
+      project.source === "github" && project.up && project.automationEnabled && !project.archived,
   );
   const loadPullRequests = options.loadPullRequests ?? listProjectPullRequests;
   const loadThreads = options.loadThreads ?? listPullRequestReviewThreads;

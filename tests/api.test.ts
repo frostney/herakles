@@ -14,8 +14,6 @@ async function tempWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 `,
@@ -24,14 +22,14 @@ owners = []
 }
 
 async function addLocalGitProject(workspaceRoot: string, name: string) {
-  await mkdir(join(workspaceRoot, name, ".git"), { recursive: true });
-  await writeFile(join(workspaceRoot, name, ".git", "HEAD"), "ref: refs/heads/main\n");
+  const projectPath = join(workspaceRoot, "experiment", name);
+  await mkdir(join(projectPath, ".git"), { recursive: true });
+  await writeFile(join(projectPath, ".git", "HEAD"), "ref: refs/heads/main\n");
   await appendFile(
     join(workspaceRoot, "_herakles", "herakles.toml"),
     `
 [project.${JSON.stringify(name)}]
 source = "local"
-path = ${JSON.stringify(name)}
 `,
   );
 }
@@ -40,8 +38,6 @@ async function configureGithubOwner(workspaceRoot: string) {
   await writeFile(
     join(workspaceRoot, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = ["frostney"]
 `,
@@ -85,23 +81,15 @@ async function checkoutProjectDryRun(workspaceRoot: string, projectId: string) {
   return { response, body: await response?.json() };
 }
 
-async function getRemoteSyncPlan(workspaceRoot: string) {
-  return getRemote(workspaceRoot, "/api/sync/remote/plan");
-}
-
-async function getRemote(workspaceRoot: string, path: string) {
-  const response = await routeApi(
-    new Request(`http://remote.example${path}`, {
-      headers: { authorization: "Bearer secret" },
-    }),
-    { workspaceRoot, token: "secret", remoteSyncOnly: true },
-  );
-  return { response, body: await response?.json() };
-}
-
 async function withHostedPublicToolAndScratch(workspaceRoot: string, run: () => Promise<void>) {
   await configureGithubOwner(workspaceRoot);
   await addLocalGitProject(workspaceRoot, "scratch");
+  await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
+  await withFakeGhRepo({ name: "public-tool" }, run);
+}
+
+async function withTrackedPublicTool(workspaceRoot: string, run: () => Promise<void>) {
+  await configureGithubOwner(workspaceRoot);
   await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
   await withFakeGhRepo({ name: "public-tool" }, run);
 }
@@ -149,121 +137,14 @@ describe("api routes", () => {
     }
   });
 
-  test("status exposes synced and local config sources", async () => {
+  test("status exposes the canonical synced config source", async () => {
     const workspaceRoot = await tempWorkspace();
-    await writeFile(join(workspaceRoot, "_herakles", "herakles.local.toml"), "[ui]\nport = 4784\n");
 
     const response = await routeApi(new Request("http://x/api/status"), { workspaceRoot });
     const body = await response?.json();
 
     expect(response?.status).toBe(200);
     expect(body.config.syncedConfigPath).toBe(join(workspaceRoot, "_herakles", "herakles.toml"));
-    expect(body.config.localConfigPath).toBe(
-      join(workspaceRoot, "_herakles", "herakles.local.toml"),
-    );
-  });
-
-  test("requires a bearer token for remote sync plans", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const unauthorized = await routeApi(new Request("http://x/api/sync/remote/plan"), {
-      workspaceRoot,
-      token: "secret",
-    });
-    const authorized = await routeApi(
-      new Request("http://x/api/sync/remote/plan", {
-        headers: { authorization: "Bearer secret" },
-      }),
-      { workspaceRoot, token: "secret" },
-    );
-
-    expect(unauthorized?.status).toBe(401);
-    expect(authorized?.status).toBe(200);
-  });
-
-  test("requires a configured token for remote sync plans", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const response = await routeApi(new Request("http://x/api/sync/remote/plan"), {
-      workspaceRoot,
-    });
-    const body = await response?.json();
-
-    expect(response?.status).toBe(401);
-    expect(body.error).toBe("access token required");
-  });
-
-  test("remote sync-only mode refuses broader command API routes", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const response = await routeApi(
-      new Request("http://x/api/sync", {
-        method: "POST",
-        headers: { authorization: "Bearer secret" },
-      }),
-      { workspaceRoot, token: "secret", remoteSyncOnly: true },
-    );
-    const body = await response?.json();
-
-    expect(response?.status).toBe(403);
-    expect(body.error).toBe("remote API is sync-only");
-  });
-
-  test("remote sync-only mode still serves authenticated sync plans", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const { response, body } = await getRemoteSyncPlan(workspaceRoot);
-
-    expect(response?.status).toBe(200);
-    expect(body.server).toBe("http://remote.example");
-  });
-
-  test("remote sync plan uses relative hosted paths and hides local projects", async () => {
-    const workspaceRoot = await tempWorkspace();
-    await withHostedPublicToolAndScratch(workspaceRoot, async () => {
-      const { response, body } = await getRemoteSyncPlan(workspaceRoot);
-
-      expect(response?.status).toBe(200);
-      expect(body.items.map((item: { project: { id: string } }) => item.project.id)).toEqual([
-        "github:frostney/public-tool",
-      ]);
-      expect(body.items[0].project.path).toBe("public-tool");
-    });
-  });
-
-  test("remote read-only status and projects expose hosted projects only", async () => {
-    const workspaceRoot = await tempWorkspace();
-    await withHostedPublicToolAndScratch(workspaceRoot, async () => {
-      const projects = await getRemote(workspaceRoot, "/api/sync/remote/projects");
-      const status = await getRemote(workspaceRoot, "/api/sync/remote/status");
-
-      expect(projects.response?.status).toBe(200);
-      expect(projects.body.map((project: { id: string }) => project.id)).toEqual([
-        "github:frostney/public-tool",
-      ]);
-      expect(projects.body[0].path).toBe("public-tool");
-      expect(status.response?.status).toBe(200);
-      expect(status.body.projectCount).toBe(1);
-      expect(status.body.hostedCount).toBe(1);
-      expect(status.body.localExperimentCount).toBeUndefined();
-      expect(status.body.counts).toEqual({ "open-source": 1 });
-      expect(status.body.validation.valid).toBe(true);
-    });
-  });
-
-  test("remote read-only reports use workspace-relative paths", async () => {
-    const workspaceRoot = await tempWorkspace();
-    await writeReport(await loadConfig(workspaceRoot), "notes/public-tool.md", "Report body.\n");
-
-    const reports = await getRemote(workspaceRoot, "/api/sync/remote/reports");
-    const detail = await getRemote(
-      workspaceRoot,
-      "/api/sync/remote/reports/notes%2Fpublic-tool.md",
-    );
-
-    expect(reports.response?.status).toBe(200);
-    expect(reports.body).toHaveLength(1);
-    expect(reports.body[0].id).toBe("notes/public-tool.md");
-    expect(reports.body[0].path).toBe("_reports/notes/public-tool.md");
-    expect(detail.response?.status).toBe(200);
-    expect(detail.body.path).toBe("_reports/notes/public-tool.md");
-    expect(detail.body.content).toBe("Report body.\n");
   });
 
   test("creates local report notes through the API", async () => {
@@ -272,8 +153,8 @@ describe("api routes", () => {
       new Request("http://x/api/reports/note", {
         method: "POST",
         body: JSON.stringify({
-          title: "Investigate sync",
-          body: "Check dry-run output before pruning.",
+          title: "Investigate workspace up",
+          body: "Check dry-run output before checkout.",
           projectId: "github:frostney/public-tool",
         }),
       }),
@@ -284,50 +165,8 @@ describe("api routes", () => {
 
     expect(response?.status).toBe(200);
     expect(body.id).toStartWith("notes/github-frostney-public-tool/");
-    expect(content).toContain("# Investigate sync");
+    expect(content).toContain("# Investigate workspace up");
     expect(content).toContain("Check dry-run output");
-  });
-
-  test("remote read-only automation mirrors status without enabling remote runs", async () => {
-    const workspaceRoot = await tempWorkspace();
-    await writeFile(
-      join(workspaceRoot, "_herakles", "herakles.toml"),
-      `version = 2
-root = "."
-
-[github]
-owners = []
-
-[job.daily]
-schedule = "0 8 * * *"
-mode = "summary"
-`,
-    );
-    const run = await routeApi(
-      new Request("http://x/api/automation/run", {
-        method: "POST",
-        body: JSON.stringify({ jobId: "daily", date: "2026-06-12" }),
-      }),
-      { workspaceRoot },
-    );
-    const automation = await getRemote(workspaceRoot, "/api/sync/remote/automation");
-    const remoteRun = await routeApi(
-      new Request("http://remote.example/api/automation/run", {
-        method: "POST",
-        headers: { authorization: "Bearer secret" },
-        body: JSON.stringify({ jobId: "daily", date: "2026-06-13" }),
-      }),
-      { workspaceRoot, token: "secret", remoteSyncOnly: true },
-    );
-    const remoteRunBody = await remoteRun?.json();
-
-    expect(run?.status).toBe(200);
-    expect(automation.response?.status).toBe(200);
-    expect(automation.body.jobs.map((job: { id: string }) => job.id)).toEqual(["daily"]);
-    expect(automation.body.runs[0].reportPath).toStartWith("_reports/");
-    expect(automation.body.runs[0].reportPath).not.toContain(workspaceRoot);
-    expect(remoteRun?.status).toBe(403);
-    expect(remoteRunBody.error).toBe("remote API is sync-only");
   });
 
   test("serves strict validation for remote archive evidence checks", async () => {
@@ -335,8 +174,6 @@ mode = "summary"
     await writeFile(
       join(workspaceRoot, "_herakles", "herakles.toml"),
       `version = 2
-root = "."
-
 [github]
 owners = ["frostney"]
 `,
@@ -364,8 +201,6 @@ owners = ["frostney"]
     await writeFile(
       join(workspaceRoot, "_herakles", "herakles.toml"),
       `version = 2
-root = "."
-
 [github]
 owners = []
 
@@ -438,45 +273,6 @@ mode = "summary"
     expect(body.local.map((repo: { name: string }) => repo.name)).toEqual(["scratch"]);
   });
 
-  test("serves prune planning and explicit prune action", async () => {
-    const workspaceRoot = await tempWorkspace();
-    await writeFile(
-      join(workspaceRoot, "_herakles", "herakles.toml"),
-      `version = 2
-root = "."
-
-[github]
-owners = ["frostney"]
-
-[project."old-tool"]
-source = "github"
-repo = "frostney/old-tool"
-sync = false
-`,
-    );
-    await mkdir(join(workspaceRoot, "old-tool", ".git"), { recursive: true });
-    await withFakeGhRepo({ name: "old-tool" }, async () => {
-      const plan = await routeApi(new Request("http://x/api/sync/prune-plan"), {
-        workspaceRoot,
-      });
-      const dryRun = await routeApi(
-        new Request("http://x/api/prune", {
-          method: "POST",
-          body: JSON.stringify({ projectId: "old-tool", dryRun: true }),
-        }),
-        { workspaceRoot },
-      );
-      const planBody = await plan?.json();
-      const dryRunBody = await dryRun?.json();
-
-      expect(plan?.status).toBe(200);
-      expect(dryRun?.status).toBe(200);
-      expect(planBody.items).toHaveLength(1);
-      expect(planBody.items[0].reason).toBe("filtered");
-      expect(dryRunBody.status).toBe("planned");
-    });
-  });
-
   test("project config plan route validates required project id", async () => {
     const workspaceRoot = await tempWorkspace();
     const response = await routeApi(
@@ -495,8 +291,6 @@ sync = false
     await writeFile(
       join(workspaceRoot, "_herakles", "herakles.toml"),
       `version = 2
-root = "."
-
 [github]
 owners = ["frostney"]
 `,
@@ -541,7 +335,7 @@ owners = ["frostney"]
     const workspaceRoot = await tempWorkspace();
     await configureGithubOwner(workspaceRoot);
     await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
-    await mkdir(join(workspaceRoot, "public-tool"), { recursive: true });
+    await mkdir(join(workspaceRoot, "archived", "public-tool"), { recursive: true });
     await withFakeGhRepo({ name: "public-tool" }, async () => {
       const { response, body } = await postProjectConfigPlan(workspaceRoot, {
         projectId: "public-tool",
@@ -553,18 +347,22 @@ owners = ["frostney"]
     });
   });
 
-  test("project config plan route includes projected path-collision validation", async () => {
+  test("project config plan route writes lifecycle, group, and tags", async () => {
     const workspaceRoot = await tempWorkspace();
-    await configureGithubOwner(workspaceRoot);
-    await addLocalGitProject(workspaceRoot, "scratch");
-    await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
-    await withFakeGhRepo({ name: "public-tool" }, async () => {
+    await withTrackedPublicTool(workspaceRoot, async () => {
       const { response, body } = await postProjectConfigPlan(workspaceRoot, {
         projectId: "public-tool",
-        path: "scratch",
+        state: "commercial",
+        group: "clients",
+        tags: ["paid"],
+        force: true,
       });
 
-      expectProjectedValidation(response, body, "path-collision");
+      expect(response?.status).toBe(200);
+      expect(body.toml).toContain('state = "commercial"');
+      expect(body.toml).toContain('group = "clients"');
+      expect(body.toml).toContain('tags = ["paid"]');
+      expect(body.validation.valid).toBe(true);
     });
   });
 
@@ -581,10 +379,10 @@ owners = ["frostney"]
     await expectInvalidBody(response, "jobId");
   });
 
-  test("prune route rejects malformed JSON", async () => {
+  test("config TOML exchange route rejects malformed JSON", async () => {
     const workspaceRoot = await tempWorkspace();
     const response = await routeApi(
-      new Request("http://x/api/prune", {
+      new Request("http://x/api/config/toml/plan", {
         method: "POST",
         body: "{",
       }),
@@ -596,19 +394,6 @@ owners = ["frostney"]
     expect(body.error).toBe("invalid JSON body");
   });
 
-  test("repo move route validates required fields", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const response = await routeApi(
-      new Request("http://x/api/repo/move-plan", {
-        method: "POST",
-        body: JSON.stringify({ projectId: "github:frostney/tool" }),
-      }),
-      { workspaceRoot },
-    );
-
-    expect(response?.status).toBe(400);
-  });
-
   test("adds, imports, and removes tracked projects through the API", async () => {
     const workspaceRoot = await tempWorkspace();
     const add = await routeApi(
@@ -617,8 +402,8 @@ owners = ["frostney"]
         body: JSON.stringify({
           id: "scratch",
           source: "local",
-          path: "scratch",
           state: "experiment",
+          tags: ["local"],
         }),
       }),
       { workspaceRoot },
@@ -627,7 +412,15 @@ owners = ["frostney"]
       new Request("http://x/api/projects/import", {
         method: "POST",
         body: JSON.stringify({
-          projects: [{ id: "frostney-tool", repo: "frostney/tool", state: "open-source" }],
+          projects: [
+            {
+              id: "frostney-tool",
+              repo: "frostney/tool",
+              state: "commercial",
+              group: "clients",
+              tags: ["paid"],
+            },
+          ],
         }),
       }),
       { workspaceRoot },
@@ -645,14 +438,14 @@ owners = ["frostney"]
     expect(imported?.status).toBe(200);
     expect(remove?.status).toBe(200);
     expect(config).toContain('[project."frostney-tool"]');
+    expect(config).toContain('group = "clients"');
+    expect(config).toContain('tags = ["paid"]');
     expect(config).not.toContain('[project."scratch"]');
   });
 
   test("checks out a tracked hosted project through the API dry-run path", async () => {
     const workspaceRoot = await tempWorkspace();
-    await configureGithubOwner(workspaceRoot);
-    await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
-    await withFakeGhRepo({ name: "public-tool" }, async () => {
+    await withTrackedPublicTool(workspaceRoot, async () => {
       const { response, body } = await checkoutProjectDryRun(workspaceRoot, "public-tool");
 
       expect(response?.status).toBe(200);
@@ -664,12 +457,11 @@ owners = ["frostney"]
     });
   });
 
-  test("checks out hosted projects under the synced root setting", async () => {
+  test("checks out hosted projects under lifecycle and group folders", async () => {
     const workspaceRoot = await tempWorkspace();
     await writeFile(
       join(workspaceRoot, "_herakles", "herakles.toml"),
       `version = 2
-root = "checkout-root"
 
 [github]
 owners = ["frostney"]
@@ -677,13 +469,17 @@ owners = ["frostney"]
 [project."public-tool"]
 source = "github"
 repo = "frostney/public-tool"
+state = "commercial"
+group = "clients"
 `,
     );
     await withFakeGhRepo({ name: "public-tool" }, async () => {
       const { response, body } = await checkoutProjectDryRun(workspaceRoot, "public-tool");
 
       expect(response?.status).toBe(200);
-      expect(body[0].item.project.path).toBe(join(workspaceRoot, "checkout-root", "public-tool"));
+      expect(body[0].item.project.path).toBe(
+        join(workspaceRoot, "commercial", "clients", "public-tool"),
+      );
     });
   });
 
@@ -697,7 +493,7 @@ repo = "frostney/public-tool"
           schedule: "0 9 * * 1",
           mode: "report-only",
           prompt: "Review all tracked projects.\nReturn a short report.",
-          output: "_reports/automation/weekly.md",
+          output: "automation/weekly.md",
           repoFilter: "not archived",
           issueLabels: ["ready", "next"],
           skill: "review-pr",
@@ -717,23 +513,6 @@ repo = "frostney/public-tool"
     expect(config).toContain("Review all tracked projects.");
     expect(config).toContain('repo_filter = "not archived"');
     expect(config).toContain('issue_labels = ["ready", "next"]');
-  });
-
-  test("repo move plan route includes projected validation", async () => {
-    const workspaceRoot = await tempWorkspace();
-    await withHostedPublicToolAndScratch(workspaceRoot, async () => {
-      const response = await routeApi(
-        new Request("http://x/api/repo/move-plan", {
-          method: "POST",
-          body: JSON.stringify({ projectId: "public-tool", path: "scratch" }),
-        }),
-        { workspaceRoot },
-      );
-      const body = await response?.json();
-
-      expectProjectedValidation(response, body, "path-collision");
-      expect(body.toml).toContain('path = "scratch"');
-    });
   });
 
   test("issue recommendation route validates option types", async () => {
@@ -805,7 +584,10 @@ repo = "frostney/public-tool"
   test("archives a local project through the API when learning exists", async () => {
     const workspaceRoot = await tempWorkspace();
     await addLocalGitProject(workspaceRoot, "spike");
-    await writeFile(join(workspaceRoot, "spike", "LEARNING.md"), "Useful experiment.\n");
+    await writeFile(
+      join(workspaceRoot, "experiment", "spike", "LEARNING.md"),
+      "Useful experiment.\n",
+    );
 
     const response = await routeApi(
       new Request("http://x/api/local-projects/local%3Aspike/archive", {
@@ -833,7 +615,7 @@ repo = "frostney/public-tool"
 
     expect(response?.status).toBe(200);
     expect(body.candidates).toEqual([]);
-    expect(body.reportPath).toContain("_reports");
+    expect(body.reportPath).toContain("_herakles/reports");
   });
 
   test("generates an empty CodeRabbit report through the API", async () => {
@@ -849,7 +631,7 @@ repo = "frostney/public-tool"
 
     expect(response?.status).toBe(200);
     expect(body.contexts).toEqual([]);
-    expect(body.reportPath).toContain("_reports");
+    expect(body.reportPath).toContain("_herakles/reports");
   });
 });
 

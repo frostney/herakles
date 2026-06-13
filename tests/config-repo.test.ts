@@ -10,8 +10,6 @@ async function tempWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 `,
@@ -33,7 +31,10 @@ describe("config repository commands", () => {
       "warn",
     );
 
-    await writeFile(join(root, "_herakles", ".gitignore"), ".herakles-state/\n");
+    await writeFile(
+      join(root, "_herakles", ".gitignore"),
+      "cache/\nreports/\nworktrees/\nstate/\n",
+    );
     const ignored = await configDoctor(root);
     expect(ignored.checks.find((check) => check.name === "config-state-ignore")?.status).toBe("ok");
   });
@@ -107,7 +108,6 @@ async function writeTestConfig(
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
 ${config}
 [github]
 owners = [${owners.map((owner) => JSON.stringify(owner)).join(", ")}]
@@ -128,8 +128,6 @@ printf 'git:%s\\n' "$*" >> "$HERAKLES_TEST_LOG"
 if [ "$1" = "pull" ]; then
 cat > "$HERAKLES_TEST_CONFIG" <<'TOML'
 version = 2
-root = "."
-
 [github]
 owners = ["frostney"]
 TOML

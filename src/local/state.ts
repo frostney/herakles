@@ -28,5 +28,5 @@ export async function writeLocalProjectState(
 }
 
 function localStatePath(loaded: LoadedConfig, name: string): string {
-  return join(loaded.paths.workspaceRoot, ".herakles-state", "local-projects", `${name}.json`);
+  return join(loaded.paths.stateDir, "local-projects", `${name}.json`);
 }

@@ -2,11 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TOML } from "bun";
-import {
-  type WorkspacePaths,
-  resolveConfiguredWorkspacePaths,
-  resolveWorkspacePaths,
-} from "./paths";
+import { type WorkspacePaths, lifecycleFolders, resolveWorkspacePaths } from "./paths";
 import { type HeraklesConfig, heraklesConfigSchema } from "./schema";
 
 export type LoadedConfig = {
@@ -14,7 +10,6 @@ export type LoadedConfig = {
   paths: WorkspacePaths;
   source: {
     syncedConfigPath: string;
-    localConfigPath?: string;
   };
 };
 
@@ -24,20 +19,15 @@ async function readToml(path: string): Promise<Record<string, unknown>> {
 }
 
 export async function loadConfig(workspaceRoot: string): Promise<LoadedConfig> {
-  const bootstrapPaths = resolveWorkspacePaths(workspaceRoot);
-  if (!existsSync(bootstrapPaths.syncedConfigPath)) {
-    throw new Error(`Missing synced configuration at ${bootstrapPaths.syncedConfigPath}`);
+  const paths = resolveWorkspacePaths(workspaceRoot);
+  if (!existsSync(paths.syncedConfigPath)) {
+    throw new Error(`Missing synced configuration at ${paths.syncedConfigPath}`);
   }
-  const synced = await readToml(bootstrapPaths.syncedConfigPath);
+  const synced = await readToml(paths.syncedConfigPath);
   const config = heraklesConfigSchema.parse(synced);
-  const paths = resolveConfiguredWorkspacePaths(bootstrapPaths.workspaceRoot, config.root);
   const source: LoadedConfig["source"] = {
     syncedConfigPath: paths.syncedConfigPath,
   };
-  if (existsSync(paths.localConfigPath)) {
-    applyLocalUiConfig(config, await readToml(paths.localConfigPath));
-    source.localConfigPath = paths.localConfigPath;
-  }
   return {
     config,
     paths,
@@ -45,22 +35,15 @@ export async function loadConfig(workspaceRoot: string): Promise<LoadedConfig> {
   };
 }
 
-function applyLocalUiConfig(config: HeraklesConfig, local: Record<string, unknown>) {
-  const ui = local.ui;
-  if (!ui || typeof ui !== "object" || Array.isArray(ui)) return;
-  const values = ui as Record<string, unknown>;
-  if (typeof values.host === "string") config.ui.host = values.host;
-  if (typeof values.port === "number") config.ui.port = values.port;
-  if (typeof values.open_browser === "boolean") config.ui.open_browser = values.open_browser;
-  if (typeof values.access_token_file === "string") {
-    config.ui.access_token_file = values.access_token_file;
-  }
-}
-
 export async function ensureConfigScaffold(workspaceRoot: string): Promise<WorkspacePaths> {
   const paths = resolveWorkspacePaths(workspaceRoot);
   await mkdir(paths.configDir, { recursive: true });
-  await mkdir(join(paths.workspaceRoot, "_cache"), { recursive: true });
-  await mkdir(join(paths.workspaceRoot, "_reports"), { recursive: true });
+  await mkdir(paths.cacheDir, { recursive: true });
+  await mkdir(paths.reportsDir, { recursive: true });
+  await mkdir(paths.worktreesDir, { recursive: true });
+  await mkdir(paths.stateDir, { recursive: true });
+  for (const folder of lifecycleFolders) {
+    await mkdir(join(paths.workspaceRoot, folder), { recursive: true });
+  }
   return paths;
 }

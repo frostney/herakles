@@ -5,7 +5,7 @@ import type { LoadedConfig } from "../config/load";
 import type { AutomationRun } from "../domain";
 
 function runsDir(loaded: LoadedConfig): string {
-  return join(loaded.paths.workspaceRoot, loaded.config.layout.cache_path, "runs");
+  return join(loaded.paths.cacheDir, "runs");
 }
 
 export async function appendRuns(loaded: LoadedConfig, runs: AutomationRun[]) {

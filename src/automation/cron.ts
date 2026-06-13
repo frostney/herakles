@@ -2,7 +2,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { LoadedConfig } from "../config/load";
-import { resolveUnder } from "../config/paths";
 import { automateTick } from "./index";
 
 export type OsCronInstallOptions = {
@@ -44,10 +43,7 @@ export async function installOsCron(
 }
 
 export async function writeDefaultCronWorker(loaded: LoadedConfig): Promise<string> {
-  const scriptPath = resolveUnder(
-    loaded.paths.workspaceRoot,
-    join(loaded.config.layout.cache_path, "herakles-automate-tick.ts"),
-  );
+  const scriptPath = join(loaded.paths.cacheDir, "herakles-automate-tick.ts");
   await mkdir(dirname(scriptPath), { recursive: true });
   await writeFile(scriptPath, defaultCronWorkerSource(loaded));
   return scriptPath;

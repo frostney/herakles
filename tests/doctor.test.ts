@@ -10,13 +10,11 @@ async function tempWorkspace() {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 `,
   );
-  await writeFile(join(root, "_herakles", ".gitignore"), ".herakles-state/\n");
+  await writeFile(join(root, "_herakles", ".gitignore"), "cache/\nreports/\nworktrees/\nstate/\n");
   return root;
 }
 

@@ -8,13 +8,11 @@ import { projectDiscoveryRefresh, projectDiscoveryShow } from "../src/app";
 async function tempWorkspace() {
   const root = await mkdtemp(join(tmpdir(), "herakles-project-discovery-"));
   await mkdir(join(root, "_herakles"), { recursive: true });
-  await mkdir(join(root, "local-tool", ".git"), { recursive: true });
-  await writeFile(join(root, "local-tool", ".git", "HEAD"), "ref: refs/heads/main\n");
+  await mkdir(join(root, "experiment", "local-tool", ".git"), { recursive: true });
+  await writeFile(join(root, "experiment", "local-tool", ".git", "HEAD"), "ref: refs/heads/main\n");
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = []
 `,
@@ -27,7 +25,7 @@ describe("project discovery cache", () => {
     const root = await tempWorkspace();
     const refreshed = await projectDiscoveryRefresh(root);
     const shown = await projectDiscoveryShow(root);
-    const cachePath = join(root, "_cache", "project-discovery.json");
+    const cachePath = join(root, "_herakles", "cache", "project-discovery.json");
     const cache = JSON.parse(await readFile(cachePath, "utf8"));
 
     expect(existsSync(cachePath)).toBe(true);

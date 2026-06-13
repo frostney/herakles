@@ -1,5 +1,4 @@
 version = 2
-root = "."
 timezone = "Europe/London"
 
 [github]
@@ -7,9 +6,8 @@ owners = []
 remote_style = "ssh"
 include_archived = true
 
-[sync]
-exclude_topics = ["no-sync"]
-pin_topics = ["pinned", "current", "travel"]
+[up]
+exclude_topics = ["no-up"]
 
 [project."frostney-herakles"]
 source = "github"
@@ -19,6 +17,7 @@ repo = "frostney/herakles"
 source = "github"
 repo = "frostney/paid-api"
 state = "commercial"
+group = "clients"
 tags = ["strategic"]
 
 [project."old-tool"]
@@ -27,9 +26,8 @@ repo = "frostney/old-tool"
 
 [project."local-spike"]
 source = "local"
-path = "local-spike"
 
 [job.friday_summary]
 schedule = "00 16 * * FRI"
 mode = "summary"
-output = "_reports/weekly/{iso_week}.md"
+output = "weekly/{iso_week}.md"

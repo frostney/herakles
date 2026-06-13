@@ -11,9 +11,6 @@ import type {
   Project,
   ProjectDetail,
   ProjectState,
-  PrunePlan,
-  PruneResult,
-  RepoMovePlan,
   ReportDetail,
   ReportSummary,
   ValidationResult,
@@ -23,7 +20,6 @@ export type StatusPayload = {
   generatedAt: string;
   config: {
     syncedConfigPath: string;
-    localConfigPath?: string;
   };
   root: string;
   projectCount: number;
@@ -41,14 +37,14 @@ export type AutomationPayload = {
   locks: AutomationLock[];
 };
 
-export type { HeraklesEvent, LocalPromotionResult, RepoMovePlan };
+export type { HeraklesEvent, LocalPromotionResult };
 
 export type ProjectConfigPlan = {
   configPath: string;
   projectId: string;
-  changes: Record<string, string>;
-  before?: Record<string, string>;
-  after: Record<string, string>;
+  changes: ProjectConfigValues;
+  before?: ProjectConfigValues;
+  after: ProjectConfigValues;
   transition?: {
     from: ProjectState;
     to: ProjectState;
@@ -59,6 +55,15 @@ export type ProjectConfigPlan = {
   toml: string;
   diff: string;
   action: "append" | "replace" | "remove";
+};
+
+export type ProjectConfigValues = {
+  source?: "github" | "local";
+  repo?: string;
+  group?: string;
+  state?: ProjectState;
+  tags?: string[];
+  learning?: string;
 };
 
 export type AutomationJobConfigInput = {
@@ -84,7 +89,7 @@ export type AutomationJobConfigPlan = {
   action: "append" | "replace";
 };
 
-export type SyncRunResult = Array<{
+export type UpRunResult = Array<{
   item: {
     action: string;
     reason: string;
@@ -147,12 +152,15 @@ export async function getDoctor(): Promise<DoctorResult> {
   return get("/api/doctor");
 }
 
-export async function getPrunePlan(): Promise<PrunePlan> {
-  return get("/api/sync/prune-plan");
+export async function getConfigToml(): Promise<{ path: string; toml: string }> {
+  return get("/api/config/toml");
 }
 
-export async function postConfigPull() {
-  return post("/api/config/pull");
+export async function postConfigToml(
+  toml: string,
+  options: { apply?: boolean } = {},
+): Promise<{ path: string; toml: string; validation: ValidationResult; applied: boolean }> {
+  return post(options.apply ? "/api/config/toml/apply" : "/api/config/toml/plan", { toml });
 }
 
 export async function postProjectsRefresh(): Promise<ProjectDiscoveryRefreshResult> {
@@ -163,15 +171,21 @@ export async function postAddProject(input: {
   id: string;
   source: "github" | "local";
   repo?: string;
-  path?: string;
+  group?: string;
   state?: ProjectState;
-  sync?: boolean;
+  tags?: string[];
 }) {
   return post("/api/projects/add", input);
 }
 
 export async function postImportProjects(
-  projects: Array<{ id: string; repo: string; state?: ProjectState; path?: string }>,
+  projects: Array<{
+    id: string;
+    repo: string;
+    state?: ProjectState;
+    group?: string;
+    tags?: string[];
+  }>,
 ) {
   return post("/api/projects/import", { projects });
 }
@@ -183,7 +197,7 @@ export async function postRemoveProject(projectId: string) {
 export async function postCheckoutProject(
   projectId: string,
   options: { dryRun?: boolean } = {},
-): Promise<SyncRunResult> {
+): Promise<UpRunResult> {
   return post("/api/projects/checkout", { projectId, dryRun: options.dryRun === true });
 }
 
@@ -191,8 +205,8 @@ export async function postValidate(options: { strict?: boolean } = {}): Promise<
   return post(`/api/validate${options.strict ? "?strict=true" : ""}`);
 }
 
-export async function postPrune(projectId: string): Promise<PruneResult> {
-  return post("/api/prune", { projectId });
+export async function postUp(options: { plan?: boolean } = {}): Promise<UpRunResult> {
+  return post(options.plan ? "/api/up/plan" : "/api/up");
 }
 
 export async function postAutomationTick() {
@@ -217,26 +231,18 @@ export async function postAutomationJobApply(
 
 export async function postProjectConfigPlan(
   projectId: string,
-  state: ProjectState,
+  changes: ProjectConfigValues,
   options: { force?: boolean } = {},
 ): Promise<ProjectConfigPlan> {
-  return post("/api/config/project-plan", { projectId, state, force: options.force === true });
+  return post("/api/config/project-plan", { projectId, ...changes, force: options.force === true });
 }
 
 export async function postProjectConfigApply(
   projectId: string,
-  state: ProjectState,
+  changes: ProjectConfigValues,
   options: { force?: boolean } = {},
 ): Promise<ProjectConfigPlan> {
-  return post("/api/config/apply", { projectId, state, force: options.force === true });
-}
-
-export async function postRepoMovePlan(projectId: string, path: string): Promise<RepoMovePlan> {
-  return post("/api/repo/move-plan", { projectId, path });
-}
-
-export async function postRepoMove(projectId: string, path: string): Promise<RepoMovePlan> {
-  return post("/api/repo/move", { projectId, path });
+  return post("/api/config/apply", { projectId, ...changes, force: options.force === true });
 }
 
 export async function postLocalPromotionPlan(

@@ -13,8 +13,6 @@ async function tempWorkspace(owners = ["frostney"]) {
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-root = "."
-
 [github]
 owners = [${owners.map((owner) => JSON.stringify(owner)).join(", ")}]
 `,
@@ -37,7 +35,7 @@ function localProject(root: string): Project {
     tags: [],
     languages: [],
     hasRoadmap: false,
-    sync: false,
+    up: false,
     automationEnabled: false,
   };
 }
@@ -101,13 +99,12 @@ describe("local promotion plan", () => {
 
   test("projects promote CLI plans local promotion", async () => {
     const root = await tempWorkspace([]);
-    await mkdir(join(root, "spike", ".git"), { recursive: true });
+    await mkdir(join(root, "experiment", "spike", ".git"), { recursive: true });
     await appendFile(
       join(root, "_herakles", "herakles.toml"),
       `
 [project."spike"]
 source = "local"
-path = "spike"
 `,
     );
     const result = await runCommand(

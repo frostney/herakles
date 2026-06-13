@@ -12,8 +12,6 @@ import { installOsCron } from "../automation/cron";
 import { initConfig } from "../config/init";
 import { loadConfig } from "../config/load";
 import type { ProjectState } from "../domain";
-import { executeSyncPlan } from "../sync/execute";
-import { fetchRemoteSyncPlan } from "../sync/remote";
 import { startUiServer } from "../ui/server/server";
 import { printJson, printTable } from "./output";
 
@@ -226,7 +224,8 @@ const repoListCommand = buildCommand<CommonFlags>({
       source: project.source,
       visibility: project.visibility ?? "",
       state: project.state,
-      sync: project.sync,
+      up: project.up,
+      group: project.group ?? "",
       path: project.path,
     }));
     shouldJson(flags) ? printJson(rows) : printTable(rows);
@@ -285,20 +284,22 @@ async function promptProjectAdd(flags: {
   source?: "github" | "local";
   id?: string;
   repo?: string;
-  path?: string;
+  group?: string;
   state?: ProjectState;
-  sync?: boolean;
+  tags?: string[];
 }) {
   const source = await promptProjectSource(flags);
-  const { repo, path } = await promptProjectLocation(source, flags);
-  const id = await promptProjectId(flags.id, defaultProjectId(source, repo, path));
+  const repo =
+    source === "github" ? (flags.repo ?? (await prompt("GitHub repo (owner/name): "))) : undefined;
+  const fallbackId = defaultProjectId(source, repo, flags.id);
+  const id = await promptProjectId(flags.id, fallbackId);
   return buildAddProjectInput({
     id,
     source,
     repo,
-    path,
+    group: flags.group,
     state: flags.state,
-    sync: flags.sync,
+    tags: flags.tags,
   });
 }
 
@@ -306,9 +307,9 @@ function buildAddProjectInput(input: {
   id: string | undefined;
   source: "github" | "local";
   repo: string | undefined;
-  path: string | undefined;
+  group: string | undefined;
   state: ProjectState | undefined;
-  sync: boolean | undefined;
+  tags: string[] | undefined;
 }) {
   const id = requireProjectValue(input.id, "Project id is required.");
   return input.source === "github"
@@ -318,7 +319,12 @@ function buildAddProjectInput(input: {
 
 function buildGitHubAddProjectInput(
   id: string,
-  input: { repo: string | undefined; state: ProjectState | undefined; sync: boolean | undefined },
+  input: {
+    repo: string | undefined;
+    group: string | undefined;
+    state: ProjectState | undefined;
+    tags: string[] | undefined;
+  },
 ) {
   return {
     id,
@@ -330,23 +336,28 @@ function buildGitHubAddProjectInput(
 
 function buildLocalAddProjectInput(
   id: string,
-  input: { path: string | undefined; state: ProjectState | undefined; sync: boolean | undefined },
+  input: {
+    group: string | undefined;
+    state: ProjectState | undefined;
+    tags: string[] | undefined;
+  },
 ) {
   return {
     id,
     source: "local" as const,
-    path: requireProjectValue(input.path, "Local path is required."),
     ...commonProjectOptions(input),
   };
 }
 
 function commonProjectOptions(input: {
   state: ProjectState | undefined;
-  sync: boolean | undefined;
+  group: string | undefined;
+  tags: string[] | undefined;
 }) {
   return {
+    ...(input.group === undefined ? {} : { group: input.group }),
     ...(input.state === undefined ? {} : { state: input.state }),
-    ...(input.sync === undefined ? {} : { sync: input.sync }),
+    ...(input.tags === undefined ? {} : { tags: input.tags }),
   };
 }
 
@@ -358,24 +369,10 @@ function requireProjectValue(value: string | undefined, message: string): string
 async function promptProjectSource(flags: {
   source?: "github" | "local";
   repo?: string;
-  path?: string;
 }) {
   if (flags.source) return flags.source;
-  const fallback = flags.repo ? "github" : flags.path ? "local" : "local";
-  return projectSourceParser((await prompt("Source (github/local): ")) || fallback);
-}
-
-async function promptProjectLocation(
-  source: "github" | "local",
-  flags: { repo?: string; path?: string },
-) {
-  return {
-    repo:
-      source === "github"
-        ? (flags.repo ?? (await prompt("GitHub repo (owner/name): ")))
-        : undefined,
-    path: source === "local" ? (flags.path ?? (await prompt("Local path: "))) : flags.path,
-  };
+  if (flags.repo) return "github";
+  return projectSourceParser((await prompt("Source (github/local): ")) || "github");
 }
 
 async function promptProjectId(id: string | undefined, fallbackId: string | undefined) {
@@ -385,9 +382,9 @@ async function promptProjectId(id: string | undefined, fallbackId: string | unde
 function defaultProjectId(
   source: "github" | "local",
   repo: string | undefined,
-  path: string | undefined,
+  id: string | undefined,
 ) {
-  return source === "github" ? repo?.replace("/", "-") : path?.split(/[\\/]/).at(-1);
+  return source === "github" ? repo?.replace("/", "-") : id;
 }
 
 const addProjectCommand = buildCommand<
@@ -395,9 +392,9 @@ const addProjectCommand = buildCommand<
     source?: "github" | "local";
     id?: string;
     repo?: string;
-    path?: string;
+    group?: string;
     state?: ProjectState;
-    sync?: boolean;
+    tag?: string[];
   }
 >({
   docs: { brief: "Add a tracked project to Herakles config." },
@@ -425,12 +422,12 @@ const addProjectCommand = buildCommand<
         brief: "Hosted repository as owner/name.",
         placeholder: "owner/name",
       },
-      path: {
+      group: {
         kind: "parsed",
         parse: String,
         optional: true,
-        brief: "Local or workspace-relative project path.",
-        placeholder: "path",
+        brief: "Optional project group inside the lifecycle folder.",
+        placeholder: "group",
       },
       state: {
         kind: "parsed",
@@ -439,17 +436,21 @@ const addProjectCommand = buildCommand<
         brief: "Lifecycle state.",
         placeholder: "state",
       },
-      sync: {
+      tag: {
         kind: "parsed",
-        parse: looseBooleanParser,
+        parse: String,
+        variadic: true,
         optional: true,
-        brief: "Project sync eligibility.",
-        placeholder: "true|false",
+        brief: "Project tag. Repeat for multiple tags.",
+        placeholder: "tag",
       },
     },
   },
   async func(flags) {
-    const input = await promptProjectAdd(flags);
+    const input = await promptProjectAdd({
+      ...flags,
+      ...(flags.tag === undefined ? {} : { tags: flags.tag }),
+    });
     const result = await app.addProject(root(flags), input);
     const checkout =
       input.source === "github" ? await app.checkoutProject(root(flags), input.id) : undefined;
@@ -493,7 +494,7 @@ const removeProjectCommand = buildCommand<CommonFlags & { yes?: boolean }, [stri
 });
 
 const projectsImportCommand = buildCommand<
-  CommonFlags & { repo?: string[]; state?: ProjectState },
+  CommonFlags & { repo?: string[]; state?: ProjectState; group?: string; tag?: string[] },
   []
 >({
   docs: { brief: "Bulk import hosted repositories as tracked projects." },
@@ -514,6 +515,21 @@ const projectsImportCommand = buildCommand<
         optional: true,
         brief: "Lifecycle state to apply to every imported project.",
         placeholder: "state",
+      },
+      group: {
+        kind: "parsed",
+        parse: String,
+        optional: true,
+        brief: "Project group to apply to imported projects.",
+        placeholder: "group",
+      },
+      tag: {
+        kind: "parsed",
+        parse: String,
+        variadic: true,
+        optional: true,
+        brief: "Project tag to apply to imported projects. Repeat for multiple tags.",
+        placeholder: "tag",
       },
     },
   },
@@ -536,6 +552,8 @@ const projectsImportCommand = buildCommand<
         id: repo.replace("/", "-"),
         repo,
         ...(flags.state === undefined ? {} : { state: flags.state }),
+        ...(flags.group === undefined ? {} : { group: flags.group }),
+        ...(flags.tag === undefined ? {} : { tags: flags.tag }),
       })),
     );
     const checkout = await Promise.all(
@@ -639,33 +657,6 @@ const repoArchiveCommand = buildCommand<
       ? await app.projectConfigPlan(root(flags), id, changes)
       : await app.archiveProject(root(flags), id, flags.learning);
     shouldJson(flags) ? printJson(result) : console.log(result.toml);
-  },
-});
-
-const repoMoveCommand = buildCommand<CommonFlags & { dryRun?: boolean }, [string, string]>({
-  docs: { brief: "Move a hosted project clone and update its tracked path." },
-  parameters: {
-    flags: {
-      ...commonFlags,
-      dryRun: {
-        kind: "boolean",
-        optional: true,
-        brief: "Print the move plan without changing files or synced config.",
-      },
-    },
-    positional: {
-      kind: "tuple",
-      parameters: [
-        { parse: String, brief: "Project id, slug, or repository name.", placeholder: "project" },
-        { parse: String, brief: "New path relative to the workspace root.", placeholder: "path" },
-      ],
-    },
-  },
-  async func(flags, id, path) {
-    const result = flags.dryRun
-      ? await app.repoMovePlan(root(flags), id, path)
-      : await app.repoMove(root(flags), id, path);
-    shouldJson(flags) ? printJson(result) : printTable([result]);
   },
 });
 
@@ -871,59 +862,20 @@ const configDoctorCommand = buildCommand<CommonFlags>({
   },
 });
 
-const syncCommand = buildCommand<
-  CommonFlags & { dryRun?: boolean; prunePlan?: boolean; server?: string; token?: string }
->({
-  docs: { brief: "Clone/fetch the remote repository sync plan." },
+const upCommand = buildCommand<CommonFlags & { plan?: boolean }>({
+  docs: { brief: "Spin up the Herakles Workspace from its configuration." },
   parameters: {
     flags: {
       ...commonFlags,
-      dryRun: {
+      plan: {
         kind: "boolean",
         optional: true,
-        brief: "Explain sync actions without changing local repositories.",
-      },
-      prunePlan: {
-        kind: "boolean",
-        optional: true,
-        brief: "Show local clones that are no longer sync-eligible.",
-      },
-      server: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Fetch a remote sync plan from a Herakles server endpoint.",
-        placeholder: "url",
-      },
-      token: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Access token for a remote Herakles sync endpoint.",
-        placeholder: "token",
+        brief: "Explain workspace actions without running git.",
       },
     },
   },
   async func(flags) {
-    if (flags.prunePlan) {
-      const plan = await app.prunePlan(root(flags));
-      const rows = plan.items.map((item) => ({
-        project: item.project.slug,
-        reason: item.reason,
-        from: item.fromPath,
-        to: item.toPath,
-      }));
-      return shouldJson(flags) ? printJson(plan) : printTable(rows);
-    }
-    const workspaceRoot = root(flags);
-    const plan = flags.server
-      ? await fetchRemoteSyncPlan(
-          flags.server,
-          flags.token ?? process.env.HERAKLES_TOKEN ?? "",
-          workspaceRoot,
-        )
-      : await app.syncPlan(workspaceRoot);
-    const result = await executeSyncPlan(plan, { dryRun: flags.dryRun ?? false });
+    const result = await app.up(root(flags), { dryRun: flags.plan === true });
     if (shouldJson(flags)) return printJson(result);
     printTable(
       result.map((entry) => ({
@@ -933,85 +885,6 @@ const syncCommand = buildCommand<
         reason: entry.message,
       })),
     );
-  },
-});
-
-const pruneCommand = buildCommand<CommonFlags & { repo: string; dryRun?: boolean }>({
-  docs: { brief: "Move an unwanted local clone into the Herakles prune cache." },
-  parameters: {
-    flags: {
-      ...commonFlags,
-      repo: {
-        kind: "parsed",
-        parse: String,
-        brief: "Project id, slug, repository name, or owner/repo to prune.",
-        placeholder: "project",
-      },
-      dryRun: {
-        kind: "boolean",
-        optional: true,
-        brief: "Show the prune action without moving files.",
-      },
-    },
-  },
-  async func(flags) {
-    const result = await app.prune(root(flags), flags.repo, { dryRun: flags.dryRun ?? false });
-    shouldJson(flags)
-      ? printJson(result)
-      : printTable([
-          {
-            project: result.item.project.slug,
-            status: result.status,
-            reason: result.item.reason,
-            from: result.item.fromPath,
-            to: result.item.toPath,
-            message: result.message,
-          },
-        ]);
-    if (result.status === "failed") process.exitCode = 1;
-  },
-});
-
-const syncPlanCommand = buildCommand<CommonFlags & { server?: string; token?: string }>({
-  docs: { brief: "Print the current sync plan." },
-  parameters: {
-    flags: {
-      ...commonFlags,
-      server: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Fetch a remote sync plan from a Herakles server endpoint.",
-        placeholder: "url",
-      },
-      token: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Access token for a remote Herakles sync endpoint.",
-        placeholder: "token",
-      },
-    },
-  },
-  async func(flags) {
-    const workspaceRoot = root(flags);
-    const plan = flags.server
-      ? await fetchRemoteSyncPlan(
-          flags.server,
-          flags.token ?? process.env.HERAKLES_TOKEN ?? "",
-          workspaceRoot,
-        )
-      : await app.syncPlan(workspaceRoot);
-    shouldJson(flags)
-      ? printJson(plan)
-      : printTable(
-          plan.items.map((item) => ({
-            action: item.action,
-            project: item.project.slug,
-            reason: item.reason,
-            path: item.project.path,
-          })),
-        );
   },
 });
 
@@ -1204,7 +1077,7 @@ const codexDoctorCommand = buildCommand<CommonFlags>({
 });
 
 const githubPrsCommand = buildCommand<CommonFlags>({
-  docs: { brief: "List open pull requests across synced remote projects." },
+  docs: { brief: "List open pull requests across workspace-up eligible projects." },
   parameters: { flags: commonFlags },
   async func(flags) {
     const result = await app.pullRequests(root(flags));
@@ -1213,7 +1086,7 @@ const githubPrsCommand = buildCommand<CommonFlags>({
 });
 
 const githubIssuesCommand = buildCommand<CommonFlags & { label?: string[] }>({
-  docs: { brief: "List open issues across synced remote projects." },
+  docs: { brief: "List open issues across workspace-up eligible projects." },
   parameters: {
     flags: {
       ...commonFlags,
@@ -1425,18 +1298,9 @@ export const rootRoute = buildRouteMap({
         "set-state": repoSetStateCommand,
         archive: repoArchiveCommand,
         promote: localPromoteCommand,
-        move: repoMoveCommand,
       },
     }),
-    sync: buildRouteMap({
-      docs: { brief: "Sync commands." },
-      defaultCommand: "run",
-      routes: {
-        run: syncCommand,
-        plan: syncPlanCommand,
-      },
-    }),
-    prune: pruneCommand,
+    up: upCommand,
     local: buildRouteMap({
       docs: { brief: "Local experiment commands." },
       routes: {

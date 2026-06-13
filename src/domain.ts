@@ -4,7 +4,7 @@ export type HostedVisibility = "public" | "private" | null;
 
 export type ProjectState = "experiment" | "candidate" | "commercial" | "open-source" | "archived";
 
-export type SyncAction = "clone" | "fetch" | "skip" | "validate";
+export type UpAction = "clone" | "fetch" | "skip" | "validate";
 
 export type GitHubRepository = {
   name: string;
@@ -78,6 +78,7 @@ export type Project = {
   repo: string;
   slug: string;
   path: string;
+  group?: string;
   remote?: string;
   url?: string;
   visibility: HostedVisibility;
@@ -92,7 +93,7 @@ export type Project = {
   hasRoadmap: boolean;
   learningPath?: string;
   archiveNote?: string;
-  sync: boolean;
+  up: boolean;
   automationEnabled: boolean;
   description?: string;
   updatedAt?: string;
@@ -126,16 +127,16 @@ export type ValidationResult = {
   issues: ValidationIssue[];
 };
 
-export type SyncPlanItem = {
+export type UpPlanItem = {
   project: Project;
-  action: SyncAction;
+  action: UpAction;
   reason: string;
 };
 
-export type SyncPlan = {
+export type UpPlan = {
   generatedAt: string;
   server?: string;
-  items: SyncPlanItem[];
+  items: UpPlanItem[];
 };
 
 export type DoctorCheck = {
@@ -153,9 +154,9 @@ export type HeraklesEventType =
   | "connected"
   | "projects-refresh-started"
   | "projects-refresh-finished"
-  | "sync-started"
-  | "sync-progress"
-  | "sync-finished"
+  | "up-started"
+  | "up-progress"
+  | "up-finished"
   | "automation-started"
   | "automation-log"
   | "automation-finished"
@@ -259,37 +260,6 @@ export type TestCommand = {
   id: string;
   label: string;
   argv: string[];
-};
-
-export type RepoMovePlan = {
-  projectId: string;
-  repo: string;
-  fromPath: string;
-  toPath: string;
-  relativePath: string;
-  configPath?: string;
-  toml?: string;
-  diff?: string;
-  validation?: ValidationResult;
-  action: "plan" | "moved";
-};
-
-export type PrunePlanItem = {
-  project: Project;
-  reason: "archived" | "filtered";
-  fromPath: string;
-  toPath: string;
-};
-
-export type PrunePlan = {
-  generatedAt: string;
-  items: PrunePlanItem[];
-};
-
-export type PruneResult = {
-  item: PrunePlanItem;
-  status: "planned" | "moved" | "skipped" | "failed";
-  message: string;
 };
 
 export type LocalPromotionPlan = {

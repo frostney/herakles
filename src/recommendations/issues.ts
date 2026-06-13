@@ -46,7 +46,7 @@ export async function generateIssueRecommendations(
 ): Promise<IssueRecommendationRun> {
   const now = options.now ?? new Date();
   const eligibleProjects = projects.filter(
-    (project) => project.source === "github" && project.sync && !project.archived,
+    (project) => project.source === "github" && project.up && !project.archived,
   );
   const labels = options.labels ?? [];
   const loadIssues = options.loadIssues ?? listProjectIssues;

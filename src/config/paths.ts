@@ -1,11 +1,22 @@
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
+export const lifecycleFolders = [
+  "experiment",
+  "candidate",
+  "commercial",
+  "open-source",
+  "archived",
+] as const;
+
 export type WorkspacePaths = {
   workspaceRoot: string;
   configDir: string;
   syncedConfigPath: string;
-  localConfigPath: string;
+  cacheDir: string;
+  reportsDir: string;
+  worktreesDir: string;
+  stateDir: string;
 };
 
 function expandHome(value: string): string {
@@ -20,26 +31,15 @@ function expandHome(value: string): string {
 
 export function resolveWorkspacePaths(workspaceRoot: string): WorkspacePaths {
   const root = resolve(expandHome(workspaceRoot));
-  return workspacePaths(root, root);
-}
-
-export function resolveConfiguredWorkspacePaths(
-  configRoot: string,
-  workspaceRoot: string,
-): WorkspacePaths {
-  const configBase = resolve(expandHome(configRoot));
-  const root = resolveUnder(configBase, workspaceRoot);
-  return workspacePaths(configBase, root);
-}
-
-function workspacePaths(configBase: string, workspaceRoot: string): WorkspacePaths {
-  const root = resolve(workspaceRoot);
-  const configDir = join(configBase, "_herakles");
+  const configDir = join(root, "_herakles");
   return {
     workspaceRoot: root,
     configDir,
     syncedConfigPath: join(configDir, "herakles.toml"),
-    localConfigPath: join(configDir, "herakles.local.toml"),
+    cacheDir: join(configDir, "cache"),
+    reportsDir: join(configDir, "reports"),
+    worktreesDir: join(configDir, "worktrees"),
+    stateDir: join(configDir, "state"),
   };
 }
 

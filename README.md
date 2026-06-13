@@ -1,6 +1,6 @@
 # Herakles
 
-Herakles is a Bun-first TypeScript workspace orchestrator for managing GitHub-backed projects, local experiments, cross-computer configuration sync, reports, and recurring AI-harness automation from one CLI and local browser UI.
+Herakles is a Bun-first TypeScript orchestrator for a personal Herakles Workspace: `_herakles/herakles.toml`, lifecycle folders, GitHub-backed projects, local experiments, generated reports, and recurring AI-harness automation from one CLI and local browser UI.
 
 ## Install
 
@@ -16,27 +16,22 @@ Create the workspace scaffold:
 bun run herakles init --root ~/Code
 ```
 
-`--root` points at the folder containing `_herakles`; hosted checkouts are resolved under the synced `root` value in `_herakles/herakles.toml`.
+`--root` points at the Herakles Workspace. `init` creates `_herakles` plus the default lifecycle folders: `open-source/`, `commercial/`, `experiment/`, `candidate/`, and `archived/`.
 
-Add, import, inspect, and check out projects:
+Add, import, inspect, and spin up projects:
 
 ```sh
-bun run herakles add --root ~/Code --source github --repo frostney/tool
-bun run herakles add --root ~/Code --source local --path local-spike --id local-spike
+bun run herakles add --root ~/Code --repo frostney/tool
+bun run herakles add --root ~/Code --source local --id local-spike
 bun run herakles projects import --root ~/Code --repo frostney/tool --repo frostney/app
-bun run herakles projects checkout frostney-tool --root ~/Code
+bun run herakles up --root ~/Code --plan
+bun run herakles up --root ~/Code
 bun run herakles projects refresh --root ~/Code
 bun run herakles projects list --root ~/Code
 bun run herakles remove local-spike --root ~/Code --yes
 ```
 
-Synchronize config and hosted checkouts across machines:
-
-```sh
-bun run herakles config pull --root ~/Code
-bun run herakles sync --root ~/Code --dry-run
-bun run herakles sync --root ~/Code
-```
+Hosted projects are checked out under lifecycle-derived paths such as `open-source/tool` or `commercial/clients/tool`. Project settings can change lifecycle, group, and tags through plan-first config writes.
 
 Open the local UI:
 
@@ -44,6 +39,8 @@ Open the local UI:
 bun run herakles ui --root ~/Code --no-open
 bun run ui -- --root ~/Code --no-open
 ```
+
+The UI includes project add/import flows, project settings, automation editing, manual automation runs, reports, validation, doctor checks, and a config exchange panel for copy-pasting `_herakles/herakles.toml`.
 
 Run automation explicitly:
 
@@ -53,11 +50,11 @@ bun run herakles automate tick --root ~/Code
 bun run herakles automate run coderabbit --root ~/Code --slot now
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the domain model, sync contract, UI/API boundaries, and automation design.
+See [docs/architecture.md](docs/architecture.md) for the domain model, workspace layout, UI/API boundaries, and automation design.
 
 ## Background
 
-Herakles treats GitHub as the source for hosted repository facts and keeps `_herakles/herakles.toml` as the sparse tracked-project list plus orchestration config. Local experiments stay local unless explicitly promoted. Remote synchronization happens through token-protected Herakles server sync plans rather than synced machine profiles.
+Herakles treats GitHub as the source for hosted repository facts and keeps `_herakles/herakles.toml` as the sparse tracked-project list plus orchestration config. Local experiments stay local unless explicitly promoted. Generated reports, caches, worktrees, locks, and run ledgers live under `_herakles` but outside the synced TOML.
 
 ## Contribution
 

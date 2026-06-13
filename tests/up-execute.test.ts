@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Project, SyncPlan } from "../src/domain";
-import { executeSyncPlan } from "../src/sync/execute";
+import type { Project, UpPlan } from "../src/domain";
+import { executeUpPlan } from "../src/up/execute";
 
 function project(path: string): Project {
   return {
@@ -22,25 +22,25 @@ function project(path: string): Project {
     tags: [],
     languages: [],
     hasRoadmap: false,
-    sync: true,
+    up: true,
     automationEnabled: true,
   };
 }
 
-function plan(path: string): SyncPlan {
+function plan(path: string): UpPlan {
   return {
     generatedAt: "2026-06-13T00:00:00.000Z",
     items: [{ action: "fetch", reason: "existing clone", project: project(path) }],
   };
 }
 
-describe("sync execution", () => {
+describe("workspace up execution", () => {
   test("fetches dirty worktrees but skips pull", async () => {
-    const root = await mkdtemp(join(tmpdir(), "herakles-sync-dirty-"));
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-dirty-"));
     const clone = join(root, "tool");
     await mkdir(clone, { recursive: true });
     await withFakeGit({ status: " M README.md\n" }, async (logPath) => {
-      const result = await executeSyncPlan(plan(clone));
+      const result = await executeUpPlan(plan(clone));
       const log = await readFile(logPath, "utf8");
 
       expect(result[0]?.status).toBe("skipped");
@@ -52,11 +52,11 @@ describe("sync execution", () => {
   });
 
   test("fast-forwards clean existing clones after fetching", async () => {
-    const root = await mkdtemp(join(tmpdir(), "herakles-sync-ff-"));
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-ff-"));
     const clone = join(root, "tool");
     await mkdir(clone, { recursive: true });
     await withFakeGit({ status: "", pullExit: "0" }, async (logPath) => {
-      const result = await executeSyncPlan(plan(clone));
+      const result = await executeUpPlan(plan(clone));
       const log = await readFile(logPath, "utf8");
 
       expect(result[0]?.status).toBe("done");
@@ -66,12 +66,12 @@ describe("sync execution", () => {
     });
   });
 
-  test("keeps non-fast-forwardable clones as skipped sync results", async () => {
-    const root = await mkdtemp(join(tmpdir(), "herakles-sync-nonff-"));
+  test("keeps non-fast-forwardable clones as skipped up results", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-nonff-"));
     const clone = join(root, "tool");
     await mkdir(clone, { recursive: true });
     await withFakeGit({ status: "", pullExit: "1" }, async () => {
-      const result = await executeSyncPlan(plan(clone));
+      const result = await executeUpPlan(plan(clone));
 
       expect(result[0]?.status).toBe("skipped");
       expect(result[0]?.message).toBe("fetched; not fast-forwardable");
