@@ -5,7 +5,7 @@
 - Use Bun for package management, scripts, tests, TOML parsing, serving, bundling, cron integration, and subprocess-oriented runtime code.
 - Do not introduce npm, pnpm, yarn, Vite, project-local Herakles config, synced machine profiles, or a generic remote shell/API endpoint.
 - Keep `_herakles/herakles.toml` as the canonical synced configuration. `herakles.local.toml` is limited to UI host, port, browser opening, and token location.
-- Keep local experiments, reports, approvals, worktrees, caches, run ledgers, and fallback lock files out of synced configuration.
+- Keep local experiments, reports, caches, run ledgers, and fallback lock files out of synced configuration.
 - Treat the CLI and UI as control surfaces over the same core services; do not duplicate project resolution, sync planning, validation, scheduling, or config mutation logic in the UI.
 
 ## Runtime / Commands
@@ -27,7 +27,7 @@ Use `bun run herakles -- <command>` for CLI smoke checks and `bun run ui -- --ro
 - `src/api/` contains typed API routing and event streaming; it must not expose generic shell execution.
 - `src/project/`, `src/sync/`, `src/lifecycle/`, and `src/config/` own resolved model, sync, validation, and config writes.
 - `src/ui/client/` renders the browser UI over API client calls; keep plan/apply and read-only views aligned with the service contracts.
-- Generated local state belongs under `_cache`, `_reports`, `_worktrees`, approvals, or ignored `.herakles-state`, never inside synced config except through typed sparse overrides.
+- Generated local state belongs under `_cache`, `_reports`, or ignored `.herakles-state`, never inside synced config except through typed tracked-project config writes.
 
 ## Testing
 
@@ -38,7 +38,7 @@ Use `bun run herakles -- <command>` for CLI smoke checks and `bun run ui -- --ro
 
 ## Safety / Boundaries
 
-- Never silently move, delete, prune, push, or publish repositories. Use explicit plan/apply or approval paths.
+- Never silently move, delete, prune, push, or publish repositories. Use explicit typed plan/apply paths.
 - Remote sync clients are read/sync-only and token-protected; automations may be mirrored remotely but are not run by remote callers.
-- Automation starts report-only or manual-gated. Codex is a worker over prepared context; Herakles owns scheduling, locks, GitHub lookup, reports, Git worktrees, commits, pushes, and PR creation.
-- Preserve user or generated worktree changes. Do not revert unrelated files or use destructive Git commands unless explicitly requested.
+- Automation is a scheduled handoff to the configured AI harness. Herakles owns scheduling, locks, GitHub lookup, project selection, and reports; the AI harness owns implementation-specific workflows.
+- Preserve user or generated changes. Do not revert unrelated files or use destructive Git commands unless explicitly requested.

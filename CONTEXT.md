@@ -9,7 +9,7 @@ A Git or GitHub source-control unit with facts such as owner, name, remote URL, 
 _Avoid_: Project when referring only to Git or GitHub facts
 
 **Project**:
-Herakles's resolved operating model for a repository or local experiment, including lifecycle state, local path, sync decision, automation eligibility, reports, validation, and sparse overrides.
+Herakles's resolved operating model for a repository or local experiment, including lifecycle state, local path, sync decision, automation eligibility, reports, and validation.
 _Avoid_: Repository when referring to Herakles-specific resolved state
 
 **Tracked Project**:
@@ -51,7 +51,7 @@ A local Git-backed project that has not been promoted to a hosted repository. It
 _Avoid_: Local-only repository
 
 **Commercial**:
-A project lifecycle denotation for work that is operated as, or intended to become, a commercial product. It is set deliberately through a Herakles override rather than inferred from repository metadata.
+A project lifecycle denotation for work that is operated as, or intended to become, a commercial product. It is set deliberately through project settings rather than inferred from repository metadata.
 _Avoid_: commercial-product, commercial repository
 
 **Experiment**:
@@ -59,11 +59,11 @@ A project lifecycle denotation for exploratory work. Whether an experiment is lo
 _Avoid_: local experiment state, private experiment state
 
 **Open Source**:
-A project lifecycle denotation for public hosted work. Public GitHub repositories are inferred as open source by default, unless a Herakles override gives the project a different lifecycle state.
+A project lifecycle denotation for public hosted work. Public GitHub repositories are inferred as open source by default, unless project settings give the project a different lifecycle state.
 _Avoid_: open-source-active
 
 **Candidate**:
-A project lifecycle denotation for work that is being evaluated for promotion beyond an experiment. It is set deliberately through a Herakles override rather than inferred from repository visibility.
+A project lifecycle denotation for work that is being evaluated for promotion beyond an experiment. It is set deliberately through project settings rather than inferred from repository visibility.
 _Avoid_: product-candidate
 
 **Archived**:
@@ -88,11 +88,11 @@ _Avoid_: Automation harness, GitHub Actions harness, Codex-only automation
 
 **Harness Run**:
 A scheduled Herakles handoff to an AI harness for a prompt and a selected set of projects. Herakles prepares context, invokes the configured harness, records the returned report, and stops there.
-_Avoid_: Herakles-owned approval workflow, Herakles-owned implementation workflow
+_Avoid_: Herakles-owned implementation workflow
 
 **Harness Report**:
-The Herakles-owned output of a harness run. It records what the AI harness returned or where to inspect its result, without Herakles modeling pull request approvals, patch worktrees, or review resolution.
-_Avoid_: Approval candidate, patch candidate, publish candidate
+The Herakles-owned output of a harness run. It records what the AI harness returned or where to inspect its result, without Herakles modeling the harness's implementation, review, or publishing workflow.
+_Avoid_: Patch candidate, publish candidate
 
 **Synced Configuration**:
 The desired Herakles workspace and orchestration configuration stored in `_herakles/herakles.toml`. It should be sufficient to bootstrap the Herakles orchestrator for the configured remote repositories.
@@ -145,7 +145,7 @@ Startup catch-up is a special automation tick mode. It uses the local run ledger
 
 Explicit OS-level cron installation writes a generated worker script under the local cache path and registers that script through Bun cron. The generated worker is local machine state, not synced configuration.
 
-Implementation-shaped automation is delegated to the configured AI harness. Herakles may schedule the prompt and store the resulting report, but it should not model harness-specific pull request approval or review workflows as Herakles-owned concepts.
+Implementation-shaped automation is delegated to the configured AI harness. Herakles may schedule the prompt and store the resulting report, but it should not model harness-specific implementation or review workflows as Herakles-owned concepts.
 
 Disabled automation still surfaces configured jobs in the UI and CLI, but scheduled ticks produce no due slots and the UI server does not start its in-process Bun cron loop.
 

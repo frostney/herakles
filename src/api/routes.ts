@@ -34,7 +34,7 @@ const automationRunBodySchema = z
     date: nonEmptyString.optional(),
   })
   .strict();
-const overrideBodySchema = z
+const projectConfigBodySchema = z
   .object({
     projectId: nonEmptyString,
     state: projectStateSchema.optional(),
@@ -43,6 +43,32 @@ const overrideBodySchema = z
     force: z.boolean().optional(),
   })
   .strict();
+const addProjectBodySchema = z
+  .object({
+    id: nonEmptyString,
+    source: z.enum(["github", "local"]),
+    repo: nonEmptyString.optional(),
+    path: nonEmptyString.optional(),
+    state: projectStateSchema.optional(),
+    sync: z.boolean().optional(),
+    tags: z.array(nonEmptyString).optional(),
+  })
+  .strict();
+const importProjectsBodySchema = z
+  .object({
+    projects: z.array(
+      z
+        .object({
+          id: nonEmptyString,
+          repo: nonEmptyString,
+          state: projectStateSchema.optional(),
+          path: nonEmptyString.optional(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+const removeProjectBodySchema = z.object({ projectId: nonEmptyString }).strict();
 const repoMoveBodySchema = z.object({ projectId: nonEmptyString, path: nonEmptyString }).strict();
 const pruneBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
@@ -72,18 +98,6 @@ const localPromotionBodySchema = z
   .strict();
 type LocalPromotionBody = z.infer<typeof localPromotionBodySchema>;
 const localArchiveBodySchema = z.object({ learning: nonEmptyString }).strict();
-const approvalPrepareBodySchema = z
-  .object({ branch: nonEmptyString.optional(), path: nonEmptyString.optional() })
-  .strict();
-const approvalPublishBodySchema = z
-  .object({
-    allowTestFailure: z.boolean().optional(),
-    skipPr: z.boolean().optional(),
-    message: nonEmptyString.optional(),
-    title: nonEmptyString.optional(),
-    body: nonEmptyString.optional(),
-  })
-  .strict();
 
 function json(value: unknown, init?: ResponseInit): Response {
   return Response.json(value, {
@@ -104,6 +118,12 @@ const getRoutes: Record<string, ApiHandler> = {
   "/api/status": ({ options }) => jsonAsync(app.status(options.workspaceRoot)),
   "/api/projects/discovery": ({ options }) =>
     jsonAsync(app.projectDiscoveryShow(options.workspaceRoot)),
+  "/api/projects/import-candidates": ({ options, url }) =>
+    jsonAsync(
+      app.hostedImportCandidates(options.workspaceRoot, {
+        includeTracked: url.searchParams.get("includeTracked") === "true",
+      }),
+    ),
   "/api/projects": ({ options }) => jsonAsync(app.projects(options.workspaceRoot)),
   "/api/local-projects": ({ options }) => jsonAsync(app.localProjects(options.workspaceRoot)),
   "/api/sync/remote/status": ({ options, url }) =>
@@ -125,11 +145,13 @@ const getRoutes: Record<string, ApiHandler> = {
     jsonAsync(app.automations(options.workspaceRoot).then((result) => result.due)),
   "/api/automation/runs": ({ options }) =>
     jsonAsync(app.automations(options.workspaceRoot).then((result) => result.runs)),
-  "/api/approvals": ({ options }) => jsonAsync(app.approvals(options.workspaceRoot)),
 };
 
 const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/refresh": ({ options }) => routeProjectsRefresh(options.workspaceRoot),
+  "/api/projects/add": (context) => routeAddProject(context),
+  "/api/projects/import": (context) => routeImportProjects(context),
+  "/api/projects/remove": (context) => routeRemoveProject(context),
   "/api/validate": ({ options, url }) =>
     routeValidation(options.workspaceRoot, { strict: isStrict(url) }),
   "/api/sync/dry-run": ({ options }) => routeSync(options.workspaceRoot, true),
@@ -137,7 +159,7 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/prune": (context) => routePrune(context),
   "/api/automation/tick": ({ options }) => routeAutomationTick(options.workspaceRoot),
   "/api/automation/run": (context) => routeAutomationRun(context),
-  "/api/config/override-plan": (context) => routeOverridePlan(context),
+  "/api/config/project-plan": (context) => routeProjectConfigPlan(context),
   "/api/config/apply": (context) => routeConfigApply(context),
   "/api/repo/move-plan": (context) => routeRepoMovePlan(context),
   "/api/repo/move": (context) => routeRepoMove(context),
@@ -201,7 +223,6 @@ async function routeGet(context: ApiContext): Promise<Response | undefined> {
 async function routePost(context: ApiContext): Promise<Response | undefined> {
   const handler = postRoutes[context.path];
   if (handler) return handler(context);
-  if (context.path.startsWith("/api/approvals/")) return routeApprovalDecision(context);
   if (context.path.startsWith("/api/local-projects/")) return routeLocalProjectAction(context);
 }
 
@@ -236,6 +257,44 @@ async function routeProjectsRefresh(workspaceRoot: string): Promise<Response> {
     local: discovery.local.length,
   });
   return json(discovery);
+}
+
+async function routeAddProject(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, addProjectBodySchema);
+  if (!body.ok) return body.response;
+  return json(
+    await app.addProject(context.options.workspaceRoot, {
+      id: body.data.id,
+      source: body.data.source,
+      ...(body.data.repo === undefined ? {} : { repo: body.data.repo }),
+      ...(body.data.path === undefined ? {} : { path: body.data.path }),
+      ...(body.data.state === undefined ? {} : { state: body.data.state }),
+      ...(body.data.sync === undefined ? {} : { sync: body.data.sync }),
+      ...(body.data.tags === undefined ? {} : { tags: body.data.tags }),
+    }),
+  );
+}
+
+async function routeImportProjects(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, importProjectsBodySchema);
+  if (!body.ok) return body.response;
+  return json(
+    await app.importHostedProjects(
+      context.options.workspaceRoot,
+      body.data.projects.map((project) => ({
+        id: project.id,
+        repo: project.repo,
+        ...(project.state === undefined ? {} : { state: project.state }),
+        ...(project.path === undefined ? {} : { path: project.path }),
+      })),
+    ),
+  );
+}
+
+async function routeRemoveProject(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, removeProjectBodySchema);
+  if (!body.ok) return body.response;
+  return json(await app.removeProject(context.options.workspaceRoot, body.data.projectId));
 }
 
 async function routeValidation(
@@ -286,27 +345,27 @@ async function routeAutomationTick(workspaceRoot: string): Promise<Response> {
   return json(runs);
 }
 
-async function routeOverridePlan(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, overrideBodySchema);
+async function routeProjectConfigPlan(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, projectConfigBodySchema);
   if (!body.ok) return body.response;
   return json(
-    await app.repoOverridePlan(
+    await app.projectConfigPlan(
       context.options.workspaceRoot,
       body.data.projectId,
-      overrideChanges(body.data),
+      projectConfigChanges(body.data),
       { force: body.data.force === true },
     ),
   );
 }
 
 async function routeConfigApply(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, overrideBodySchema);
+  const body = await readJsonBody(context, projectConfigBodySchema);
   if (!body.ok) return body.response;
   return json(
-    await app.applyRepoOverride(
+    await app.applyProjectConfig(
       context.options.workspaceRoot,
       body.data.projectId,
-      overrideChanges(body.data),
+      projectConfigChanges(body.data),
       { force: body.data.force === true },
     ),
   );
@@ -345,7 +404,7 @@ async function routeIssueRecommendations(context: ApiContext): Promise<Response>
     ...(body.data.limit === undefined ? {} : { limit: body.data.limit }),
   });
   emitReportCreated(result.reportPath, "issue recommendation report created", {
-    approvals: result.approvals.length,
+    candidates: result.candidates.length,
   });
   return json(result);
 }
@@ -357,7 +416,7 @@ async function routeCodeRabbitRecommendations(context: ApiContext): Promise<Resp
     ...(body.data.limit === undefined ? {} : { limit: body.data.limit }),
   });
   emitReportCreated(result.reportPath, "CodeRabbit recommendation report created", {
-    approvals: result.approvals.length,
+    contexts: result.contexts.length,
   });
   return json(result);
 }
@@ -423,56 +482,6 @@ async function routeLocalArchiveAction(context: ApiContext, id: string): Promise
   return json(await app.archiveLocalProject(context.options.workspaceRoot, id, body.data.learning));
 }
 
-async function routeApprovalDecision(context: ApiContext): Promise<Response | undefined> {
-  const [encodedId, action] = context.path.slice("/api/approvals/".length).split("/");
-  if (!encodedId || !action) return undefined;
-  const id = decodeURIComponent(encodedId);
-  if (action === "prepare") return routeApprovalPrepare(context, id);
-  if (action === "publish") return routeApprovalPublish(context, id);
-  return routeApprovalStatus(context, id, action);
-}
-
-async function routeApprovalPrepare(context: ApiContext, id: string): Promise<Response> {
-  const body = await readJsonBody(context, approvalPrepareBodySchema);
-  if (!body.ok) return body.response;
-  return json(
-    await app.approvalWorktree(context.options.workspaceRoot, id, {
-      ...(body.data.branch === undefined ? {} : { branch: body.data.branch }),
-      ...(body.data.path === undefined ? {} : { path: body.data.path }),
-    }),
-  );
-}
-
-async function routeApprovalPublish(context: ApiContext, id: string): Promise<Response> {
-  const body = await readJsonBody(context, approvalPublishBodySchema);
-  if (!body.ok) return body.response;
-  return json(
-    await app.approvalPublish(context.options.workspaceRoot, id, {
-      ...(body.data.allowTestFailure === true ? { allowTestFailure: true } : {}),
-      ...(body.data.skipPr === true ? { skipPr: true } : {}),
-      ...(body.data.message === undefined ? {} : { message: body.data.message }),
-      ...(body.data.title === undefined ? {} : { title: body.data.title }),
-      ...(body.data.body === undefined ? {} : { body: body.data.body }),
-    }),
-  );
-}
-
-async function routeApprovalStatus(
-  context: ApiContext,
-  id: string,
-  action: string,
-): Promise<Response | undefined> {
-  const status = approvalStatus(action);
-  if (!status) return undefined;
-  return json(await app.approvalDecision(context.options.workspaceRoot, id, status));
-}
-
-function approvalStatus(action?: string): "approved" | "rejected" | "deferred" | undefined {
-  if (action === "approve") return "approved";
-  if (action === "reject") return "rejected";
-  if (action === "defer") return "deferred";
-}
-
 async function jsonAsync(value: Promise<unknown>): Promise<Response> {
   return json(await value);
 }
@@ -513,7 +522,7 @@ async function readJsonBody<T extends z.ZodTypeAny>(
   return { ok: true, data: result.data };
 }
 
-function overrideChanges(body: z.infer<typeof overrideBodySchema>) {
+function projectConfigChanges(body: z.infer<typeof projectConfigBodySchema>) {
   return {
     ...(body.state === undefined ? {} : { state: body.state }),
     ...(body.learning === undefined ? {} : { learning: body.learning }),

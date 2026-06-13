@@ -132,7 +132,7 @@ describe("CodeRabbit review context", () => {
     expect(codeRabbitThreads(threads).map((thread) => thread.id)).toEqual(["thread-1"]);
   });
 
-  test("writes CodeRabbit report and approval candidate", async () => {
+  test("writes CodeRabbit report and structured context sidecar", async () => {
     const loaded = await loadConfig(await tempWorkspace());
     const result = await generateCodeRabbitRecommendations(loaded, [project()], {
       now: new Date("2026-06-13T12:00:00Z"),
@@ -145,8 +145,6 @@ describe("CodeRabbit review context", () => {
     const structured = await Bun.file(result.structuredPath).json();
     expect(structured.kind).toBe("coderabbit-review");
     expect(structured.contexts[0].prNumber).toBe(42);
-    expect(result.approvals[0]?.id).toBe("coderabbit:frostney/herakles#42");
-    expect(result.approvals[0]?.kind).toBe("coderabbit-review");
-    expect(result.approvals[0]?.branch).toBe("patch-flow");
+    expect(await Bun.file(result.reportPath).text()).toContain("AI harness inputs only");
   });
 });

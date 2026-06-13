@@ -1,4 +1,3 @@
-import { upsertApproval } from "../approvals";
 import type { LoadedConfig } from "../config/load";
 import type {
   CodeRabbitPullRequestContext,
@@ -54,32 +53,11 @@ export async function generateCodeRabbitRecommendations(
       2,
     )}\n`,
   );
-  const approvals = await Promise.all(
-    contexts.map((context) =>
-      upsertApproval(loaded, {
-        id: context.id,
-        kind: "coderabbit-review",
-        title: `Address CodeRabbit on ${context.repo}#${context.prNumber}: ${context.title}`,
-        projectId: context.projectId,
-        reportPath,
-        url: context.url,
-        ...(context.headRefName ? { branch: context.headRefName } : {}),
-        reason: `${context.threads.length} unresolved CodeRabbit thread(s)`,
-        metadata: {
-          repo: context.repo,
-          prNumber: context.prNumber,
-          threadCount: context.threads.length,
-        },
-      }),
-    ),
-  );
-
   return {
     generatedAt: now.toISOString(),
     reportPath,
     structuredPath,
     contexts,
-    approvals,
   };
 }
 
@@ -130,7 +108,7 @@ function renderCodeRabbitReport(
     lines.push(`PR: ${context.url}`);
     if (context.headRefName) lines.push(`Branch: ${context.headRefName}`);
     lines.push(`Threads: ${context.threads.length}`);
-    lines.push("Proposed action: prepare an approved patch worktree and address each thread.");
+    lines.push("Harness input: review unresolved threads and report recommended next action.");
     lines.push("Risk: medium until tests are discovered and run.");
     lines.push("Tests: discover from repository tooling before PR creation.");
     lines.push("");
@@ -146,7 +124,7 @@ function renderCodeRabbitReport(
     lines.push("");
   }
   lines.push(
-    "These are approval candidates only. Herakles does not push, resolve threads, or mutate GitHub until a user approves the work.",
+    "These are AI harness inputs only. Herakles does not push, resolve threads, or mutate GitHub.",
   );
   return `${lines.join("\n")}\n`;
 }

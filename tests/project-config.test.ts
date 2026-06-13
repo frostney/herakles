@@ -3,12 +3,12 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
-import { applyRepoOverridePlan, createRepoOverridePlan } from "../src/config/overrides";
+import { applyProjectConfigPlan, createProjectConfigPlan } from "../src/config/projects";
 import type { Project } from "../src/domain";
 import { InvalidProjectStateTransitionError } from "../src/lifecycle/transitions";
 
 async function tempWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-overrides-"));
+  const root = await mkdtemp(join(tmpdir(), "herakles-project-config-"));
   await mkdir(join(root, "_herakles"), { recursive: true });
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
@@ -18,7 +18,9 @@ root = "."
 [github]
 owners = []
 
-[repo."paid-api"]
+[project."paid-api"]
+source = "github"
+repo = "frostney/paid-api"
 state = "commercial"
 tags = ["strategic"]
 `,
@@ -47,52 +49,64 @@ function hostedProject(repo = "paid-api"): Project {
   };
 }
 
-describe("repo override plans", () => {
-  test("replace an existing sparse override while preserving tags", async () => {
+describe("project config plans", () => {
+  test("replace an existing project config while preserving tags", async () => {
     const root = await tempWorkspace();
     const loaded = await loadConfig(root);
-    const plan = createRepoOverridePlan(loaded, hostedProject(), {
-      state: "archived",
-      learning: "LEARNING.md",
-    });
+    const plan = createProjectConfigPlan(
+      loaded,
+      "paid-api",
+      {
+        state: "archived",
+        learning: "LEARNING.md",
+      },
+      hostedProject(),
+    );
 
-    await applyRepoOverridePlan(plan);
+    await applyProjectConfigPlan(plan);
     const content = await readFile(join(root, "_herakles", "herakles.toml"), "utf8");
 
     expect(plan.action).toBe("replace");
     expect(plan.diff).toContain('- state = "commercial"');
     expect(plan.diff).toContain('+ state = "archived"');
     expect(plan.diff).toContain('+ learning = "LEARNING.md"');
-    expect(content).toContain('[repo."paid-api"]');
+    expect(content).toContain('[project."paid-api"]');
     expect(content).toContain('state = "archived"');
     expect(content).toContain('tags = ["strategic"]');
     expect(content).toContain('learning = "LEARNING.md"');
   });
 
-  test("append a new owner-qualified override when no sparse entry exists", async () => {
+  test("append a new tracked project config", async () => {
     const root = await tempWorkspace();
     const loaded = await loadConfig(root);
-    const plan = createRepoOverridePlan(loaded, hostedProject("new-tool"), {
+    const plan = createProjectConfigPlan(loaded, "frostney-new-tool", {
+      source: "github",
+      repo: "frostney/new-tool",
       state: "candidate",
     });
 
-    await applyRepoOverridePlan(plan);
+    await applyProjectConfigPlan(plan);
     const content = await readFile(join(root, "_herakles", "herakles.toml"), "utf8");
 
     expect(plan.action).toBe("append");
     expect(plan.diff).toContain("+++ planned");
-    expect(plan.diff).toContain('+ [repo."frostney/new-tool"]');
+    expect(plan.diff).toContain('+ [project."frostney-new-tool"]');
     expect(plan.diff).toContain('+ state = "candidate"');
-    expect(content).toContain('[repo."frostney/new-tool"]');
+    expect(content).toContain('[project."frostney-new-tool"]');
     expect(content).toContain('state = "candidate"');
   });
 
-  test("records allowed lifecycle transitions in override plans", async () => {
+  test("records allowed lifecycle transitions in project config plans", async () => {
     const root = await tempWorkspace();
     const loaded = await loadConfig(root);
-    const plan = createRepoOverridePlan(loaded, hostedProject("new-tool"), {
-      state: "candidate",
-    });
+    const plan = createProjectConfigPlan(
+      loaded,
+      "frostney-new-tool",
+      {
+        state: "candidate",
+      },
+      hostedProject("new-tool"),
+    );
 
     expect(plan.transition).toEqual({
       from: "experiment",
@@ -107,11 +121,17 @@ describe("repo override plans", () => {
     const loaded = await loadConfig(root);
     const project = { ...hostedProject("new-tool"), state: "commercial" as const };
 
-    expect(() => createRepoOverridePlan(loaded, project, { state: "candidate" })).toThrow(
-      InvalidProjectStateTransitionError,
-    );
+    expect(() =>
+      createProjectConfigPlan(loaded, "frostney-new-tool", { state: "candidate" }, project),
+    ).toThrow(InvalidProjectStateTransitionError);
 
-    const plan = createRepoOverridePlan(loaded, project, { state: "candidate" }, { force: true });
+    const plan = createProjectConfigPlan(
+      loaded,
+      "frostney-new-tool",
+      { state: "candidate" },
+      project,
+      { force: true },
+    );
     expect(plan.transition).toEqual({
       from: "commercial",
       to: "candidate",

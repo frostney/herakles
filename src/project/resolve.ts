@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { LoadedConfig } from "../config/load";
 import { resolveUnder } from "../config/paths";
+import type { HeraklesConfig } from "../config/schema";
 import type { ProjectDiscovery } from "../discovery";
 import type { GitHubRepository, LocalRepository, Project, ProjectState } from "../domain";
 import { matchesProjectFilter } from "../filters/project";
@@ -15,10 +16,6 @@ const archiveDescriptionPatterns = [
   /\barchived because\b/i,
   /\barchived in favor of\b/i,
 ];
-
-function repoKey(owner: string, repo: string): string {
-  return `${owner}/${repo}`;
-}
 
 function slug(owner: string | undefined, repo: string): string {
   return owner ? `${owner}-${repo}` : repo;
@@ -41,15 +38,12 @@ function inferredState(loaded: LoadedConfig, repo: GitHubRepository): ProjectSta
     : loaded.config.defaults.state_for_private;
 }
 
-function findOverride(loaded: LoadedConfig, repo: GitHubRepository, duplicateName = false) {
-  return (
-    loaded.config.repo[repoKey(repo.owner, repo.name)] ??
-    (duplicateName ? undefined : loaded.config.repo[repo.name])
-  );
-}
+type ProjectConfig = HeraklesConfig["project"][string];
 
-function findLearningPath(loaded: LoadedConfig, projectPath: string, overrideLearning?: string) {
-  const candidates = overrideLearning ? [overrideLearning] : loaded.config.defaults.learning_files;
+function findLearningPath(loaded: LoadedConfig, projectPath: string, configuredLearning?: string) {
+  const candidates = configuredLearning
+    ? [configuredLearning]
+    : loaded.config.defaults.learning_files;
   return candidates
     .map((candidate) => join(projectPath, candidate))
     .find((path) => existsSync(path));
@@ -71,27 +65,21 @@ function archiveNoteFromHostedMetadata(repo: GitHubRepository): string | undefin
   return undefined;
 }
 
-function repoPath(loaded: LoadedConfig, repo: GitHubRepository, duplicateName: boolean): string {
-  const override = findOverride(loaded, repo, duplicateName);
-  const template = duplicateName
-    ? loaded.config.layout.collision_path
-    : loaded.config.layout.repo_path;
-  return override?.path ?? applyPathTemplate(template, repo);
-}
-
 export function resolveProjects(loaded: LoadedConfig, discovery: ProjectDiscovery): Project[] {
-  const repoNameCounts = new Map<string, number>();
-  for (const repo of discovery.hosted) {
-    repoNameCounts.set(repo.name, (repoNameCounts.get(repo.name) ?? 0) + 1);
-  }
-
+  const hostedByNameWithOwner = new Map(
+    discovery.hosted.map((repo) => [repo.nameWithOwner.toLowerCase(), repo]),
+  );
+  const localByName = new Map(discovery.local.map((repo) => [repo.name, repo]));
+  const localByPath = new Map(
+    discovery.local.map((repo) => [relativeOrAbsolutePath(loaded, repo.path), repo]),
+  );
   const projects: Project[] = [];
-  for (const repo of discovery.hosted) {
-    projects.push(resolveGitHubProject(loaded, repo, repoNameCounts.get(repo.name)! > 1));
-  }
-
-  for (const repo of discovery.local) {
-    projects.push(resolveLocalProject(loaded, repo));
+  for (const [projectId, config] of Object.entries(loaded.config.project)) {
+    if (config.source === "github") {
+      projects.push(resolveGitHubProject(loaded, projectId, config, hostedByNameWithOwner));
+    } else {
+      projects.push(resolveLocalProject(loaded, projectId, config, localByName, localByPath));
+    }
   }
 
   return projects.sort((a, b) => a.slug.localeCompare(b.slug));
@@ -99,16 +87,19 @@ export function resolveProjects(loaded: LoadedConfig, discovery: ProjectDiscover
 
 function resolveGitHubProject(
   loaded: LoadedConfig,
-  repo: GitHubRepository,
-  duplicateName: boolean,
+  projectId: string,
+  config: ProjectConfig,
+  hostedByNameWithOwner: Map<string, GitHubRepository>,
 ): Project {
-  const override = findOverride(loaded, repo, duplicateName);
+  const repoId = required(config.repo, `Tracked hosted project ${projectId} is missing repo.`);
+  const [owner, name] = splitOwnerRepo(repoId);
+  const repo = hostedByNameWithOwner.get(repoId.toLowerCase()) ?? syntheticHostedRepo(owner, name);
   const projectPath = resolveUnder(
     loaded.paths.workspaceRoot,
-    repoPath(loaded, repo, duplicateName),
+    config.path ?? applyPathTemplate(loaded.config.layout.repo_path, repo),
   );
-  const state = repo.isArchived ? "archived" : (override?.state ?? inferredState(loaded, repo));
-  const learningPath = findLearningPath(loaded, projectPath, override?.learning);
+  const state = repo.isArchived ? "archived" : (config.state ?? inferredState(loaded, repo));
+  const learningPath = findLearningPath(loaded, projectPath, config.learning);
   const project: Project = {
     source: "github",
     id: `github:${repo.nameWithOwner}`,
@@ -121,14 +112,14 @@ function resolveGitHubProject(
     archived: repo.isArchived || state === "archived",
     pinned: loaded.config.sync.pin_topics.some((topic) => repo.repositoryTopics.includes(topic)),
     topics: repo.repositoryTopics,
-    tags: override?.tags ?? [],
+    tags: config.tags ?? [],
     languages: repo.languages,
     hasRoadmap: hasAnyFile(projectPath, loaded.config.defaults.roadmap_files),
     sync: false,
     automationEnabled: false,
   };
   enrichGitHubProject(project, loaded, repo, learningPath);
-  project.sync = syncEnabled(loaded, project, override?.sync);
+  project.sync = syncEnabled(loaded, project, config.sync);
   project.automationEnabled = automationEnabled(loaded, project, repo);
   return project;
 }
@@ -136,9 +127,9 @@ function resolveGitHubProject(
 function syncEnabled(
   loaded: LoadedConfig,
   project: Project,
-  overrideSync: boolean | undefined,
+  configuredSync: boolean | undefined,
 ): boolean {
-  if (overrideSync !== undefined) return overrideSync;
+  if (configuredSync !== undefined) return configuredSync;
   if (loaded.config.sync.exclude_topics.some((topic) => project.topics.includes(topic))) {
     return false;
   }
@@ -184,10 +175,22 @@ function enrichGitHubProject(
   if (repo.updatedAt) project.updatedAt = repo.updatedAt;
 }
 
-function resolveLocalProject(loaded: LoadedConfig, repo: LocalRepository): Project {
+function resolveLocalProject(
+  loaded: LoadedConfig,
+  projectId: string,
+  config: ProjectConfig,
+  localByName: Map<string, LocalRepository>,
+  localByPath: Map<string, LocalRepository>,
+): Project {
+  const configuredPath = config.path ?? projectId;
+  const repo =
+    localByPath.get(configuredPath) ??
+    localByName.get(configuredPath) ??
+    localByName.get(projectId) ??
+    syntheticLocalRepo(loaded, configuredPath);
   const localState = readLocalProjectState(loaded, repo.name);
-  const learningPath = findLearningPath(loaded, repo.path);
-  const state = localState.state ?? loaded.config.defaults.state_for_local;
+  const learningPath = findLearningPath(loaded, repo.path, config.learning);
+  const state = config.state ?? localState.state ?? loaded.config.defaults.state_for_local;
   const project: Project = {
     source: "local",
     id: `local:${repo.name}`,
@@ -199,10 +202,10 @@ function resolveLocalProject(loaded: LoadedConfig, repo: LocalRepository): Proje
     archived: state === "archived",
     pinned: false,
     topics: [],
-    tags: [],
+    tags: config.tags ?? [],
     languages: [],
     hasRoadmap: hasAnyFile(repo.path, loaded.config.defaults.roadmap_files),
-    sync: false,
+    sync: config.sync ?? false,
     automationEnabled: false,
   };
   if (repo.remote) project.remote = repo.remote;
@@ -214,4 +217,47 @@ function resolveLocalProject(loaded: LoadedConfig, repo: LocalRepository): Proje
     project.archiveNote = `Learning file: ${localLearningPath}`;
   }
   return project;
+}
+
+function relativeOrAbsolutePath(loaded: LoadedConfig, path: string): string {
+  if (path.startsWith(loaded.paths.workspaceRoot)) {
+    return path.slice(loaded.paths.workspaceRoot.length).replace(/^\/+/, "") || ".";
+  }
+  return path;
+}
+
+function required(value: string | undefined, message: string): string {
+  if (!value) throw new Error(message);
+  return value;
+}
+
+function splitOwnerRepo(value: string): [string, string] {
+  const [owner, repo] = value.split("/");
+  if (!owner || !repo || value.split("/").length !== 2) {
+    throw new Error(`Expected hosted repository as owner/repo, received: ${value}`);
+  }
+  return [owner, repo];
+}
+
+function syntheticHostedRepo(owner: string, name: string): GitHubRepository {
+  return {
+    name,
+    nameWithOwner: `${owner}/${name}`,
+    owner,
+    sshUrl: `git@github.com:${owner}/${name}.git`,
+    url: `https://github.com/${owner}/${name}`,
+    visibility: "PRIVATE",
+    isPrivate: true,
+    isArchived: false,
+    repositoryTopics: [],
+    languages: [],
+  };
+}
+
+function syntheticLocalRepo(loaded: LoadedConfig, path: string): LocalRepository {
+  const resolved = resolveUnder(loaded.paths.workspaceRoot, path);
+  return {
+    name: path.split(/[\\/]/).filter(Boolean).at(-1) ?? path,
+    path: resolved,
+  };
 }

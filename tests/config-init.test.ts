@@ -14,7 +14,6 @@ describe("config init", () => {
     expect(existsSync(paths.localConfigPath)).toBe(true);
     expect(existsSync(join(root, "_cache"))).toBe(true);
     expect(existsSync(join(root, "_reports"))).toBe(true);
-    expect(existsSync(join(root, "_worktrees"))).toBe(true);
     expect(existsSync(join(paths.configDir, "prompts", "morning-next-work.md"))).toBe(true);
     expect(existsSync(join(paths.configDir, "prompts", "friday-summary.md"))).toBe(true);
     expect(existsSync(join(paths.configDir, "prompts", "monday-maintenance.md"))).toBe(true);

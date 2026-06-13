@@ -26,13 +26,12 @@ export async function startUiServer(options: UiServerOptions) {
     development: true,
     routes: {
       "/": index,
-      "/repositories": index,
-      "/repositories/:projectId": index,
+      "/projects": index,
+      "/projects/:projectId": index,
       "/local": index,
       "/reports": index,
       "/reports/*": index,
       "/automation": index,
-      "/approvals": index,
       "/settings": index,
       "/favicon.ico": () => new Response(null, { status: 204 }),
       "/api/*": (req) =>

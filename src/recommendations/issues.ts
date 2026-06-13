@@ -1,4 +1,3 @@
-import { upsertApproval } from "../approvals";
 import type { LoadedConfig } from "../config/load";
 import type { GitHubIssue, IssueRecommendation, IssueRecommendationRun, Project } from "../domain";
 import { listProjectIssues } from "../github/context";
@@ -77,33 +76,11 @@ export async function generateIssueRecommendations(
       2,
     )}\n`,
   );
-  const approvals = await Promise.all(
-    candidates.map((candidate) =>
-      upsertApproval(loaded, {
-        id: candidate.id,
-        kind: "issue-recommendation",
-        title: `Implement ${candidate.repo}#${candidate.number}: ${candidate.title}`,
-        projectId: candidate.projectId,
-        reportPath,
-        url: candidate.url,
-        branch: candidate.proposedBranch,
-        reason: candidate.reasons.join("; "),
-        metadata: {
-          repo: candidate.repo,
-          number: candidate.number,
-          score: candidate.score,
-          proposedBranch: candidate.proposedBranch,
-        },
-      }),
-    ),
-  );
-
   return {
     generatedAt: now.toISOString(),
     reportPath,
     structuredPath,
     candidates,
-    approvals,
   };
 }
 
@@ -216,7 +193,7 @@ function renderIssueRecommendationReport(
   }
   lines.push("");
   lines.push(
-    "These are approval candidates only. Herakles does not implement or mutate repositories until a user approves a candidate.",
+    "These are AI harness inputs only. Herakles does not implement or mutate repositories.",
   );
   return `${lines.join("\n")}\n`;
 }

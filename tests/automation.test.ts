@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listApprovals } from "../src/approvals";
 import {
   automateTick,
   configuredJobs,
@@ -66,7 +65,7 @@ output = "_reports/coderabbit/{slot}.md"
 }
 
 async function tempManualGateWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-manual-gate-"));
+  const root = await mkdtemp(join(tmpdir(), "herakles-harness-report-"));
   await mkdir(join(root, "_herakles"), { recursive: true });
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
@@ -76,15 +75,11 @@ root = "."
 [github]
 owners = []
 
-[automation]
-implementation_gate = "manual"
-
-[job.patch_candidate]
+[job.harness_report]
 schedule = "0 12 * * *"
 slot_timezone = "UTC"
-mode = "patch-candidate"
-prompt = "prompts/patch.md"
-output = "_reports/patch/{date}.md"
+mode = "ai-harness-report"
+output = "_reports/harness/{date}.md"
 repo_filter = 'state == "open-source"'
 `,
   );
@@ -451,28 +446,22 @@ describe("automation", () => {
     expect(reports.length).toBe(2);
   });
 
-  test("manual implementation gate turns patch-candidate jobs into approval candidates", async () => {
+  test("custom harness jobs generate reports without Herakles implementation workflow", async () => {
     const loaded = await loadConfig(await tempManualGateWorkspace());
     const runs = await automateTick(loaded, {
       now: new Date("2026-06-12T12:00:00Z"),
       projects: [project("active"), project("experiment", { state: "experiment" })],
     });
     const reports = await listReports(loaded);
-    const approvals = await listApprovals(loaded);
 
     expect(runs).toHaveLength(1);
-    expect(runs[0]?.status).toBe("planned");
-    expect(runs[0]?.message).toContain("manual approval required");
+    expect(runs[0]?.status).toBe("succeeded");
+    expect(runs[0]?.message).toContain("report generated");
     expect(reports.length).toBe(1);
-    expect(await Bun.file(reports[0]!.path).text()).toContain("Status: manual approval required");
-    expect(approvals).toHaveLength(1);
-    expect(approvals[0]?.kind).toBe("automation");
-    expect(approvals[0]?.status).toBe("pending");
-    expect(approvals[0]?.metadata?.jobId).toBe("patch_candidate");
-    expect(approvals[0]?.metadata?.mode).toBe("patch-candidate");
+    expect(await Bun.file(reports[0]!.path).text()).toContain("Mode: ai-harness-report");
   });
 
-  test("implementation-plan jobs create issue recommendation approval candidates", async () => {
+  test("implementation-plan jobs create issue recommendation reports", async () => {
     const loaded = await loadConfig(await tempImplementationPlanWorkspace());
     const seen: { repos?: string[]; labels?: readonly string[] } = {};
     const issues: GitHubIssue[] = [
@@ -500,20 +489,16 @@ describe("automation", () => {
       },
     });
     const reports = await listReports(loaded);
-    const approvals = await listApprovals(loaded);
 
     expect(run.status).toBe("succeeded");
-    expect(run.message).toBe("created 1 issue approval candidate(s)");
+    expect(run.message).toBe("created issue recommendation report with 1 candidate(s)");
     expect(seen.repos).toEqual(["active"]);
     expect(seen.labels).toEqual(["ready-for-agent"]);
     expect(reports.map((report) => report.id)).toEqual(["issues/2026-06-12.md"]);
     expect(await Bun.file(run.reportPath!).text()).toContain("Issue Recommendations");
-    expect(approvals).toHaveLength(1);
-    expect(approvals[0]?.kind).toBe("issue-recommendation");
-    expect(approvals[0]?.branch).toBe("herakles/issue-42-add-sync-status-affordance");
   });
 
-  test("coderabbit-review jobs create review approval candidates", async () => {
+  test("coderabbit-review jobs create review reports", async () => {
     const loaded = await loadConfig(await tempCodeRabbitReviewWorkspace());
     const seen: { repos?: string[]; threads?: string[] } = {};
     const pullRequests: GitHubPullRequest[] = [
@@ -560,19 +545,15 @@ describe("automation", () => {
       },
     });
     const reports = await listReports(loaded);
-    const approvals = await listApprovals(loaded);
 
     expect(run.status).toBe("succeeded");
-    expect(run.message).toBe("created 1 CodeRabbit approval candidate(s)");
+    expect(run.message).toBe("created CodeRabbit review report with 1 pull request context(s)");
     expect(seen.repos).toEqual(["active"]);
     expect(seen.threads).toEqual(["frostney/active#7"]);
     expect(reports.map((report) => report.id)).toEqual([
       "coderabbit/coderabbit__2026-06-12T00-00Z.md",
     ]);
     expect(await Bun.file(run.reportPath!).text()).toContain("CodeRabbit Review Threads");
-    expect(approvals).toHaveLength(1);
-    expect(approvals[0]?.kind).toBe("coderabbit-review");
-    expect(approvals[0]?.branch).toBe("sync-display");
   });
 
   test("report-only jobs pass enriched Herakles context to Codex", async () => {

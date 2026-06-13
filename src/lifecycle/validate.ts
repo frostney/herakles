@@ -4,7 +4,6 @@ import type { Project, ValidationIssue, ValidationResult } from "../domain";
 
 export type ProjectValidationOptions = {
   strict?: boolean;
-  ambiguousRepoOverrideKeys?: readonly string[];
   hostedClonePathMismatches?: readonly HostedClonePathMismatch[];
 };
 
@@ -19,18 +18,6 @@ export function validateProjects(
   options: ProjectValidationOptions = {},
 ): ValidationResult {
   const issues: ValidationIssue[] = [];
-  for (const key of options.ambiguousRepoOverrideKeys ?? []) {
-    const matchingProjects = projects.filter(
-      (project) => project.source === "github" && project.repo === key,
-    );
-    issues.push({
-      severity: "error",
-      code: "ambiguous-repo-override",
-      message: `Repo override "${key}" matches multiple hosted repositories: ${matchingProjects
-        .map((project) => `${project.owner}/${project.repo}`)
-        .join(", ")}. Use owner/repo keys for duplicate repository names.`,
-    });
-  }
   for (const mismatch of options.hostedClonePathMismatches ?? []) {
     issues.push({
       severity: "error",

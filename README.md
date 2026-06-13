@@ -1,6 +1,6 @@
 # Herakles
 
-Herakles is a Bun-first TypeScript workspace orchestrator for managing many GitHub repositories, local experiments, sync plans, reports, approvals, and recurring automation from one CLI and local browser UI.
+Herakles is a Bun-first TypeScript workspace orchestrator for managing many GitHub repositories, local experiments, sync plans, reports, and recurring AI-harness automation from one CLI and local browser UI.
 
 ## Install
 
@@ -16,13 +16,17 @@ Create the workspace scaffold:
 bun run herakles init --root ~/Code
 ```
 
-Inspect and sync repositories:
+Add, import, inspect, and sync projects:
 
 ```sh
+bun run herakles add --root ~/Code --source github --repo frostney/tool
+bun run herakles add --root ~/Code --source local --path local-spike --id local-spike
+bun run herakles projects import --root ~/Code --repo frostney/tool --repo frostney/app
 bun run herakles projects refresh --root ~/Code
 bun run herakles projects list --root ~/Code
 bun run herakles sync --root ~/Code --dry-run
 bun run herakles sync --root ~/Code
+bun run herakles remove local-spike --root ~/Code --yes
 ```
 
 Open the local UI:
@@ -44,7 +48,7 @@ See [docs/architecture.md](docs/architecture.md) for the domain model, sync cont
 
 ## Background
 
-Herakles treats GitHub as the source for repository facts and keeps `_herakles/herakles.toml` sparse. Local experiments stay local unless explicitly promoted. Remote synchronization happens through token-protected Herakles server sync plans rather than synced machine profiles.
+Herakles treats GitHub as the source for hosted repository facts and keeps `_herakles/herakles.toml` as the sparse tracked-project list plus orchestration config. Local experiments stay local unless explicitly promoted. Remote synchronization happens through token-protected Herakles server sync plans rather than synced machine profiles.
 
 ## Contribution
 

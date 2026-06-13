@@ -2,44 +2,51 @@ import { existsSync } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import type { LoadedConfig } from "../config/load";
-import {
-  type RepoOverridePlan,
-  applyRepoOverridePlan,
-  createRepoOverridePlan,
-} from "../config/overrides";
 import { resolveUnder } from "../config/paths";
+import {
+  type ProjectConfigPlan,
+  applyProjectConfigPlan,
+  createProjectConfigPlan,
+} from "../config/projects";
 import type { Project, RepoMovePlan } from "../domain";
 
-const reservedTopLevel = new Set(["_herakles", "_reports", "_worktrees", "_cache"]);
+const reservedTopLevel = new Set(["_herakles", "_reports", "_cache"]);
 
 export function createRepoMovePlan(
   loaded: LoadedConfig,
   project: Project,
   newRelativePath: string,
+  projectConfigId = project.slug,
 ): RepoMovePlan {
   if (project.source !== "github") {
     throw new Error("Synced repo moves are only available for hosted projects.");
   }
   const relativePath = normalizeRelativePath(loaded, newRelativePath);
   const toPath = resolveUnder(loaded.paths.workspaceRoot, relativePath);
-  const override = createRepoOverridePlan(loaded, project, { path: relativePath });
-  return movePlan(project, toPath, relativePath, override, "plan");
+  const configPlan = createProjectConfigPlan(
+    loaded,
+    projectConfigId,
+    { path: relativePath },
+    project,
+  );
+  return movePlan(project, toPath, relativePath, configPlan, "plan");
 }
 
 export async function applyRepoMove(
   loaded: LoadedConfig,
   project: Project,
   newRelativePath: string,
+  projectConfigId = project.slug,
 ): Promise<RepoMovePlan> {
-  const plan = createRepoMovePlan(loaded, project, newRelativePath);
+  const plan = createRepoMovePlan(loaded, project, newRelativePath, projectConfigId);
   if (!existsSync(project.path))
     throw new Error(`Current project path does not exist: ${project.path}`);
   if (existsSync(plan.toPath)) throw new Error(`Target path already exists: ${plan.toPath}`);
   await mkdir(dirname(plan.toPath), { recursive: true });
   await rename(project.path, plan.toPath);
   try {
-    await applyRepoOverridePlan(
-      createRepoOverridePlan(loaded, project, { path: plan.relativePath }),
+    await applyProjectConfigPlan(
+      createProjectConfigPlan(loaded, projectConfigId, { path: plan.relativePath }, project),
     );
   } catch (error) {
     await rename(plan.toPath, project.path).catch(() => undefined);
@@ -52,7 +59,7 @@ function movePlan(
   project: Project,
   toPath: string,
   relativePath: string,
-  override: RepoOverridePlan,
+  configPlan: ProjectConfigPlan,
   action: RepoMovePlan["action"],
 ): RepoMovePlan {
   return {
@@ -61,9 +68,9 @@ function movePlan(
     fromPath: project.path,
     toPath,
     relativePath,
-    configPath: override.configPath,
-    toml: override.toml,
-    diff: override.diff,
+    configPath: configPlan.configPath,
+    toml: configPlan.toml,
+    diff: configPlan.diff,
     action,
   };
 }

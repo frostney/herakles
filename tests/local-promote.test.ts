@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { loadConfig } from "../src/config/load";
@@ -99,15 +99,23 @@ describe("local promotion plan", () => {
     });
   });
 
-  test("repo promote CLI aliases local promotion planning", async () => {
+  test("projects promote CLI plans local promotion", async () => {
     const root = await tempWorkspace([]);
     await mkdir(join(root, "spike", ".git"), { recursive: true });
+    await appendFile(
+      join(root, "_herakles", "herakles.toml"),
+      `
+[project."spike"]
+source = "local"
+path = "spike"
+`,
+    );
     const result = await runCommand(
       [
         process.execPath,
         "run",
         "src/cli/main.ts",
-        "repo",
+        "projects",
         "promote",
         "spike",
         "--root",

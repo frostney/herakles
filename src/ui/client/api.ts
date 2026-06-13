@@ -1,17 +1,13 @@
 import type {
-  ApprovalCandidate,
   AutomationDueSlot,
   AutomationJob,
   AutomationLock,
   AutomationRun,
-  CodeRabbitRecommendationRun,
   DoctorResult,
   HeraklesEvent,
-  IssueRecommendationRun,
+  HostedImportCandidate,
   LocalPromotionPlan,
   LocalPromotionResult,
-  PatchPublishResult,
-  PatchWorktreeResult,
   Project,
   ProjectDetail,
   ProjectState,
@@ -47,10 +43,9 @@ export type AutomationPayload = {
 
 export type { HeraklesEvent, LocalPromotionResult, RepoMovePlan };
 
-export type OverridePlan = {
+export type ProjectConfigPlan = {
   configPath: string;
   projectId: string;
-  repoKey: string;
   changes: Record<string, string>;
   before?: Record<string, string>;
   after: Record<string, string>;
@@ -63,7 +58,7 @@ export type OverridePlan = {
   validation?: ValidationResult;
   toml: string;
   diff: string;
-  action: "append" | "replace";
+  action: "append" | "replace" | "remove";
 };
 
 export type SyncRunResult = Array<{
@@ -121,12 +116,12 @@ export async function postReportNote(input: {
   return post("/api/reports/note", input);
 }
 
-export async function getApprovals(): Promise<ApprovalCandidate[]> {
-  return get("/api/approvals");
-}
-
 export async function getAutomations(): Promise<AutomationPayload> {
   return get("/api/automation/jobs");
+}
+
+export async function getHostedImportCandidates(): Promise<HostedImportCandidate[]> {
+  return get("/api/projects/import-candidates");
 }
 
 export async function getDoctor(): Promise<DoctorResult> {
@@ -149,6 +144,27 @@ export async function postProjectsRefresh(): Promise<ProjectDiscoveryRefreshResu
   return post("/api/projects/refresh");
 }
 
+export async function postAddProject(input: {
+  id: string;
+  source: "github" | "local";
+  repo?: string;
+  path?: string;
+  state?: ProjectState;
+  sync?: boolean;
+}) {
+  return post("/api/projects/add", input);
+}
+
+export async function postImportProjects(
+  projects: Array<{ id: string; repo: string; state?: ProjectState; path?: string }>,
+) {
+  return post("/api/projects/import", { projects });
+}
+
+export async function postRemoveProject(projectId: string) {
+  return post("/api/projects/remove", { projectId });
+}
+
 export async function postValidate(options: { strict?: boolean } = {}): Promise<ValidationResult> {
   return post(`/api/validate${options.strict ? "?strict=true" : ""}`);
 }
@@ -165,42 +181,19 @@ export async function postAutomationRun(jobId: string): Promise<AutomationRun> {
   return post("/api/automation/run", { jobId, slot: "now" });
 }
 
-export async function postIssueRecommendations(): Promise<IssueRecommendationRun> {
-  return post("/api/recommendations/issues");
-}
-
-export async function postCodeRabbitRecommendations(): Promise<CodeRabbitRecommendationRun> {
-  return post("/api/recommendations/coderabbit");
-}
-
-export async function postApprovalDecision(
-  id: string,
-  action: "approve" | "reject" | "defer",
-): Promise<ApprovalCandidate> {
-  return post(`/api/approvals/${encodeURIComponent(id)}/${action}`);
-}
-
-export async function postApprovalPrepare(id: string): Promise<PatchWorktreeResult> {
-  return post(`/api/approvals/${encodeURIComponent(id)}/prepare`);
-}
-
-export async function postApprovalPublish(id: string): Promise<PatchPublishResult> {
-  return post(`/api/approvals/${encodeURIComponent(id)}/publish`);
-}
-
-export async function postOverridePlan(
+export async function postProjectConfigPlan(
   projectId: string,
   state: ProjectState,
   options: { force?: boolean } = {},
-): Promise<OverridePlan> {
-  return post("/api/config/override-plan", { projectId, state, force: options.force === true });
+): Promise<ProjectConfigPlan> {
+  return post("/api/config/project-plan", { projectId, state, force: options.force === true });
 }
 
-export async function postOverrideApply(
+export async function postProjectConfigApply(
   projectId: string,
   state: ProjectState,
   options: { force?: boolean } = {},
-): Promise<OverridePlan> {
+): Promise<ProjectConfigPlan> {
   return post("/api/config/apply", { projectId, state, force: options.force === true });
 }
 

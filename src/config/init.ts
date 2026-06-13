@@ -17,11 +17,11 @@ host = "127.0.0.1"
 port = 4783
 open_browser = true
 
-[job.coderabbit]
+[job.review_context]
 schedule = "0 */4 * * *"
 slot_timezone = "UTC"
 mode = "coderabbit-review"
-output = "_reports/coderabbit/{slot}.md"
+output = "_reports/reviews/{slot}.md"
 repo_filter = '''
 not archived
 and not has_topic("no-agent")
@@ -86,7 +86,7 @@ const promptFiles = {
 
 You are helping choose a small set of good next work items for today.
 
-Use the Herakles automation context below as source data. Recommend at most five concrete items. For each item include the repository, task, reason, expected effort, and risk. Do not write code, create branches, push commits, or mutate GitHub.
+Use the Herakles automation context below as source data. Recommend at most five concrete items. For each item include the project, task, reason, expected effort, and risk. Do not write code, create branches, push commits, or mutate GitHub.
 `,
   "friday-summary.md": `# Friday Summary
 

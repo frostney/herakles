@@ -1,3 +1,5 @@
+import { stdin as input, stdout as output } from "node:process";
+import { createInterface } from "node:readline/promises";
 import {
   type Command,
   type CommandContext,
@@ -235,18 +237,291 @@ const projectStateParser = (value: string): ProjectState => {
   throw new Error(`Unknown project state: ${value}`);
 };
 
+function projectSourceParser(value: string): "github" | "local" {
+  if (value === "github" || value === "local") return value;
+  throw new Error(`Unknown project source: ${value}`);
+}
+
+async function prompt(question: string): Promise<string> {
+  const rl = createInterface({ input, output });
+  try {
+    return (await rl.question(question)).trim();
+  } finally {
+    rl.close();
+  }
+}
+
+async function promptProjectAdd(flags: {
+  source?: "github" | "local";
+  id?: string;
+  repo?: string;
+  path?: string;
+  state?: ProjectState;
+  sync?: boolean;
+}) {
+  const source = await promptProjectSource(flags);
+  const { repo, path } = await promptProjectLocation(source, flags);
+  const id = await promptProjectId(flags.id, defaultProjectId(source, repo, path));
+  return buildAddProjectInput({
+    id,
+    source,
+    repo,
+    path,
+    state: flags.state,
+    sync: flags.sync,
+  });
+}
+
+function buildAddProjectInput(input: {
+  id: string | undefined;
+  source: "github" | "local";
+  repo: string | undefined;
+  path: string | undefined;
+  state: ProjectState | undefined;
+  sync: boolean | undefined;
+}) {
+  const id = requireProjectValue(input.id, "Project id is required.");
+  return input.source === "github"
+    ? buildGitHubAddProjectInput(id, input)
+    : buildLocalAddProjectInput(id, input);
+}
+
+function buildGitHubAddProjectInput(
+  id: string,
+  input: { repo: string | undefined; state: ProjectState | undefined; sync: boolean | undefined },
+) {
+  return {
+    id,
+    source: "github" as const,
+    repo: requireProjectValue(input.repo, "GitHub repo is required."),
+    ...commonProjectOptions(input),
+  };
+}
+
+function buildLocalAddProjectInput(
+  id: string,
+  input: { path: string | undefined; state: ProjectState | undefined; sync: boolean | undefined },
+) {
+  return {
+    id,
+    source: "local" as const,
+    path: requireProjectValue(input.path, "Local path is required."),
+    ...commonProjectOptions(input),
+  };
+}
+
+function commonProjectOptions(input: {
+  state: ProjectState | undefined;
+  sync: boolean | undefined;
+}) {
+  return {
+    ...(input.state === undefined ? {} : { state: input.state }),
+    ...(input.sync === undefined ? {} : { sync: input.sync }),
+  };
+}
+
+function requireProjectValue(value: string | undefined, message: string): string {
+  if (!value) throw new Error(message);
+  return value;
+}
+
+async function promptProjectSource(flags: {
+  source?: "github" | "local";
+  repo?: string;
+  path?: string;
+}) {
+  if (flags.source) return flags.source;
+  const fallback = flags.repo ? "github" : flags.path ? "local" : "local";
+  return projectSourceParser((await prompt("Source (github/local): ")) || fallback);
+}
+
+async function promptProjectLocation(
+  source: "github" | "local",
+  flags: { repo?: string; path?: string },
+) {
+  return {
+    repo:
+      source === "github"
+        ? (flags.repo ?? (await prompt("GitHub repo (owner/name): ")))
+        : undefined,
+    path: source === "local" ? (flags.path ?? (await prompt("Local path: "))) : flags.path,
+  };
+}
+
+async function promptProjectId(id: string | undefined, fallbackId: string | undefined) {
+  return id ?? ((await prompt(`Project id (${fallbackId ?? "project"}): `)) || fallbackId);
+}
+
+function defaultProjectId(
+  source: "github" | "local",
+  repo: string | undefined,
+  path: string | undefined,
+) {
+  return source === "github" ? repo?.replace("/", "-") : path?.split(/[\\/]/).at(-1);
+}
+
+const addProjectCommand = buildCommand<
+  CommonFlags & {
+    source?: "github" | "local";
+    id?: string;
+    repo?: string;
+    path?: string;
+    state?: ProjectState;
+    sync?: boolean;
+  }
+>({
+  docs: { brief: "Add a tracked project to Herakles config." },
+  parameters: {
+    flags: {
+      ...commonFlags,
+      source: {
+        kind: "parsed",
+        parse: projectSourceParser,
+        optional: true,
+        brief: "Project source.",
+        placeholder: "github|local",
+      },
+      id: {
+        kind: "parsed",
+        parse: String,
+        optional: true,
+        brief: "Tracked project id.",
+        placeholder: "id",
+      },
+      repo: {
+        kind: "parsed",
+        parse: String,
+        optional: true,
+        brief: "Hosted repository as owner/name.",
+        placeholder: "owner/name",
+      },
+      path: {
+        kind: "parsed",
+        parse: String,
+        optional: true,
+        brief: "Local or workspace-relative project path.",
+        placeholder: "path",
+      },
+      state: {
+        kind: "parsed",
+        parse: projectStateParser,
+        optional: true,
+        brief: "Lifecycle state.",
+        placeholder: "state",
+      },
+      sync: {
+        kind: "parsed",
+        parse: looseBooleanParser,
+        optional: true,
+        brief: "Project sync eligibility.",
+        placeholder: "true|false",
+      },
+    },
+  },
+  async func(flags) {
+    const input = await promptProjectAdd(flags);
+    const result = await app.addProject(root(flags), input);
+    shouldJson(flags) ? printJson(result) : console.log(result.toml);
+  },
+});
+
+const removeProjectCommand = buildCommand<CommonFlags & { yes?: boolean }, [string]>({
+  docs: { brief: "Stop tracking a project without deleting local files or hosted repositories." },
+  parameters: {
+    flags: {
+      ...commonFlags,
+      yes: {
+        kind: "boolean",
+        optional: true,
+        brief: "Skip confirmation.",
+      },
+    },
+    positional: {
+      kind: "tuple",
+      parameters: [
+        { parse: String, brief: "Project id, slug, or repository name.", placeholder: "project" },
+      ],
+    },
+  },
+  async func(flags, id) {
+    if (flags.yes !== true) {
+      const answer = await prompt(
+        `Stop tracking ${id}? This will not delete files or remotes. (yes/no): `,
+      );
+      if (answer.toLowerCase() !== "yes") {
+        console.log("Remove cancelled.");
+        return;
+      }
+    }
+    const result = await app.removeProject(root(flags), id);
+    shouldJson(flags) ? printJson(result) : console.log(result.diff);
+  },
+});
+
+const projectsImportCommand = buildCommand<
+  CommonFlags & { repo?: string[]; state?: ProjectState },
+  []
+>({
+  docs: { brief: "Bulk import hosted repositories as tracked projects." },
+  parameters: {
+    flags: {
+      ...commonFlags,
+      repo: {
+        kind: "parsed",
+        parse: String,
+        variadic: true,
+        optional: true,
+        brief: "Hosted repository as owner/name. Repeat for multiple repositories.",
+        placeholder: "owner/name",
+      },
+      state: {
+        kind: "parsed",
+        parse: projectStateParser,
+        optional: true,
+        brief: "Lifecycle state to apply to every imported project.",
+        placeholder: "state",
+      },
+    },
+  },
+  async func(flags) {
+    const repos = flags.repo ?? [];
+    if (repos.length === 0) {
+      const candidates = await app.hostedImportCandidates(root(flags));
+      const rows = candidates.map((candidate) => ({
+        id: candidate.id,
+        repo: candidate.repo,
+        visibility: candidate.visibility,
+        suggestedState: candidate.suggestedState,
+      }));
+      shouldJson(flags) ? printJson(candidates) : printTable(rows);
+      return;
+    }
+    const result = await app.importHostedProjects(
+      root(flags),
+      repos.map((repo) => ({
+        id: repo.replace("/", "-"),
+        repo,
+        ...(flags.state === undefined ? {} : { state: flags.state }),
+      })),
+    );
+    shouldJson(flags)
+      ? printJson(result)
+      : printTable(result.map((plan) => ({ id: plan.projectId, action: plan.action })));
+  },
+});
+
 const repoSetStateCommand = buildCommand<
   CommonFlags & { dryRun?: boolean; force?: boolean },
   [string, ProjectState]
 >({
-  docs: { brief: "Write a sparse state override for a hosted project." },
+  docs: { brief: "Update a tracked project's lifecycle state." },
   parameters: {
     flags: {
       ...commonFlags,
       dryRun: {
         kind: "boolean",
         optional: true,
-        brief: "Print the override plan without changing synced config.",
+        brief: "Print the project config plan without changing synced config.",
       },
       force: {
         kind: "boolean",
@@ -264,7 +539,7 @@ const repoSetStateCommand = buildCommand<
   },
   async func(flags, id, state) {
     const result = flags.dryRun
-      ? await app.repoOverridePlan(root(flags), id, { state }, { force: flags.force === true })
+      ? await app.projectConfigPlan(root(flags), id, { state }, { force: flags.force === true })
       : await app.setProjectState(root(flags), id, state, { force: flags.force === true });
     shouldJson(flags) ? printJson(result) : console.log(result.toml);
   },
@@ -274,7 +549,7 @@ const repoArchiveCommand = buildCommand<
   CommonFlags & { learning: string; dryRun?: boolean },
   [string]
 >({
-  docs: { brief: "Archive a hosted project with a learning note override." },
+  docs: { brief: "Archive a hosted project with a learning note." },
   parameters: {
     flags: {
       ...commonFlags,
@@ -287,7 +562,7 @@ const repoArchiveCommand = buildCommand<
       dryRun: {
         kind: "boolean",
         optional: true,
-        brief: "Print the override plan without changing synced config.",
+        brief: "Print the project config plan without changing synced config.",
       },
     },
     positional: {
@@ -300,14 +575,14 @@ const repoArchiveCommand = buildCommand<
   async func(flags, id) {
     const changes = { state: "archived" as const, learning: flags.learning };
     const result = flags.dryRun
-      ? await app.repoOverridePlan(root(flags), id, changes)
+      ? await app.projectConfigPlan(root(flags), id, changes)
       : await app.archiveProject(root(flags), id, flags.learning);
     shouldJson(flags) ? printJson(result) : console.log(result.toml);
   },
 });
 
 const repoMoveCommand = buildCommand<CommonFlags & { dryRun?: boolean }, [string, string]>({
-  docs: { brief: "Move a hosted project clone and write a sparse path override." },
+  docs: { brief: "Move a hosted project clone and update its tracked path." },
   parameters: {
     flags: {
       ...commonFlags,
@@ -867,151 +1142,6 @@ const codexDoctorCommand = buildCommand<CommonFlags>({
   },
 });
 
-const approvalsListCommand = buildCommand<CommonFlags>({
-  docs: { brief: "List approval candidates." },
-  parameters: { flags: commonFlags },
-  async func(flags) {
-    const result = await app.approvals(root(flags));
-    shouldJson(flags) ? printJson(result) : printTable(result);
-  },
-});
-
-function approvalDecisionCommand(status: "approved" | "rejected" | "deferred") {
-  return buildCommand<CommonFlags, [string]>({
-    docs: { brief: `${status} an approval candidate.` },
-    parameters: {
-      flags: commonFlags,
-      positional: {
-        kind: "tuple",
-        parameters: [
-          {
-            parse: String,
-            brief: "Approval candidate id.",
-            placeholder: "id",
-          },
-        ],
-      },
-    },
-    async func(flags, id) {
-      const result = await app.approvalDecision(root(flags), id, status);
-      shouldJson(flags) ? printJson(result) : printTable([result]);
-    },
-  });
-}
-
-const approvalPrepareCommand = buildCommand<
-  CommonFlags & { branch?: string; path?: string },
-  [string]
->({
-  docs: { brief: "Create or reuse a patch worktree for an approved candidate." },
-  parameters: {
-    flags: {
-      ...commonFlags,
-      branch: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Patch branch name.",
-        placeholder: "branch",
-      },
-      path: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Worktree path.",
-        placeholder: "path",
-      },
-    },
-    positional: {
-      kind: "tuple",
-      parameters: [
-        {
-          parse: String,
-          brief: "Approval candidate id.",
-          placeholder: "id",
-        },
-      ],
-    },
-  },
-  async func(flags, id) {
-    const result = await app.approvalWorktree(root(flags), id, {
-      ...(flags.branch === undefined ? {} : { branch: flags.branch }),
-      ...(flags.path === undefined ? {} : { path: flags.path }),
-    });
-    shouldJson(flags) ? printJson(result) : printTable([result]);
-  },
-});
-
-const approvalPublishCommand = buildCommand<
-  CommonFlags & {
-    allowTestFailure?: boolean;
-    skipPr?: boolean;
-    message?: string;
-    title?: string;
-    body?: string;
-  },
-  [string]
->({
-  docs: { brief: "Run tests, commit, push, and open a draft PR for an approved candidate." },
-  parameters: {
-    flags: {
-      ...commonFlags,
-      allowTestFailure: {
-        kind: "boolean",
-        optional: true,
-        brief: "Continue publishing even when discovered tests fail.",
-      },
-      skipPr: {
-        kind: "boolean",
-        optional: true,
-        brief: "Commit and push without opening a PR.",
-      },
-      message: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Commit message.",
-        placeholder: "message",
-      },
-      title: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Pull request title.",
-        placeholder: "title",
-      },
-      body: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Pull request body.",
-        placeholder: "body",
-      },
-    },
-    positional: {
-      kind: "tuple",
-      parameters: [
-        {
-          parse: String,
-          brief: "Approval candidate id.",
-          placeholder: "id",
-        },
-      ],
-    },
-  },
-  async func(flags, id) {
-    const result = await app.approvalPublish(root(flags), id, {
-      ...(flags.allowTestFailure === undefined ? {} : { allowTestFailure: flags.allowTestFailure }),
-      ...(flags.skipPr === undefined ? {} : { skipPr: flags.skipPr }),
-      ...(flags.message === undefined ? {} : { message: flags.message }),
-      ...(flags.title === undefined ? {} : { title: flags.title }),
-      ...(flags.body === undefined ? {} : { body: flags.body }),
-    });
-    shouldJson(flags) ? printJson(result) : printTable([result]);
-    if (result.status === "blocked") process.exitCode = 1;
-  },
-});
-
 const githubPrsCommand = buildCommand<CommonFlags>({
   docs: { brief: "List open pull requests across synced remote projects." },
   parameters: { flags: commonFlags },
@@ -1043,7 +1173,7 @@ const githubIssuesCommand = buildCommand<CommonFlags & { label?: string[] }>({
 });
 
 const recommendIssuesCommand = buildCommand<CommonFlags & { label?: string[]; limit?: number }>({
-  docs: { brief: "Rank open GitHub issues and create approval candidates." },
+  docs: { brief: "Rank open GitHub issues and write a recommendation report." },
   parameters: {
     flags: {
       ...commonFlags,
@@ -1083,7 +1213,7 @@ const recommendIssuesCommand = buildCommand<CommonFlags & { label?: string[]; li
 });
 
 const recommendCodeRabbitCommand = buildCommand<CommonFlags & { limit?: number }>({
-  docs: { brief: "Find unresolved CodeRabbit review threads and create approval candidates." },
+  docs: { brief: "Find unresolved CodeRabbit review threads and write a report." },
   parameters: {
     flags: {
       ...commonFlags,
@@ -1210,6 +1340,8 @@ export const rootRoute = buildRouteMap({
   docs: { brief: "Herakles workspace orchestrator." },
   routes: {
     init: initCommand,
+    add: addProjectCommand,
+    remove: removeProjectCommand,
     status: statusCommand,
     validate: validateCommand,
     config: buildRouteMap({
@@ -1225,8 +1357,13 @@ export const rootRoute = buildRouteMap({
       routes: {
         list: repoListCommand,
         show: repoShowCommand,
+        import: projectsImportCommand,
         refresh: projectsRefreshCommand,
         discovery: projectsDiscoveryCommand,
+        "set-state": repoSetStateCommand,
+        archive: repoArchiveCommand,
+        promote: localPromoteCommand,
+        move: repoMoveCommand,
       },
     }),
     sync: buildRouteMap({
@@ -1238,17 +1375,6 @@ export const rootRoute = buildRouteMap({
       },
     }),
     prune: pruneCommand,
-    repo: buildRouteMap({
-      docs: { brief: "Repository/project commands." },
-      routes: {
-        list: repoListCommand,
-        show: repoShowCommand,
-        "set-state": repoSetStateCommand,
-        archive: repoArchiveCommand,
-        promote: localPromoteCommand,
-        move: repoMoveCommand,
-      },
-    }),
     local: buildRouteMap({
       docs: { brief: "Local experiment commands." },
       routes: {
@@ -1289,18 +1415,6 @@ export const rootRoute = buildRouteMap({
       docs: { brief: "Codex integration commands." },
       routes: {
         doctor: codexDoctorCommand,
-      },
-    }),
-    approvals: buildRouteMap({
-      docs: { brief: "Approval commands." },
-      defaultCommand: "list",
-      routes: {
-        list: approvalsListCommand,
-        approve: approvalDecisionCommand("approved"),
-        reject: approvalDecisionCommand("rejected"),
-        defer: approvalDecisionCommand("deferred"),
-        prepare: approvalPrepareCommand,
-        publish: approvalPublishCommand,
       },
     }),
     recommend: buildRouteMap({

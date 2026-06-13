@@ -11,9 +11,23 @@ include_archived = true
 exclude_topics = ["no-sync"]
 pin_topics = ["pinned", "current", "travel"]
 
-[repo."paid-api"]
+[project."frostney-herakles"]
+source = "github"
+repo = "frostney/herakles"
+
+[project."paid-api"]
+source = "github"
+repo = "frostney/paid-api"
 state = "commercial"
 tags = ["strategic"]
+
+[project."old-tool"]
+source = "github"
+repo = "frostney/old-tool"
+
+[project."local-spike"]
+source = "local"
+path = "local-spike"
 
 [job.friday_summary]
 schedule = "00 16 * * FRI"

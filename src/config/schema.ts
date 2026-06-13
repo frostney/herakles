@@ -9,9 +9,11 @@ const projectStateSchema = z.enum([
   "archived",
 ]);
 
-const repoOverrideSchema = z.object({
-  state: projectStateSchema.optional(),
+const projectConfigSchema = z.object({
+  source: z.enum(["github", "local"]),
+  repo: z.string().optional(),
   path: z.string().optional(),
+  state: projectStateSchema.optional(),
   sync: z.boolean().optional(),
   tags: z.array(z.string()).default([]),
   learning: z.string().optional(),
@@ -41,7 +43,6 @@ export const heraklesConfigSchema = z.object({
       repo_path: z.string().default("{repo}"),
       collision_path: z.string().default("{owner}-{repo}"),
       reports_path: z.string().default("_reports"),
-      worktrees_path: z.string().default("_worktrees"),
       cache_path: z.string().default("_cache"),
     })
     .default({}),
@@ -67,7 +68,6 @@ export const heraklesConfigSchema = z.object({
       enabled: z.boolean().default(true),
       include: z.string().default("sync == true"),
       lock_backend: z.enum(["git-branch"]).default("git-branch"),
-      implementation_gate: z.enum(["manual"]).default("manual"),
       exclude_topics: z.array(z.string()).default(["no-agent", "manual-only"]),
       catch_up_window_minutes: z
         .number()
@@ -92,7 +92,7 @@ export const heraklesConfigSchema = z.object({
     })
     .default({}),
   job: z.record(z.any()).default({}),
-  repo: z.record(repoOverrideSchema).default({}),
+  project: z.record(projectConfigSchema).default({}),
 });
 
 export type HeraklesConfig = z.infer<typeof heraklesConfigSchema>;

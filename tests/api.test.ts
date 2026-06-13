@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { routeApi } from "../src/api/routes";
-import { upsertApproval } from "../src/approvals";
 import { loadConfig } from "../src/config/load";
 import type { HeraklesEvent } from "../src/domain";
 import { writeReport } from "../src/reports";
+import { fakeGhRepositoryJson, withFakeGhScript } from "./helpers/gh";
 
 async function tempWorkspace() {
   const root = await mkdtemp(join(tmpdir(), "herakles-api-"));
@@ -26,6 +26,14 @@ owners = []
 async function addLocalGitProject(workspaceRoot: string, name: string) {
   await mkdir(join(workspaceRoot, name, ".git"), { recursive: true });
   await writeFile(join(workspaceRoot, name, ".git", "HEAD"), "ref: refs/heads/main\n");
+  await appendFile(
+    join(workspaceRoot, "_herakles", "herakles.toml"),
+    `
+[project.${JSON.stringify(name)}]
+source = "local"
+path = ${JSON.stringify(name)}
+`,
+  );
 }
 
 async function configureGithubOwner(workspaceRoot: string) {
@@ -44,38 +52,20 @@ async function withFakeGhRepo(
   repo: { name: string; isArchived?: boolean },
   run: () => Promise<void>,
 ) {
-  const bin = await mkdtemp(join(tmpdir(), "herakles-gh-"));
-  const previousPath = process.env.PATH;
-  await writeFile(
-    join(bin, "gh"),
+  await withFakeGhScript(
+    "herakles-gh-",
     `#!/bin/sh
 cat <<'JSON'
-[{
-  "name": "${repo.name}",
-  "nameWithOwner": "frostney/${repo.name}",
-  "owner": { "login": "frostney" },
-  "sshUrl": "git@github.com:frostney/${repo.name}.git",
-  "url": "https://github.com/frostney/${repo.name}",
-  "visibility": "PUBLIC",
-  "isArchived": ${repo.isArchived === true},
-  "repositoryTopics": [],
-  "languages": []
-}]
+${fakeGhRepositoryJson(repo)}
 JSON
 `,
+    run,
   );
-  await chmod(join(bin, "gh"), 0o755);
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  try {
-    await run();
-  } finally {
-    process.env.PATH = previousPath;
-  }
 }
 
-async function postOverridePlan(workspaceRoot: string, body: Record<string, unknown>) {
+async function postProjectConfigPlan(workspaceRoot: string, body: Record<string, unknown>) {
   const response = await routeApi(
-    new Request("http://x/api/config/override-plan", {
+    new Request("http://x/api/config/project-plan", {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -101,7 +91,19 @@ async function getRemote(workspaceRoot: string, path: string) {
 async function withHostedPublicToolAndScratch(workspaceRoot: string, run: () => Promise<void>) {
   await configureGithubOwner(workspaceRoot);
   await addLocalGitProject(workspaceRoot, "scratch");
+  await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
   await withFakeGhRepo({ name: "public-tool" }, run);
+}
+
+async function trackHostedProject(workspaceRoot: string, id: string, repo: string) {
+  await appendFile(
+    join(workspaceRoot, "_herakles", "herakles.toml"),
+    `
+[project.${JSON.stringify(id)}]
+source = "github"
+repo = ${JSON.stringify(repo)}
+`,
+  );
 }
 
 describe("api routes", () => {
@@ -328,6 +330,7 @@ root = "."
 owners = ["frostney"]
 `,
     );
+    await trackHostedProject(workspaceRoot, "old-tool", "frostney/old-tool");
     await withFakeGhRepo({ name: "old-tool", isArchived: true }, async () => {
       const relaxed = await routeApi(new Request("http://x/api/validate"), { workspaceRoot });
       const strict = await routeApi(new Request("http://x/api/validate?strict=true"), {
@@ -362,6 +365,7 @@ mode = "summary"
     );
     await mkdir(join(workspaceRoot, "spike", ".git"), { recursive: true });
     await writeFile(join(workspaceRoot, "spike", ".git", "HEAD"), "ref: refs/heads/main\n");
+    await addLocalGitProject(workspaceRoot, "spike");
 
     const locals = await routeApi(new Request("http://x/api/local-projects"), { workspaceRoot });
     const project = await routeApi(new Request("http://x/api/projects/spike"), { workspaceRoot });
@@ -386,8 +390,7 @@ mode = "summary"
 
   test("serves enriched project detail with related reports", async () => {
     const workspaceRoot = await tempWorkspace();
-    await mkdir(join(workspaceRoot, "spike", ".git"), { recursive: true });
-    await writeFile(join(workspaceRoot, "spike", ".git", "HEAD"), "ref: refs/heads/main\n");
+    await addLocalGitProject(workspaceRoot, "spike");
     await writeReport(
       await loadConfig(workspaceRoot),
       "notes/spike.md",
@@ -434,7 +437,9 @@ root = "."
 [github]
 owners = ["frostney"]
 
-[repo."frostney/old-tool"]
+[project."old-tool"]
+source = "github"
+repo = "frostney/old-tool"
 sync = false
 `,
     );
@@ -461,10 +466,10 @@ sync = false
     });
   });
 
-  test("override plan route validates required project id", async () => {
+  test("project config plan route validates required project id", async () => {
     const workspaceRoot = await tempWorkspace();
     const response = await routeApi(
-      new Request("http://x/api/config/override-plan", {
+      new Request("http://x/api/config/project-plan", {
         method: "POST",
         body: JSON.stringify({ state: "candidate" }),
       }),
@@ -474,7 +479,7 @@ sync = false
     expect(response?.status).toBe(400);
   });
 
-  test("override plan route blocks unusual lifecycle transitions unless forced", async () => {
+  test("project config plan route blocks unusual lifecycle transitions unless forced", async () => {
     const workspaceRoot = await tempWorkspace();
     await writeFile(
       join(workspaceRoot, "_herakles", "herakles.toml"),
@@ -485,16 +490,17 @@ root = "."
 owners = ["frostney"]
 `,
     );
+    await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
     await withFakeGhRepo({ name: "public-tool" }, async () => {
       const blocked = await routeApi(
-        new Request("http://x/api/config/override-plan", {
+        new Request("http://x/api/config/project-plan", {
           method: "POST",
           body: JSON.stringify({ projectId: "public-tool", state: "commercial" }),
         }),
         { workspaceRoot },
       );
       const forced = await routeApi(
-        new Request("http://x/api/config/override-plan", {
+        new Request("http://x/api/config/project-plan", {
           method: "POST",
           body: JSON.stringify({ projectId: "public-tool", state: "commercial", force: true }),
         }),
@@ -520,12 +526,13 @@ owners = ["frostney"]
     });
   });
 
-  test("override plan route includes projected archive validation", async () => {
+  test("project config plan route includes projected archive validation", async () => {
     const workspaceRoot = await tempWorkspace();
     await configureGithubOwner(workspaceRoot);
+    await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
     await mkdir(join(workspaceRoot, "public-tool"), { recursive: true });
     await withFakeGhRepo({ name: "public-tool" }, async () => {
-      const { response, body } = await postOverridePlan(workspaceRoot, {
+      const { response, body } = await postProjectConfigPlan(workspaceRoot, {
         projectId: "public-tool",
         state: "archived",
         learning: "LEARNING.md",
@@ -535,12 +542,13 @@ owners = ["frostney"]
     });
   });
 
-  test("override plan route includes projected path-collision validation", async () => {
+  test("project config plan route includes projected path-collision validation", async () => {
     const workspaceRoot = await tempWorkspace();
     await configureGithubOwner(workspaceRoot);
     await addLocalGitProject(workspaceRoot, "scratch");
+    await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
     await withFakeGhRepo({ name: "public-tool" }, async () => {
-      const { response, body } = await postOverridePlan(workspaceRoot, {
+      const { response, body } = await postProjectConfigPlan(workspaceRoot, {
         projectId: "public-tool",
         path: "scratch",
       });
@@ -590,26 +598,43 @@ owners = ["frostney"]
     expect(response?.status).toBe(400);
   });
 
-  test("approval defer route updates a candidate decision", async () => {
+  test("adds, imports, and removes tracked projects through the API", async () => {
     const workspaceRoot = await tempWorkspace();
-    const loaded = await loadConfig(workspaceRoot);
-    await upsertApproval(loaded, {
-      id: "issue:frostney/tool#12",
-      title: "Implement frostney/tool#12",
-      kind: "issue-recommendation",
-    });
-
-    const response = await routeApi(
-      new Request("http://x/api/approvals/issue%3Afrostney%2Ftool%2312/defer", {
+    const add = await routeApi(
+      new Request("http://x/api/projects/add", {
         method: "POST",
+        body: JSON.stringify({
+          id: "scratch",
+          source: "local",
+          path: "scratch",
+          state: "experiment",
+        }),
       }),
       { workspaceRoot },
     );
-    const body = await response?.json();
+    const imported = await routeApi(
+      new Request("http://x/api/projects/import", {
+        method: "POST",
+        body: JSON.stringify({
+          projects: [{ id: "frostney-tool", repo: "frostney/tool", state: "open-source" }],
+        }),
+      }),
+      { workspaceRoot },
+    );
+    const remove = await routeApi(
+      new Request("http://x/api/projects/remove", {
+        method: "POST",
+        body: JSON.stringify({ projectId: "scratch" }),
+      }),
+      { workspaceRoot },
+    );
+    const config = await readFile(join(workspaceRoot, "_herakles", "herakles.toml"), "utf8");
 
-    expect(response?.status).toBe(200);
-    expect(body.id).toBe("issue:frostney/tool#12");
-    expect(body.status).toBe("deferred");
+    expect(add?.status).toBe(200);
+    expect(imported?.status).toBe(200);
+    expect(remove?.status).toBe(200);
+    expect(config).toContain('[project."frostney-tool"]');
+    expect(config).not.toContain('[project."scratch"]');
   });
 
   test("repo move plan route includes projected validation", async () => {

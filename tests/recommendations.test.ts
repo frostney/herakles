@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listApprovals, updateApproval, updateApprovalStatus } from "../src/approvals";
 import { loadConfig } from "../src/config/load";
 import type { GitHubIssue, Project } from "../src/domain";
 import {
@@ -79,7 +78,7 @@ describe("issue recommendations", () => {
     expect(ranked[0]?.proposedBranch).toBe("herakles/issue-12-add-pull-request-workflow");
   });
 
-  test("writes a report and preserves approval decisions on rerun", async () => {
+  test("writes a report and structured candidate sidecar", async () => {
     const loaded = await loadConfig(await tempWorkspace());
     const now = new Date("2026-06-13T12:00:00Z");
     const first = await generateIssueRecommendations(loaded, [project()], {
@@ -88,14 +87,11 @@ describe("issue recommendations", () => {
     });
 
     expect(existsSync(first.reportPath)).toBe(true);
-    expect(first.approvals.map((approval) => approval.id)).toEqual([
+    expect(first.candidates.map((candidate) => candidate.id)).toEqual([
       "issue:frostney/herakles#12",
       "issue:frostney/herakles#7",
     ]);
-    expect(first.approvals[0]?.branch).toBe("herakles/issue-12-add-pull-request-workflow");
-    expect(first.approvals[0]?.metadata?.proposedBranch).toBe(
-      "herakles/issue-12-add-pull-request-workflow",
-    );
+    expect(first.candidates[0]?.proposedBranch).toBe("herakles/issue-12-add-pull-request-workflow");
     expect(await Bun.file(first.reportPath).text()).toContain(
       "herakles/issue-12-add-pull-request-workflow",
     );
@@ -105,29 +101,6 @@ describe("issue recommendations", () => {
       "herakles/issue-12-add-pull-request-workflow",
     );
 
-    await updateApprovalStatus(loaded, "issue:frostney/herakles#12", "approved");
-    await updateApproval(loaded, "issue:frostney/herakles#12", {
-      branch: "herakles/custom-prepared-branch",
-      worktreePath: "/tmp/herakles-worktrees/issue-12",
-      metadata: { published: true },
-    });
-    const changedIssues = issues.map((issue) =>
-      issue.number === 12 ? { ...issue, title: "Rename pull request workflow" } : issue,
-    );
-    await generateIssueRecommendations(loaded, [project()], {
-      now,
-      loadIssues: async () => changedIssues,
-    });
-    const approvals = await listApprovals(loaded);
-    const approval = approvals.find((approval) => approval.id === "issue:frostney/herakles#12");
-
-    expect(approval?.status).toBe("approved");
-    expect(approval?.branch).toBe("herakles/custom-prepared-branch");
-    expect(approval?.worktreePath).toBe("/tmp/herakles-worktrees/issue-12");
-    expect(approval?.metadata?.published).toBe(true);
-    expect(approval?.metadata?.score).toBe(first.candidates[0]?.score);
-    expect(approval?.metadata?.proposedBranch).toBe(
-      "herakles/issue-12-rename-pull-request-workflow",
-    );
+    expect(await Bun.file(first.reportPath).text()).toContain("AI harness inputs only");
   });
 });

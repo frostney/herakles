@@ -12,20 +12,20 @@ import {
   ClipboardCheck,
   FileText,
   FolderGit2,
-  GitPullRequest,
+  Plus,
   RefreshCcw,
   Settings,
-  Sparkles,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type {
-  ApprovalCandidate,
   AutomationDueSlot,
   AutomationRun,
   DoctorResult,
+  HostedImportCandidate,
   Project,
   ProjectDetail,
+  ProjectState,
   PrunePlan,
   ReportDetail,
   ReportSummary,
@@ -37,14 +37,14 @@ import {
   type HeraklesEvent,
   type LocalArchiveResult,
   type LocalPromotionResult,
-  type OverridePlan,
+  type ProjectConfigPlan,
   type ProjectDiscoveryRefreshResult,
   type RepoMovePlan,
   type StatusPayload,
   type SyncRunResult,
-  getApprovals,
   getAutomations,
   getDoctor,
+  getHostedImportCandidates,
   getLocalProjects,
   getProjectDetail,
   getProjects,
@@ -52,20 +52,18 @@ import {
   getReport,
   getReports,
   getStatus,
-  postApprovalDecision,
-  postApprovalPrepare,
-  postApprovalPublish,
+  postAddProject,
   postAutomationRun,
   postAutomationTick,
-  postCodeRabbitRecommendations,
-  postIssueRecommendations,
+  postImportProjects,
   postLocalArchive,
   postLocalPromotion,
   postLocalPromotionPlan,
-  postOverrideApply,
-  postOverridePlan,
+  postProjectConfigApply,
+  postProjectConfigPlan,
   postProjectsRefresh,
   postPrune,
+  postRemoveProject,
   postRepoMove,
   postRepoMovePlan,
   postReportNote,
@@ -137,9 +135,9 @@ function Shell() {
             <Activity size={18} aria-hidden />
             Dashboard
           </Link>
-          <Link to="/repositories" activeProps={{ className: "active" }}>
+          <Link to="/projects" activeProps={{ className: "active" }}>
             <Boxes size={18} aria-hidden />
-            Repositories
+            Projects
           </Link>
           <Link to="/local" activeProps={{ className: "active" }}>
             <FolderGit2 size={18} aria-hidden />
@@ -152,10 +150,6 @@ function Shell() {
           <Link to="/automation" activeProps={{ className: "active" }}>
             <ClipboardCheck size={18} aria-hidden />
             Automation
-          </Link>
-          <Link to="/approvals" activeProps={{ className: "active" }}>
-            <GitPullRequest size={18} aria-hidden />
-            Approvals
           </Link>
           <Link to="/settings" activeProps={{ className: "active" }}>
             <Settings size={18} aria-hidden />
@@ -312,7 +306,7 @@ function automationRunTime(run: AutomationRun) {
   return new Date(run.finishedAt ?? run.startedAt).toLocaleString();
 }
 
-function Repositories() {
+function Projects() {
   const [projects, refresh] = useResource(getProjects);
   const [query, setQuery] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -328,9 +322,13 @@ function Repositories() {
   }, [projects, query]);
   return (
     <Screen
-      title="Repositories"
+      title="Projects"
       actions={<IconButton label="Refresh" onClick={refresh} icon={<RefreshCcw size={16} />} />}
     >
+      <div className="split">
+        <AddProjectPanel onChanged={refresh} />
+        <GitHubImportPanel onChanged={refresh} />
+      </div>
       <label className="search">
         <span>Search</span>
         <input value={query} onChange={(event) => setQuery(event.target.value)} />
@@ -341,8 +339,9 @@ function Repositories() {
             projects={filtered}
             selectedProjectId={selectedProjectId}
             onSelectProject={setSelectedProjectId}
+            onRemove={refresh}
           />
-          <OverridePanel
+          <ProjectSettingsPanel
             projects={projects.data}
             selectedProjectId={selectedProjectId}
             onApplied={() => {
@@ -358,8 +357,202 @@ function Repositories() {
   );
 }
 
-function RepositoryDetail() {
-  const { projectId } = repositoriesDetailRoute.useParams();
+function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
+  const [source, setSource] = useState<"github" | "local">("github");
+  const [id, setId] = useState("");
+  const [repo, setRepo] = useState("");
+  const [path, setPath] = useState("");
+  const [state, setState] = useState<ProjectState>("experiment");
+  const [message, setMessage] = useState("");
+  const add = async () => {
+    setMessage("");
+    try {
+      await postAddProject({
+        id: id || defaultProjectId(source === "github" ? repo : path),
+        source,
+        ...(source === "github" ? { repo } : { path }),
+        state,
+      });
+      setMessage("Project added.");
+      setId("");
+      setRepo("");
+      setPath("");
+      onChanged();
+    } catch (error) {
+      setMessage(String(error));
+    }
+  };
+  return (
+    <section className="panel">
+      <h2>Add Project</h2>
+      <div className="form-grid">
+        <label>
+          <span>Source</span>
+          <select
+            value={source}
+            onChange={(event) => setSource(event.target.value as typeof source)}
+          >
+            <option value="github">GitHub</option>
+            <option value="local">Local</option>
+          </select>
+        </label>
+        <label>
+          <span>Project id</span>
+          <input value={id} onChange={(event) => setId(event.target.value)} placeholder="auto" />
+        </label>
+        {source === "github" ? (
+          <label>
+            <span>Repository</span>
+            <input
+              value={repo}
+              onChange={(event) => setRepo(event.target.value)}
+              placeholder="owner/name"
+            />
+          </label>
+        ) : (
+          <label>
+            <span>Path</span>
+            <input
+              value={path}
+              onChange={(event) => setPath(event.target.value)}
+              placeholder="local-spike"
+            />
+          </label>
+        )}
+        <label htmlFor="add-project-state">
+          <span>State</span>
+          <StateSelect id="add-project-state" value={state} onChange={setState} />
+        </label>
+      </div>
+      <button type="button" onClick={add}>
+        <Plus size={16} aria-hidden /> Add
+      </button>
+      {message && <p className={message.includes("added") ? "success" : "error"}>{message}</p>}
+    </section>
+  );
+}
+
+function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
+  const [candidates, refresh] = useResource(getHostedImportCandidates);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [states, setStates] = useState<Record<string, ProjectState>>({});
+  const [message, setMessage] = useState("");
+  const rows = candidates.status === "ready" ? candidates.data : [];
+  const importSelected = async () => {
+    const projects = rows
+      .filter((candidate) => selected[candidate.repo])
+      .map((candidate) => ({
+        id: candidate.id,
+        repo: candidate.repo,
+        state: states[candidate.repo] ?? candidate.suggestedState,
+      }));
+    if (projects.length === 0) {
+      setMessage("Select at least one repository.");
+      return;
+    }
+    try {
+      await postImportProjects(projects);
+      setSelected({});
+      setMessage(`Imported ${projects.length} project${projects.length === 1 ? "" : "s"}.`);
+      refresh();
+      onChanged();
+    } catch (error) {
+      setMessage(String(error));
+    }
+  };
+  return (
+    <section className="panel">
+      <h2>GitHub Import</h2>
+      {candidates.status === "ready" ? (
+        <div className="table-wrap compact-table">
+          <table>
+            <tbody>
+              {rows.slice(0, 8).map((candidate) => (
+                <ImportCandidateRow
+                  key={candidate.repo}
+                  candidate={candidate}
+                  checked={selected[candidate.repo] === true}
+                  state={states[candidate.repo] ?? candidate.suggestedState}
+                  onChecked={(checked) => setSelected({ ...selected, [candidate.repo]: checked })}
+                  onState={(next) => setStates({ ...states, [candidate.repo]: next })}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <LoadState state={candidates} />
+      )}
+      <button type="button" onClick={importSelected}>
+        Import Selected
+      </button>
+      {message && <p className={message.startsWith("Imported") ? "success" : "error"}>{message}</p>}
+    </section>
+  );
+}
+
+function ImportCandidateRow({
+  candidate,
+  checked,
+  state,
+  onChecked,
+  onState,
+}: {
+  candidate: HostedImportCandidate;
+  checked: boolean;
+  state: ProjectState;
+  onChecked: (checked: boolean) => void;
+  onState: (state: ProjectState) => void;
+}) {
+  return (
+    <tr>
+      <td>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => onChecked(event.target.checked)}
+        />
+      </td>
+      <td>
+        <strong>{candidate.repo}</strong>
+        <span>
+          {candidate.visibility}
+          {candidate.archived ? " archived" : ""}
+        </span>
+      </td>
+      <td>
+        <StateSelect value={state} onChange={onState} />
+      </td>
+    </tr>
+  );
+}
+
+function StateSelect({
+  id,
+  value,
+  onChange,
+}: { id?: string; value: ProjectState; onChange: (state: ProjectState) => void }) {
+  return (
+    <select
+      {...(id === undefined ? {} : { id })}
+      value={value}
+      onChange={(event) => onChange(event.target.value as ProjectState)}
+    >
+      <option value="experiment">experiment</option>
+      <option value="candidate">candidate</option>
+      <option value="commercial">commercial</option>
+      <option value="open-source">open-source</option>
+      <option value="archived">archived</option>
+    </select>
+  );
+}
+
+function defaultProjectId(value: string): string {
+  return value.replace("/", "-").split(/[\\/]/).filter(Boolean).at(-1) ?? value;
+}
+
+function ProjectDetailScreen() {
+  const { projectId } = projectsDetailRoute.useParams();
   const [detail, refresh] = useResource(() => getProjectDetail(projectId));
   useRefreshOnEvents(refresh, [
     "projects-refresh-finished",
@@ -602,68 +795,6 @@ function Automation() {
         <AutomationPanel data={automation.data} busyJobId={busyJobId} onRunJob={runJob} />
       ) : (
         <LoadState state={automation} />
-      )}
-    </Screen>
-  );
-}
-
-function Approvals() {
-  const [approvals, refresh] = useResource(getApprovals);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  useRefreshOnEvents(refresh, ["report-created"]);
-  const recommend = async () => {
-    setBusy(true);
-    setMessage("");
-    try {
-      const result = await postIssueRecommendations();
-      setMessage(`Created ${result.approvals.length} issue candidates`);
-      refresh();
-    } catch (error) {
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const scanCodeRabbit = async () => {
-    setBusy(true);
-    setMessage("");
-    try {
-      const result = await postCodeRabbitRecommendations();
-      setMessage(`Created ${result.approvals.length} CodeRabbit candidates`);
-      refresh();
-    } catch (error) {
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Screen
-      title="Approvals"
-      actions={
-        <>
-          <IconButton
-            label="Recommend Issues"
-            onClick={recommend}
-            icon={<Sparkles size={16} />}
-            disabled={busy}
-          />
-          <IconButton
-            label="Scan CodeRabbit"
-            onClick={scanCodeRabbit}
-            icon={<GitPullRequest size={16} />}
-            disabled={busy}
-          />
-          <IconButton label="Refresh" onClick={refresh} icon={<RefreshCcw size={16} />} />
-        </>
-      }
-    >
-      {message && <p className={message.startsWith("Created") ? "success" : "error"}>{message}</p>}
-      {approvals.status === "ready" ? (
-        <ApprovalList approvals={approvals.data} onChanged={refresh} />
-      ) : (
-        <LoadState state={approvals} />
       )}
     </Screen>
   );
@@ -989,11 +1120,13 @@ function ProjectTable({
   compact = false,
   selectedProjectId,
   onSelectProject,
+  onRemove,
 }: {
   projects: Project[];
   compact?: boolean;
   selectedProjectId?: string;
   onSelectProject?: (id: string) => void;
+  onRemove?: () => void;
 }) {
   if (projects.length === 0) return <p className="empty">No projects.</p>;
   return (
@@ -1005,52 +1138,120 @@ function ProjectTable({
             {!compact && <th>Source</th>}
             <th>State</th>
             <th>Sync</th>
-            {!compact && onSelectProject && <th>Override</th>}
+            {!compact && onSelectProject && <th>Settings</th>}
             {!compact && <th>Path</th>}
+            {!compact && onRemove && <th>Tracking</th>}
           </tr>
         </thead>
         <tbody>
           {projects.map((project) => (
-            <tr key={project.id}>
-              <td>
-                <strong>
-                  <Link
-                    to="/repositories/$projectId"
-                    params={{ projectId: project.id }}
-                    className="inline-link"
-                  >
-                    {project.slug}
-                  </Link>
-                </strong>
-                <span>{project.visibility ?? "local"}</span>
-              </td>
-              {!compact && <td>{project.source}</td>}
-              <td>{project.state}</td>
-              <td>{project.sync ? "yes" : "no"}</td>
-              {!compact && onSelectProject && (
-                <td>
-                  {project.source === "github" ? (
-                    <button
-                      type="button"
-                      className="small-button"
-                      aria-pressed={selectedProjectId === project.id}
-                      onClick={() =>
-                        onSelectProject(selectedProjectId === project.id ? "" : project.id)
-                      }
-                    >
-                      {selectedProjectId === project.id ? "Selected" : "Plan"}
-                    </button>
-                  ) : (
-                    <span className="muted">local</span>
-                  )}
-                </td>
-              )}
-              {!compact && <td className="mono">{project.path}</td>}
-            </tr>
+            <ProjectTableRow
+              key={project.id}
+              compact={compact}
+              onRemove={onRemove}
+              onSelectProject={onSelectProject}
+              project={project}
+              selectedProjectId={selectedProjectId}
+            />
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function ProjectTableRow({
+  compact,
+  onRemove,
+  onSelectProject,
+  project,
+  selectedProjectId,
+}: {
+  compact: boolean;
+  onRemove: (() => void) | undefined;
+  onSelectProject: ((id: string) => void) | undefined;
+  project: Project;
+  selectedProjectId: string | undefined;
+}) {
+  return (
+    <tr>
+      <td>
+        <strong>
+          <Link
+            to="/projects/$projectId"
+            params={{ projectId: project.id }}
+            className="inline-link"
+          >
+            {project.slug}
+          </Link>
+        </strong>
+        <span>{project.visibility ?? "local"}</span>
+      </td>
+      {!compact && <td>{project.source}</td>}
+      <td>{project.state}</td>
+      <td>{project.sync ? "yes" : "no"}</td>
+      {!compact && onSelectProject && (
+        <ProjectSettingsCell
+          onSelectProject={onSelectProject}
+          project={project}
+          selectedProjectId={selectedProjectId}
+        />
+      )}
+      {!compact && <td className="mono">{project.path}</td>}
+      {!compact && onRemove && <ProjectRemoveCell onRemove={onRemove} project={project} />}
+    </tr>
+  );
+}
+
+function ProjectSettingsCell({
+  onSelectProject,
+  project,
+  selectedProjectId,
+}: {
+  onSelectProject: (id: string) => void;
+  project: Project;
+  selectedProjectId: string | undefined;
+}) {
+  if (project.source !== "github") {
+    return (
+      <td>
+        <span className="muted">local</span>
+      </td>
+    );
+  }
+  const selected = selectedProjectId === project.id;
+  return (
+    <td>
+      <button
+        type="button"
+        className="small-button"
+        aria-pressed={selected}
+        onClick={() => onSelectProject(selected ? "" : project.id)}
+      >
+        {selected ? "Selected" : "Plan"}
+      </button>
+    </td>
+  );
+}
+
+function ProjectRemoveCell({ onRemove, project }: { onRemove: () => void; project: Project }) {
+  const remove = async () => {
+    if (!confirmStopTracking(project)) return;
+    await postRemoveProject(project.slug);
+    onRemove();
+  };
+  return (
+    <td>
+      <button type="button" className="small-button" onClick={remove}>
+        Remove
+      </button>
+    </td>
+  );
+}
+
+function confirmStopTracking(project: Project) {
+  return confirm(
+    `Stop tracking ${project.slug}? This will not delete files or hosted repositories.`,
   );
 }
 
@@ -1200,7 +1401,7 @@ function DetailItem({
   );
 }
 
-function OverridePanel({
+function ProjectSettingsPanel({
   projects,
   selectedProjectId,
   onApplied,
@@ -1213,21 +1414,18 @@ function OverridePanel({
   if (!project) return null;
 
   return (
-    <section className="panel override-panel">
-      <h2>Override Plan</h2>
-      <StateOverrideControls key={`state-${project.id}`} project={project} onApplied={onApplied} />
+    <section className="panel project-settings-panel">
+      <h2>Project Settings</h2>
+      <ProjectStateControls key={`state-${project.id}`} project={project} onApplied={onApplied} />
       <MoveProjectControls key={`move-${project.id}`} project={project} onApplied={onApplied} />
     </section>
   );
 }
 
-function StateOverrideControls({
-  project,
-  onApplied,
-}: { project: Project; onApplied: () => void }) {
+function ProjectStateControls({ project, onApplied }: { project: Project; onApplied: () => void }) {
   const [state, setState] = useState(project.state);
   const [force, setForce] = useState(false);
-  const [plan, setPlan] = useState<OverridePlan | undefined>();
+  const [plan, setPlan] = useState<ProjectConfigPlan | undefined>();
   const [previewKey, setPreviewKey] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1240,7 +1438,7 @@ function StateOverrideControls({
     setForce(false);
   }, [project.state]);
 
-  const currentKey = stateOverridePreviewKey(project.id, state, force);
+  const currentKey = projectConfigPreviewKey(project.id, state, force);
   const canApply = plan !== undefined && previewKey === currentKey;
 
   const run = async (apply: boolean) => {
@@ -1248,8 +1446,8 @@ function StateOverrideControls({
     setMessage("");
     try {
       const nextPlan = apply
-        ? await postOverrideApply(project.id, state, { force })
-        : await postOverridePlan(project.id, state, { force });
+        ? await postProjectConfigApply(project.id, state, { force })
+        : await postProjectConfigPlan(project.id, state, { force });
       setPlan(nextPlan);
       setPreviewKey(currentKey);
       if (apply) {
@@ -1264,7 +1462,7 @@ function StateOverrideControls({
   };
   return (
     <>
-      <StateOverrideForm
+      <ProjectStateForm
         busy={busy}
         canApply={canApply}
         force={force}
@@ -1281,17 +1479,17 @@ function StateOverrideControls({
           setPreviewKey("");
         }}
       />
-      <OverridePlanPreview plan={plan} />
+      <ProjectConfigPlanPreview plan={plan} />
       {message && <p className={message === "Applied" ? "success" : "error"}>{message}</p>}
     </>
   );
 }
 
-function stateOverridePreviewKey(projectId: string, state: Project["state"], force: boolean) {
+function projectConfigPreviewKey(projectId: string, state: Project["state"], force: boolean) {
   return `${projectId}:${state}:${force ? "force" : "normal"}`;
 }
 
-function StateOverrideForm({
+function ProjectStateForm({
   busy,
   canApply,
   force,
@@ -1313,7 +1511,7 @@ function StateOverrideForm({
   onStateChange: (state: Project["state"]) => void;
 }) {
   return (
-    <div className="override-controls">
+    <div className="project-settings-controls">
       <div>
         <strong>{project.slug}</strong>
         <span>{project.id}</span>
@@ -1349,7 +1547,7 @@ function StateOverrideForm({
   );
 }
 
-function OverridePlanPreview({ plan }: { plan: OverridePlan | undefined }) {
+function ProjectConfigPlanPreview({ plan }: { plan: ProjectConfigPlan | undefined }) {
   if (!plan) return null;
   const validationLabel = plan.validation?.valid
     ? "Projected validation: valid"
@@ -1499,7 +1697,7 @@ function LocalPromotionPanel({
   };
 
   return (
-    <section className="panel override-panel">
+    <section className="panel project-settings-panel">
       <h2>Promotion</h2>
       <LocalPromotionControls
         busy={busy}
@@ -1672,7 +1870,7 @@ function LocalArchivePanel({
   };
 
   return (
-    <section className="panel override-panel">
+    <section className="panel project-settings-panel">
       <h2>Local Archive</h2>
       <div className="local-archive-controls">
         <LocalProjectSelect
@@ -1781,138 +1979,6 @@ function automationJobDescription(job: AutomationPayload["jobs"][number]) {
   return parts.join(" / ");
 }
 
-function ApprovalList({
-  approvals,
-  onChanged,
-}: { approvals: ApprovalCandidate[]; onChanged: () => void }) {
-  const [busyId, setBusyId] = useState("");
-  const [message, setMessage] = useState("");
-  const act = async (
-    approval: ApprovalCandidate,
-    action: "approve" | "reject" | "defer" | "prepare" | "publish",
-  ) => {
-    setBusyId(approval.id);
-    setMessage("");
-    try {
-      if (action === "prepare") {
-        const result = await postApprovalPrepare(approval.id);
-        setMessage(`Prepared ${result.branch}`);
-      } else if (action === "publish") {
-        const result = await postApprovalPublish(approval.id);
-        setMessage(result.status === "published" ? "Published" : result.message);
-      } else {
-        await postApprovalDecision(approval.id, action);
-        setMessage(action);
-      }
-      onChanged();
-    } catch (error) {
-      setMessage(String(error));
-    } finally {
-      setBusyId("");
-    }
-  };
-  if (approvals.length === 0) return <p className="empty">No approval candidates.</p>;
-  return (
-    <>
-      {message && <p className={message.startsWith("Error") ? "error" : "success"}>{message}</p>}
-      <div className="list">
-        {approvals.map((approval) => (
-          <article className="list-row approval-row" key={approval.id}>
-            <div>
-              <strong>{approval.title}</strong>
-              <span>{approval.projectId ?? approval.id}</span>
-              <ApprovalContext approval={approval} />
-            </div>
-            <div className="approval-actions">
-              <span className={`badge ${approval.status}`}>{approval.status}</span>
-              {approval.status === "pending" && (
-                <>
-                  <button
-                    type="button"
-                    className="small-button"
-                    disabled={busyId === approval.id}
-                    onClick={() => act(approval, "approve")}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    className="small-button"
-                    disabled={busyId === approval.id}
-                    onClick={() => act(approval, "reject")}
-                  >
-                    Reject
-                  </button>
-                  <button
-                    type="button"
-                    className="small-button"
-                    disabled={busyId === approval.id}
-                    onClick={() => act(approval, "defer")}
-                  >
-                    Defer
-                  </button>
-                </>
-              )}
-              {approval.status === "approved" && (
-                <button
-                  type="button"
-                  className="small-button"
-                  disabled={busyId === approval.id}
-                  onClick={() => act(approval, "prepare")}
-                >
-                  Prepare
-                </button>
-              )}
-              {approval.status === "approved" && approval.worktreePath && (
-                <button
-                  type="button"
-                  className="small-button"
-                  disabled={busyId === approval.id}
-                  onClick={() => act(approval, "publish")}
-                >
-                  Publish
-                </button>
-              )}
-            </div>
-          </article>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function ApprovalContext({ approval }: { approval: ApprovalCandidate }) {
-  return (
-    <div className="approval-context">
-      {approval.reason && <span>{approval.reason}</span>}
-      <ApprovalExternalLink url={approval.url} />
-      <ApprovalReportLink reportPath={approval.reportPath} />
-      {approval.branch && <code>branch: {approval.branch}</code>}
-      {approval.worktreePath && <code>worktree: {approval.worktreePath}</code>}
-    </div>
-  );
-}
-
-function ApprovalExternalLink({ url }: { url: string | undefined }) {
-  if (!url) return null;
-  return (
-    <a className="external-link" href={url}>
-      Source
-    </a>
-  );
-}
-
-function ApprovalReportLink({ reportPath }: { reportPath: string | undefined }) {
-  if (!reportPath) return null;
-  const reportId = reportIdFromPath(reportPath);
-  if (!reportId) return <code>report: {reportPath}</code>;
-  return (
-    <Link to="/reports/$" params={{ _splat: reportId }} className="inline-link">
-      Report
-    </Link>
-  );
-}
-
 function DoctorPanel({ data, title = "Doctor" }: { data: DoctorResult; title?: string }) {
   return (
     <section className="panel">
@@ -1963,15 +2029,15 @@ const dashboardRoute = createRoute({
   path: "/",
   component: Dashboard,
 });
-const repositoriesRoute = createRoute({
+const projectsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/repositories",
-  component: Repositories,
+  path: "/projects",
+  component: Projects,
 });
-const repositoriesDetailRoute = createRoute({
+const projectsDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/repositories/$projectId",
-  component: RepositoryDetail,
+  path: "/projects/$projectId",
+  component: ProjectDetailScreen,
 });
 const localRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -1993,11 +2059,6 @@ const automationRoute = createRoute({
   path: "/automation",
   component: Automation,
 });
-const approvalsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/approvals",
-  component: Approvals,
-});
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -2007,13 +2068,12 @@ const settingsRoute = createRoute({
 const router = createRouter({
   routeTree: rootRoute.addChildren([
     dashboardRoute,
-    repositoriesRoute,
-    repositoriesDetailRoute,
+    projectsRoute,
+    projectsDetailRoute,
     localRoute,
     reportsRoute,
     reportsDetailRoute,
     automationRoute,
-    approvalsRoute,
     settingsRoute,
   ]),
 });

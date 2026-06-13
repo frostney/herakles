@@ -98,6 +98,20 @@ export type Project = {
   updatedAt?: string;
 };
 
+export type HostedImportCandidate = {
+  id: string;
+  repo: string;
+  owner: string;
+  name: string;
+  visibility: "public" | "private";
+  archived: boolean;
+  suggestedState: ProjectState;
+  topics: string[];
+  description?: string;
+  updatedAt?: string;
+  alreadyTracked: boolean;
+};
+
 export type ValidationSeverity = "error" | "warning";
 
 export type ValidationIssue = {
@@ -201,22 +215,6 @@ export type AutomationLock = {
   backend: "git-branch" | "local-file";
 };
 
-export type ApprovalCandidate = {
-  id: string;
-  title: string;
-  status: "pending" | "approved" | "rejected" | "deferred";
-  kind?: "issue-recommendation" | "coderabbit-review" | "automation";
-  reportPath?: string;
-  projectId?: string;
-  url?: string;
-  branch?: string;
-  worktreePath?: string;
-  reason?: string;
-  metadata?: Record<string, string | number | boolean | null>;
-  createdAt: string;
-  updatedAt: string;
-};
-
 export type IssueRecommendation = {
   id: string;
   projectId: string;
@@ -236,7 +234,6 @@ export type IssueRecommendationRun = {
   reportPath: string;
   structuredPath: string;
   candidates: IssueRecommendation[];
-  approvals: ApprovalCandidate[];
 };
 
 export type CodeRabbitPullRequestContext = {
@@ -256,43 +253,12 @@ export type CodeRabbitRecommendationRun = {
   reportPath: string;
   structuredPath: string;
   contexts: CodeRabbitPullRequestContext[];
-  approvals: ApprovalCandidate[];
 };
 
 export type TestCommand = {
   id: string;
   label: string;
   argv: string[];
-};
-
-export type TestRunResult = {
-  command: TestCommand;
-  exitCode: number;
-  status: "passed" | "failed";
-  stdout: string;
-  stderr: string;
-};
-
-export type PatchWorktreeResult = {
-  approval: ApprovalCandidate;
-  projectId: string;
-  branch: string;
-  path: string;
-  baseRef: string;
-  created: boolean;
-  testCommands: TestCommand[];
-};
-
-export type PatchPublishResult = {
-  approval: ApprovalCandidate;
-  status: "blocked" | "published";
-  message: string;
-  branch: string;
-  worktreePath: string;
-  tests: TestRunResult[];
-  commit?: string;
-  pushed?: boolean;
-  pullRequestUrl?: string;
 };
 
 export type RepoMovePlan = {

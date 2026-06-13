@@ -360,47 +360,11 @@ code {
   padding: 0 10px;
 }
 
-.approval-row {
-  align-items: flex-start;
-}
-
-.approval-row > div:first-child {
-  min-width: 0;
-}
-
-.approval-row code {
-  display: block;
-  margin-top: 6px;
-  color: #aebdcc;
-  overflow-wrap: anywhere;
-}
-
-.approval-context {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  margin-top: 8px;
-}
-
-.approval-context span,
-.approval-context a,
-.approval-context code {
-  margin-top: 0;
-}
-
-.approval-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  min-width: 260px;
-}
-
-.override-panel {
+.project-settings-panel {
   margin-top: 16px;
 }
 
-.override-controls {
+.project-settings-controls {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(180px, 240px) minmax(150px, auto) auto auto;
   gap: 12px;
@@ -443,31 +407,31 @@ code {
   gap: 12px;
 }
 
-.override-controls label,
+.project-settings-controls label,
 .move-controls label,
 .promotion-controls label,
 .local-archive-controls label,
 .report-note-controls label,
 .report-note-body,
-.override-controls label span,
+.project-settings-controls label span,
 .move-controls label span,
 .promotion-controls label span,
 .local-archive-controls label span,
 .report-note-controls label span,
 .report-note-body span,
-.override-controls div span {
+.project-settings-controls div span {
   display: grid;
   gap: 6px;
 }
 
-.override-controls .checkbox-label {
+.project-settings-controls .checkbox-label {
   display: flex;
   min-height: 40px;
   align-items: center;
   gap: 8px;
 }
 
-.override-controls .checkbox-label span {
+.project-settings-controls .checkbox-label span {
   display: inline;
 }
 
@@ -608,15 +572,11 @@ code {
 
   .metrics,
   .split,
-  .override-controls,
+  .project-settings-controls,
   .move-controls,
   .promotion-controls,
   .local-archive-controls {
     grid-template-columns: 1fr;
-  }
-
-  .approval-row {
-    flex-direction: column;
   }
 
   .row-actions {
@@ -624,11 +584,6 @@ code {
   }
 
   .lock-meta {
-    justify-content: flex-start;
-    min-width: 0;
-  }
-
-  .approval-actions {
     justify-content: flex-start;
     min-width: 0;
   }

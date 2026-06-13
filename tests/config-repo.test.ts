@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyRepoOverride, configDoctor, configPull, status } from "../src/app";
+import { addProject, configDoctor, configPull, status } from "../src/app";
 
 async function tempWorkspace() {
   const root = await mkdtemp(join(tmpdir(), "herakles-config-repo-"));
@@ -78,16 +78,21 @@ describe("config repository commands", () => {
       owners: ["frostney"],
     });
     await withFakeGitAndGh(root, async (logPath) => {
-      await applyRepoOverride(root, "tool", { state: "candidate" });
+      await addProject(root, {
+        id: "frostney-tool",
+        source: "github",
+        repo: "frostney/tool",
+        state: "candidate",
+      });
       const log = await readFile(logPath, "utf8");
       const config = await readFile(join(root, "_herakles", "herakles.toml"), "utf8");
 
-      expect(config).toContain('[repo."frostney/tool"]');
+      expect(config).toContain('[project."frostney-tool"]');
       expect(config).toContain('state = "candidate"');
       expect(log).toContain("git:add");
       expect(log).toContain("herakles.toml");
       expect(log).toContain("git:-c user.name=Herakles");
-      expect(log).toContain("commit -m Update frostney/tool Herakles override");
+      expect(log).toContain("commit -m Add frostney-tool Herakles project");
       expect(log).toContain("git:push");
     });
   });

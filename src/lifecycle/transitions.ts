@@ -12,7 +12,7 @@ export class InvalidProjectStateTransitionError extends Error {
 
   constructor(transition: ProjectStateTransition) {
     super(
-      `Unsupported lifecycle transition ${transition.from} -> ${transition.to}. Re-run with force if this override is intentional.`,
+      `Unsupported lifecycle transition ${transition.from} -> ${transition.to}. Re-run with force if this project config change is intentional.`,
     );
     this.name = "InvalidProjectStateTransitionError";
     this.transition = transition;

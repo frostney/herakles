@@ -20,7 +20,9 @@ root = "."
 [github]
 owners = []
 
-[repo."frostney/tool"]
+[project."frostney-tool"]
+source = "github"
+repo = "frostney/tool"
 state = "commercial"
 tags = ["current"]
 `,
@@ -50,7 +52,7 @@ function project(root: string): Project {
 }
 
 describe("repo move", () => {
-  test("plans a hosted project move with sparse path override", async () => {
+  test("plans a hosted project move with tracked path config", async () => {
     const root = await tempWorkspace();
     const loaded = await loadConfig(root);
     const plan = createRepoMovePlan(loaded, project(root), "products/tool");
@@ -64,7 +66,7 @@ describe("repo move", () => {
     expect(plan.diff).toContain('+ path = "products/tool"');
   });
 
-  test("moves the clone and writes synced config override", async () => {
+  test("moves the clone and writes synced project config", async () => {
     const root = await tempWorkspace();
     const loaded = await loadConfig(root);
     const result = await applyRepoMove(loaded, project(root), "products/tool");

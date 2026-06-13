@@ -4,14 +4,7 @@ import { join } from "node:path";
 import type { LocalRepository } from "../domain";
 import { runCommand } from "../utils/command";
 
-const ignoredDirectories = new Set([
-  "_herakles",
-  "_reports",
-  "_worktrees",
-  "_cache",
-  ".git",
-  "node_modules",
-]);
+const ignoredDirectories = new Set(["_herakles", "_reports", "_cache", ".git", "node_modules"]);
 
 export async function scanLocalRepositories(root: string): Promise<LocalRepository[]> {
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);

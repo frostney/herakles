@@ -6,13 +6,13 @@ The canonical configuration is `_herakles/herakles.toml`. It describes the remot
 
 `herakles init` creates the canonical config scaffold, local support directories, `_herakles/herakles.local.toml`, `_herakles/.gitignore`, and default report-only prompt templates under `_herakles/prompts/`. Existing config and prompt files are left untouched so setup can be rerun safely and a synced config repository can customize its orchestration assets.
 
-Operational commands auto-pull the `_herakles` Git checkout when `config.auto_pull` is true and the config directory is a Git checkout. A successful fast-forward pull reloads `herakles.toml` before project discovery, project resolution, validation, sync planning, reports, approvals, or automation continue. Non-Git scaffolds are left alone, and `herakles config pull` remains the explicit command that fails loudly when `_herakles` is not a checkout.
+Operational commands auto-pull the `_herakles` Git checkout when `config.auto_pull` is true and the config directory is a Git checkout. A successful fast-forward pull reloads `herakles.toml` before project discovery, project resolution, validation, sync planning, reports, or automation continue. Non-Git scaffolds are left alone, and `herakles config pull` remains the explicit command that fails loudly when `_herakles` is not a checkout.
 
-Synced config mutations can auto-push when `config.auto_push` is true. App-level sparse override and repo move writes stage `herakles.toml`, create a Herakles-authored commit, and push the config repository. Cache, report, approval, worktree, and local experiment state writes are not auto-pushed because they are generated or machine-local state rather than synced configuration.
+Synced config mutations can auto-push when `config.auto_push` is true. App-level tracked-project config writes and repo move writes stage `herakles.toml`, create a Herakles-authored commit, and push the config repository. Cache, report, local experiment state, run ledger, and lock writes are not auto-pushed because they are generated or machine-local state rather than synced configuration.
 
 ## Core Model
 
-Herakles distinguishes repositories from projects. A repository is a Git or GitHub source-control unit. A project is Herakles's resolved model over a repository or local experiment, including lifecycle state, local path, sync decision, automation eligibility, reports, validation, and sparse overrides.
+Herakles distinguishes repositories from projects. A repository is a Git or GitHub source-control unit. A project is Herakles's resolved model over a repository or local experiment, including lifecycle state, local path, sync decision, automation eligibility, reports, and validation. A tracked project is represented by the smallest necessary `[project."id"]` entry in `_herakles/herakles.toml`.
 
 Lifecycle states are:
 
@@ -22,13 +22,13 @@ Lifecycle states are:
 - `open-source`
 - `archived`
 
-Public GitHub repositories infer `open-source` by default. Private hosted repositories and local experiments infer `experiment`. `candidate` and `commercial` require sparse Herakles overrides. GitHub archived repositories infer `archived`.
+Public GitHub repositories suggest `open-source` by default. Private hosted repositories and local experiments suggest `experiment`. GitHub archived repositories suggest `archived`. The user can set `candidate`, `commercial`, or another lifecycle state explicitly when adding/importing a project or later through project settings.
 
 Project discovery reads GitHub repositories with `gh repo list` for each configured owner. By default Herakles asks GitHub CLI for source repositories only so forks are excluded; setting `github.include_forks = true` removes that source-only filter. When `github.include_archived = false`, Herakles also asks `gh` to omit archived repositories before local resolution.
 
-Sparse repository overrides may use a short repository name only when that name is unambiguous across discovered hosted repositories. If two configured owners both have `tool`, `[repo."tool"]` is rejected and ignored for resolution; the config must use owner-qualified keys such as `[repo."frostney/tool"]`.
+Tracked hosted projects identify their repository with `repo = "owner/name"`. Tracked local projects identify their workspace-relative path with `path = "..."`. Project ids are stable Herakles handles and do not need to match the repository name, though import defaults to an owner-repo slug.
 
-Lifecycle overrides are checked against Herakles's built-in transition table. `experiment` may become `candidate`, `commercial`, `open-source`, or `archived`; `candidate` may become `experiment`, `commercial`, or `archived`; `commercial` and `open-source` normally move only to `archived`; `archived` may be restored to `experiment` or `open-source`. Unusual transitions require an explicit force option in the CLI or API so deliberate exceptions are visible.
+Lifecycle changes are checked against Herakles's built-in transition table. `experiment` may become `candidate`, `commercial`, `open-source`, or `archived`; `candidate` may become `experiment`, `commercial`, or `archived`; `commercial` and `open-source` normally move only to `archived`; `archived` may be restored to `experiment` or `open-source`. Unusual transitions require an explicit force option in the CLI or API so deliberate exceptions are visible.
 
 ## Synchronization
 
@@ -36,7 +36,7 @@ The default sync plan includes non-archived remote repositories. Local experimen
 
 Remote sync plans use workspace-relative project paths. The server does not send its local absolute clone paths, and the client localizes each relative path under its own workspace root before executing clone, fetch, or pull. Client-side localization rejects paths that would escape the workspace root.
 
-Sync eligibility is evaluated against the resolved project model with a deliberately small filter expression language. The default synced filter is `not archived`; explicit repo `sync = true` or `sync = false` overrides the expression result. The first supported expression features are `and`, `or`, `not`, `==`, `!=`, `contains`, `in`, parentheses, string/boolean literals, and `has_topic`, `has_tag`, and `has_language`.
+Sync eligibility is evaluated against the resolved project model with a deliberately small filter expression language. The default synced filter is `not archived`; project config can set `sync = true` or `sync = false` to replace the expression result. The first supported expression features are `and`, `or`, `not`, `==`, `!=`, `contains`, `in`, parentheses, string/boolean literals, and `has_topic`, `has_tag`, and `has_language`.
 
 Project-level validation issues become validation-only sync items. This keeps dry-runs and sync reports tied to the same roadmap vocabulary as validation, while preventing Herakles from doing Git work for projects that first need human correction. Path collisions, missing archive evidence, and hosted clone path mismatches all surface this way.
 
@@ -62,13 +62,13 @@ Project discovery results distinguish hosted repositories, hosted clones already
 
 The Reports screen lists generated local Markdown reports and links to a report detail view that renders the same report body returned by the shared report API. It can also create local Markdown notes under `_reports/notes/` through a typed service. Report content stays local under the configured reports path and is not synced configuration.
 
-Repository lifecycle and path overrides are plan-first writes. The plan includes the sparse TOML that would be written, any lifecycle transition metadata, and a projected validation result computed against the in-memory project model before the synced config file changes. Repository move plans use the same projected validation contract because they are path overrides plus a filesystem move.
+Project lifecycle and path settings are plan-first writes. The plan includes the TOML that would be written, any lifecycle transition metadata, and a projected validation result computed against the in-memory project model before the synced config file changes. Repository move plans use the same projected validation contract because they are tracked path changes plus a filesystem move.
+
+The Projects screen and `herakles add` are the primary project entry points. Adding a project prompts for whether the project is an existing hosted repository, a new local experiment, or a hosted project to be created. The first implemented paths write minimal tracked-project config for existing GitHub repositories and local experiments. `herakles remove` and the UI remove action stop tracking a project after confirmation; they do not delete local files or hosted repositories.
+
+GitHub bulk import lists accessible repositories from the configured GitHub users or organizations and lets the user select which ones become tracked projects. Import defaults lifecycle state from hosted facts such as visibility and archive state, while still allowing an explicit lifecycle state during import.
 
 The Local screen can archive a local experiment by writing local machine state after verifying the configured learning file exists in that project. This does not write synced configuration. Promotion to GitHub is a separate plan-first action: Herakles previews the `gh repo create` command, and only an explicit promote action runs it. Promotion still does not write synced config; after the next project refresh, the hosted repository is discovered from GitHub facts.
-
-The Approvals screen surfaces each candidate's source URL, generated report, branch, and prepared worktree when those fields exist. Approval actions still go through typed Herakles services; the links are context for review, not a second mutation path.
-
-Approval candidate reruns preserve local execution state. Recommendation jobs may refresh titles, scores, reports, URLs, and reasons, but an already-approved candidate keeps its status, prepared branch, worktree path, and accumulated metadata unless a typed approval action explicitly changes them.
 
 The UI server also exposes `/api/events` as a server-sent event stream. Events are emitted around typed Herakles operations such as project refresh, sync, validation, automation runs, and report creation; the stream is a live status surface, not a command channel or persistence layer.
 
@@ -82,11 +82,9 @@ When `automation.enabled` is false, Herakles still loads and displays configured
 
 Automation eligibility also uses project filters. The default automation filter is `sync == true`, then automation-level excluded topics are applied. Local experiments remain local-only and are not automation eligible through synced config by default.
 
-Automation jobs can declare `repo_filter`, `issue_labels`, and `skill`. Herakles parses these as orchestration metadata, evaluates `repo_filter` against the resolved project model, and includes the eligible project context in generated reports or Codex prompts. `implementation-plan` jobs use this same eligible project set to generate issue recommendation reports and pending approval candidates. `coderabbit-review` jobs scan unresolved CodeRabbit review threads on eligible pull requests and create review approval candidates. Recommendation jobs write a Markdown report for review plus a JSON sidecar for tooling. This keeps Codex as the worker over prepared context while Herakles owns project selection.
+Automation jobs can declare `repo_filter`, `issue_labels`, `skill`, and a prompt. Herakles parses these as orchestration metadata, evaluates `repo_filter` against the resolved project model, and includes the eligible project context in generated reports or AI harness prompts. `implementation-plan` jobs use this same eligible project set to generate issue recommendation reports. `coderabbit-review` jobs scan unresolved CodeRabbit review threads on eligible pull requests and generate review-context reports. Recommendation jobs write a Markdown report for review plus a JSON sidecar for tooling. This keeps the AI harness as the worker over prepared context while Herakles owns project selection, scheduling, locks, GitHub lookup, and report recording.
 
-Prompt-driven report-only jobs receive a Herakles-authored context block on stdin after the configured prompt. That context includes slot metadata, eligible project evidence such as lifecycle state, visibility, path, topics, languages, detected package managers, roadmap presence, and recent generated reports. Codex writes only to the configured report path in these modes; Herakles still owns scheduling, GitHub lookup, locking, and any later mutation.
-
-Implementation-shaped automation is manually gated. A `patch-candidate` job writes an automation report and a pending approval candidate instead of running Codex directly. The approval is the local UI/CLI handoff point for any later patch work, so startup catch-up and scheduled ticks cannot silently implement changes.
+Prompt-driven report-only jobs receive a Herakles-authored context block on stdin after the configured prompt. That context includes slot metadata, eligible project evidence such as lifecycle state, visibility, path, topics, languages, detected package managers, roadmap presence, and recent generated reports. The configured AI harness writes only to the configured report path in these modes; Herakles still owns scheduling, GitHub lookup, locking, and run recording. Herakles does not model harness-specific implementation branches, review resolution, or publishing.
 
 The Automation screen surfaces configured jobs, due slots, recent runs, scheduled ticks, and explicit manual runs for a selected job. Manual UI runs call the same `runAutomationJob` service as `herakles automate run`; they still claim slots, record runs, and emit automation/report events.
 

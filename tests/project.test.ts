@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,6 +13,7 @@ import type { GitHubRepository } from "../src/domain";
 import { validateProjects } from "../src/lifecycle/validate";
 import { resolveProjects } from "../src/project/resolve";
 import { createSyncPlan } from "../src/sync/plan";
+import { fakeGhRepositoryJson, withFakeGhScript } from "./helpers/gh";
 
 const fixtureRoot = join(import.meta.dir, "fixtures", "workspace");
 
@@ -31,7 +32,7 @@ function repo(
 }
 
 describe("project resolution", () => {
-  test("infers lifecycle states and sparse commercial override", async () => {
+  test("infers lifecycle states and explicit commercial project config", async () => {
     const loaded = await loadConfig(fixtureRoot);
     const projects = resolveProjects(loaded, {
       hosted: [
@@ -62,7 +63,23 @@ describe("project resolution", () => {
   });
 
   test("sync plan includes non-archived remote repositories only", async () => {
-    const loaded = await loadConfig(fixtureRoot);
+    const root = await tempTrackedWorkspace(
+      "herakles-sync-plan-",
+      `
+[project."active"]
+source = "github"
+repo = "frostney/active"
+
+[project."archived"]
+source = "github"
+repo = "frostney/archived"
+
+[project."local-spike"]
+source = "local"
+path = "local-spike"
+`,
+    );
+    const loaded = await loadConfig(root);
     const projects = resolveProjects(loaded, {
       hosted: [
         repo({ name: "active", nameWithOwner: "frostney/active", owner: "frostney" }),
@@ -74,7 +91,7 @@ describe("project resolution", () => {
           description: "Archived because it was replaced by active.",
         }),
       ],
-      local: [{ name: "local-spike", path: join(fixtureRoot, "local-spike") }],
+      local: [{ name: "local-spike", path: join(root, "local-spike") }],
       hostedClones: [],
     });
 
@@ -107,7 +124,21 @@ and (
 [automation]
 include = 'has_language("TypeScript") and not has_topic("manual-only")'
 
-[repo."force-sync"]
+[project."public-ts"]
+source = "github"
+repo = "frostney/public-ts"
+
+[project."private-current"]
+source = "github"
+repo = "frostney/private-current"
+
+[project."private-hidden"]
+source = "github"
+repo = "frostney/private-hidden"
+
+[project."force-sync"]
+source = "github"
+repo = "frostney/force-sync"
 sync = true
 `,
     );
@@ -157,44 +188,6 @@ sync = true
     expect(projects.find((project) => project.repo === "force-sync")?.sync).toBe(true);
   });
 
-  test("short repo overrides are ignored and invalid when hosted repo names are ambiguous", async () => {
-    const root = await mkdtemp(join(tmpdir(), "herakles-ambiguous-"));
-    await mkdir(join(root, "_herakles"), { recursive: true });
-    await writeFile(
-      join(root, "_herakles", "herakles.toml"),
-      `version = 2
-root = "."
-
-[github]
-owners = ["frostney", "alt"]
-
-[repo."tool"]
-state = "commercial"
-`,
-    );
-    const loaded = await loadConfig(root);
-    const projects = resolveProjects(loaded, {
-      hosted: [
-        repo({ name: "tool", nameWithOwner: "alt/tool", owner: "alt" }),
-        repo({ name: "tool", nameWithOwner: "frostney/tool", owner: "frostney" }),
-      ],
-      local: [],
-      hostedClones: [],
-    });
-
-    expect(projects.map((project) => project.state)).toEqual(["open-source", "open-source"]);
-    await withFakeGhReposByOwner(async () => {
-      const result = await validateWorkspace(root);
-
-      expect(result.valid).toBe(false);
-      expect(result.issues[0]).toMatchObject({
-        code: "ambiguous-repo-override",
-        severity: "error",
-      });
-      expect(result.issues[0]?.message).toContain("Use owner/repo keys");
-    });
-  });
-
   test("hosted clones at unexpected paths are validation-only sync items", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-hosted-path-"));
     await mkdir(join(root, "_herakles"), { recursive: true });
@@ -213,6 +206,10 @@ root = "."
 
 [github]
 owners = ["frostney"]
+
+[project."tool"]
+source = "github"
+repo = "frostney/tool"
 `,
     );
 
@@ -243,10 +240,14 @@ root = "."
 [github]
 owners = ["frostney", "alt"]
 
-[repo."frostney/tool"]
+[project."frostney-tool"]
+source = "github"
+repo = "frostney/tool"
 path = "shared-tool"
 
-[repo."alt/tool"]
+[project."alt-tool"]
+source = "github"
+repo = "alt/tool"
 path = "shared-tool"
 `,
     );
@@ -261,7 +262,15 @@ path = "shared-tool"
   });
 
   test("archived project requires archive note evidence", async () => {
-    const loaded = await loadConfig(fixtureRoot);
+    const root = await tempTrackedWorkspace(
+      "herakles-archive-evidence-",
+      `
+[project."silent-archive"]
+source = "github"
+repo = "frostney/silent-archive"
+`,
+    );
+    const loaded = await loadConfig(root);
     const projects = resolveProjects(loaded, {
       hosted: [
         repo({
@@ -291,6 +300,10 @@ root = "."
 
 [github]
 owners = ["frostney"]
+
+[project."silent-archive"]
+source = "github"
+repo = "frostney/silent-archive"
 `,
     );
 
@@ -325,6 +338,10 @@ root = "."
 
 [github]
 owners = []
+
+[project."spike"]
+source = "local"
+path = "spike"
 `,
     );
 
@@ -335,14 +352,13 @@ owners = []
     expect(archived.state).toBe("archived");
     expect(archived.archiveNote).toContain("LEARNING.md");
     expect(syncedConfig).not.toContain("[repo.");
+    expect(syncedConfig).toContain('[project."spike"]');
   });
 });
 
 async function withFakeGhReposByOwner(run: () => Promise<void>) {
-  const bin = await mkdtemp(join(tmpdir(), "herakles-gh-duplicates-"));
-  const previousPath = process.env.PATH;
-  await writeFile(
-    join(bin, "gh"),
+  await withFakeGhScript(
+    "herakles-gh-duplicates-",
     `#!/bin/sh
 owner="$3"
 cat <<JSON
@@ -359,43 +375,37 @@ cat <<JSON
 }]
 JSON
 `,
+    run,
   );
-  await chmod(join(bin, "gh"), 0o755);
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  try {
-    await run();
-  } finally {
-    process.env.PATH = previousPath;
-  }
+}
+
+async function tempTrackedWorkspace(prefix: string, projectsToml: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), prefix));
+  await mkdir(join(root, "_herakles"), { recursive: true });
+  await writeFile(
+    join(root, "_herakles", "herakles.toml"),
+    `version = 2
+root = "."
+
+[github]
+owners = ["frostney"]
+${projectsToml}`,
+  );
+  return root;
 }
 
 async function withFakeArchivedGhRepo(run: () => Promise<void>) {
-  const bin = await mkdtemp(join(tmpdir(), "herakles-gh-archived-"));
-  const previousPath = process.env.PATH;
-  await writeFile(
-    join(bin, "gh"),
+  await withFakeGhScript(
+    "herakles-gh-archived-",
     `#!/bin/sh
 cat <<'JSON'
-[{
-  "name": "silent-archive",
-  "nameWithOwner": "frostney/silent-archive",
-  "owner": { "login": "frostney" },
-  "sshUrl": "git@github.com:frostney/silent-archive.git",
-  "url": "https://github.com/frostney/silent-archive",
-  "visibility": "PUBLIC",
-  "isArchived": true,
-  "description": "Small CLI experiment.",
-  "repositoryTopics": [],
-  "languages": []
-}]
+${fakeGhRepositoryJson({
+  name: "silent-archive",
+  isArchived: true,
+  description: "Small CLI experiment.",
+})}
 JSON
 `,
+    run,
   );
-  await chmod(join(bin, "gh"), 0o755);
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  try {
-    await run();
-  } finally {
-    process.env.PATH = previousPath;
-  }
 }

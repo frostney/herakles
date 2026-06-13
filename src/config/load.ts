@@ -57,6 +57,5 @@ export async function ensureConfigScaffold(workspaceRoot: string): Promise<Works
   await mkdir(paths.configDir, { recursive: true });
   await mkdir(join(paths.workspaceRoot, "_cache"), { recursive: true });
   await mkdir(join(paths.workspaceRoot, "_reports"), { recursive: true });
-  await mkdir(join(paths.workspaceRoot, "_worktrees"), { recursive: true });
   return paths;
 }

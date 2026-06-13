@@ -1,15 +1,15 @@
 import { existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { listApprovals, updateApprovalStatus } from "./approvals";
 import { automateTick, configuredJobs, dueSlots, recentRuns, runAutomationJob } from "./automation";
 import { listLocks } from "./automation/locks";
 import { type LoadedConfig, loadConfig } from "./config/load";
-import {
-  type RepoOverrideChanges,
-  applyRepoOverridePlan,
-  createRepoOverridePlan,
-} from "./config/overrides";
 import { resolveUnder } from "./config/paths";
+import {
+  type ProjectConfigChanges,
+  applyProjectConfigPlan,
+  createProjectConfigPlan,
+  createRemoveProjectConfigPlan,
+} from "./config/projects";
 import {
   inspectConfigRepo,
   isConfigGitCheckout,
@@ -22,6 +22,7 @@ import { runDoctor } from "./doctor";
 import type {
   AutomationRun,
   GitHubRepository,
+  HostedImportCandidate,
   LocalRepository,
   Project,
   ProjectDetail,
@@ -43,7 +44,6 @@ import {
   promoteLocalProject,
 } from "./local/promote";
 import { writeLocalProjectState } from "./local/state";
-import { publishApprovedPatch } from "./patches/publish";
 import { resolveProjects } from "./project/resolve";
 import { generateCodeRabbitRecommendations } from "./recommendations/coderabbit";
 import { generateIssueRecommendations } from "./recommendations/issues";
@@ -58,7 +58,6 @@ import {
 import { type SyncExecution, executeSyncPlan } from "./sync/execute";
 import { createSyncPlan } from "./sync/plan";
 import { createPrunePlan, executePrune } from "./sync/prune";
-import { preparePatchWorktree } from "./worktrees";
 
 type WorkspaceState = {
   loaded: LoadedConfig;
@@ -126,31 +125,31 @@ export async function localProjects(workspaceRoot: string): Promise<Project[]> {
   return (await projects(workspaceRoot)).filter((candidate) => candidate.source === "local");
 }
 
-export async function repoOverridePlan(
+export async function projectConfigPlan(
   workspaceRoot: string,
   projectId: string,
-  changes: RepoOverrideChanges,
+  changes: ProjectConfigChanges,
   options: { force?: boolean } = {},
 ) {
-  return createWorkspaceRepoOverridePlan(workspaceRoot, projectId, changes, options).then(
+  return createWorkspaceProjectConfigPlan(workspaceRoot, projectId, changes, options).then(
     ({ plan }) => plan,
   );
 }
 
-export async function applyRepoOverride(
+export async function applyProjectConfig(
   workspaceRoot: string,
   projectId: string,
-  changes: RepoOverrideChanges,
+  changes: ProjectConfigChanges,
   options: { force?: boolean } = {},
 ) {
-  const { state, plan } = await createWorkspaceRepoOverridePlan(
+  const { state, plan } = await createWorkspaceProjectConfigPlan(
     workspaceRoot,
     projectId,
     changes,
     options,
   );
-  const result = await applyRepoOverridePlan(plan);
-  await maybePushConfigRepo(state.loaded, `Update ${result.repoKey} Herakles override`);
+  const result = await applyProjectConfigPlan(plan);
+  await maybePushConfigRepo(state.loaded, `Update ${result.projectId} Herakles project config`);
   return result;
 }
 
@@ -160,18 +159,77 @@ export async function setProjectState(
   state: ProjectState,
   options: { force?: boolean } = {},
 ) {
-  return applyRepoOverride(workspaceRoot, projectId, { state }, options);
+  return applyProjectConfig(workspaceRoot, projectId, { state }, options);
 }
 
 export async function archiveProject(workspaceRoot: string, projectId: string, learning: string) {
-  return applyRepoOverride(workspaceRoot, projectId, { state: "archived", learning });
+  return applyProjectConfig(workspaceRoot, projectId, { state: "archived", learning });
+}
+
+export async function addProject(
+  workspaceRoot: string,
+  input: ProjectConfigChanges & { id: string },
+) {
+  validateProjectInput(input);
+  const loaded = await loadOperationalConfig(workspaceRoot);
+  const plan = createProjectConfigPlan(loaded, input.id, input);
+  const result = await applyProjectConfigPlan(plan);
+  await maybePushConfigRepo(loaded, `Add ${input.id} Herakles project`);
+  return result;
+}
+
+export async function removeProject(workspaceRoot: string, projectId: string) {
+  const loaded = await loadOperationalConfig(workspaceRoot);
+  const resolved = resolveProjects(loaded, await refreshProjectDiscovery(loaded));
+  const id = loaded.config.project[projectId] ? projectId : findProject(resolved, projectId)?.slug;
+  if (!id) throw new Error(`Unknown tracked project: ${projectId}`);
+  const plan = createRemoveProjectConfigPlan(loaded, id);
+  const result = await applyProjectConfigPlan(plan);
+  await maybePushConfigRepo(loaded, `Remove ${id} Herakles project`);
+  return result;
+}
+
+export async function importHostedProjects(
+  workspaceRoot: string,
+  inputs: Array<{ id: string; repo: string; state?: ProjectState; path?: string }>,
+) {
+  const loaded = await loadOperationalConfig(workspaceRoot);
+  const results = [];
+  for (const input of inputs) {
+    const result = await applyProjectConfigPlan(
+      createProjectConfigPlan(loaded, input.id, {
+        source: "github",
+        repo: input.repo,
+        ...(input.state === undefined ? {} : { state: input.state }),
+        ...(input.path === undefined ? {} : { path: input.path }),
+      }),
+    );
+    loaded.config.project[input.id] = result.after as (typeof loaded.config.project)[string];
+    results.push(result);
+  }
+  await maybePushConfigRepo(loaded, `Import ${results.length} Herakles project(s)`);
+  return results;
+}
+
+function validateProjectInput(input: ProjectConfigChanges & { id: string }) {
+  if (input.source === "github" && !input.repo) {
+    throw new Error("GitHub projects require repo as owner/name.");
+  }
+  if (input.source === "local" && !input.path) {
+    throw new Error("Local projects require path.");
+  }
 }
 
 export async function repoMovePlan(workspaceRoot: string, projectId: string, path: string) {
   const state = await loadWorkspace(workspaceRoot);
   const target = findProject(state.projects, projectId);
   if (!target) throw new Error(`Unknown project: ${projectId}`);
-  const plan = createRepoMovePlan(state.loaded, target, path);
+  const plan = createRepoMovePlan(
+    state.loaded,
+    target,
+    path,
+    projectConfigId(state.loaded, target),
+  );
   return {
     ...plan,
     validation: validateProjectedWorkspace(state, target, { path: plan.relativePath }),
@@ -182,7 +240,12 @@ export async function repoMove(workspaceRoot: string, projectId: string, path: s
   const state = await loadWorkspace(workspaceRoot);
   const target = findProject(state.projects, projectId);
   if (!target) throw new Error(`Unknown project: ${projectId}`);
-  const result = await applyRepoMove(state.loaded, target, path);
+  const result = await applyRepoMove(
+    state.loaded,
+    target,
+    path,
+    projectConfigId(state.loaded, target),
+  );
   await maybePushConfigRepo(state.loaded, `Move ${target.owner}/${target.repo}`);
   return result;
 }
@@ -254,6 +317,38 @@ export async function projectDiscoveryShow(workspaceRoot: string) {
   return snapshot ?? projectDiscoveryRefresh(workspaceRoot);
 }
 
+export async function hostedImportCandidates(
+  workspaceRoot: string,
+  options: { includeTracked?: boolean } = {},
+): Promise<HostedImportCandidate[]> {
+  const loaded = await loadOperationalConfig(workspaceRoot);
+  const discovery = await refreshProjectDiscovery(loaded);
+  const trackedRepos = new Set(
+    Object.values(loaded.config.project)
+      .map((project) => (project.source === "github" ? project.repo?.toLowerCase() : undefined))
+      .filter((repo): repo is string => Boolean(repo)),
+  );
+  return discovery.hosted
+    .map((repo) => {
+      const candidate: HostedImportCandidate = {
+        id: slug(repo.owner, repo.name),
+        repo: repo.nameWithOwner,
+        owner: repo.owner,
+        name: repo.name,
+        visibility: repo.visibility === "PRIVATE" || repo.isPrivate ? "private" : "public",
+        archived: repo.isArchived,
+        suggestedState: suggestedStateForHosted(repo),
+        topics: repo.repositoryTopics,
+        alreadyTracked: trackedRepos.has(repo.nameWithOwner.toLowerCase()),
+      };
+      if (repo.description) candidate.description = repo.description;
+      if (repo.updatedAt) candidate.updatedAt = repo.updatedAt;
+      return candidate;
+    })
+    .filter((candidate) => options.includeTracked === true || !candidate.alreadyTracked)
+    .sort((a, b) => a.repo.localeCompare(b.repo));
+}
+
 export async function configDoctor(workspaceRoot: string) {
   return inspectConfigRepo(await loadConfig(workspaceRoot));
 }
@@ -289,9 +384,7 @@ export async function remoteStatus(workspaceRoot: string, server: string) {
     projectCount: remoteProjects.length,
     hostedCount: remoteProjects.length,
     counts,
-    validation: validateProjects(remoteProjects, {
-      ambiguousRepoOverrideKeys: ambiguousRepoOverrideKeys(state.loaded, state.discovery.hosted),
-    }),
+    validation: validateProjects(remoteProjects),
   };
 }
 
@@ -395,11 +488,6 @@ export async function automateRun(
   return runAutomationJob(state.loaded, jobId, { ...options, projects: state.projects });
 }
 
-export async function approvals(workspaceRoot: string) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
-  return listApprovals(loaded);
-}
-
 export async function pullRequests(workspaceRoot: string) {
   const state = await loadWorkspace(workspaceRoot);
   return listProjectPullRequests(state.projects.filter((project) => project.sync));
@@ -429,73 +517,44 @@ export async function codeRabbitRecommendations(
   return generateCodeRabbitRecommendations(state.loaded, state.projects, options);
 }
 
-export async function approvalDecision(
-  workspaceRoot: string,
-  id: string,
-  status: "approved" | "rejected" | "deferred",
-) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
-  return updateApprovalStatus(loaded, id, status);
-}
-
-export async function approvalWorktree(
-  workspaceRoot: string,
-  id: string,
-  options: { branch?: string; path?: string } = {},
-) {
-  const state = await loadWorkspace(workspaceRoot);
-  const approval = (await listApprovals(state.loaded)).find((candidate) => candidate.id === id);
-  if (!approval) throw new Error(`Unknown approval candidate: ${id}`);
-  if (!approval.projectId) throw new Error(`Approval candidate has no project id: ${id}`);
-  const target = findProject(state.projects, approval.projectId);
-  if (!target) throw new Error(`Unknown approval project: ${approval.projectId}`);
-  return preparePatchWorktree(state.loaded, target, approval, options);
-}
-
-export async function approvalPublish(
-  workspaceRoot: string,
-  id: string,
-  options: {
-    allowTestFailure?: boolean;
-    skipPr?: boolean;
-    message?: string;
-    title?: string;
-    body?: string;
-  } = {},
-) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
-  const approval = (await listApprovals(loaded)).find((candidate) => candidate.id === id);
-  if (!approval) throw new Error(`Unknown approval candidate: ${id}`);
-  return publishApprovedPatch(loaded, approval, options);
-}
-
 function findProject(projects: readonly Project[], id: string): Project | undefined {
   return projects.find(
     (candidate) => candidate.id === id || candidate.slug === id || candidate.repo === id,
   );
 }
 
-async function createWorkspaceRepoOverridePlan(
+function slug(owner: string | undefined, repo: string): string {
+  return owner ? `${owner}-${repo}` : repo;
+}
+
+function suggestedStateForHosted(repo: GitHubRepository): ProjectState {
+  if (repo.isArchived) return "archived";
+  if (repo.visibility === "PRIVATE" || repo.isPrivate) return "experiment";
+  return "open-source";
+}
+
+async function createWorkspaceProjectConfigPlan(
   workspaceRoot: string,
   projectId: string,
-  changes: RepoOverrideChanges,
+  changes: ProjectConfigChanges,
   options: { force?: boolean } = {},
 ) {
   const state = await loadWorkspace(workspaceRoot);
   const target = findProject(state.projects, projectId);
   if (!target) throw new Error(`Unknown project: ${projectId}`);
+  const configId = projectConfigId(state.loaded, target);
   const plan = {
-    ...createRepoOverridePlan(state.loaded, target, changes, options),
+    ...createProjectConfigPlan(state.loaded, configId, changes, target, options),
     validation: validateProjectedWorkspace(state, target, changes),
   };
   return { state, plan };
 }
 
-function projectOverrideProjection(
+function projectConfigProjection(
   loaded: LoadedConfig,
   projects: readonly Project[],
   target: Project,
-  changes: RepoOverrideChanges,
+  changes: ProjectConfigChanges,
 ): Project[] {
   return projects.map((project) => {
     if (project.id !== target.id) return project;
@@ -553,34 +612,20 @@ function validateWorkspaceProjects(
 function validateProjectedWorkspace(
   state: WorkspaceState,
   target: Project,
-  changes: RepoOverrideChanges,
+  changes: ProjectConfigChanges,
 ): ValidationResult {
-  const projected = projectOverrideProjection(state.loaded, state.projects, target, changes);
+  const projected = projectConfigProjection(state.loaded, state.projects, target, changes);
   return validateProjects(projected, validationOptions(state.loaded, state.discovery, projected));
 }
 
 function validationOptions(
-  loaded: LoadedConfig,
+  _loaded: LoadedConfig,
   discovery: ProjectDiscovery,
   projects: readonly Project[],
 ) {
   return {
-    ambiguousRepoOverrideKeys: ambiguousRepoOverrideKeys(loaded, discovery.hosted),
     hostedClonePathMismatches: hostedClonePathMismatches(discovery, projects),
   };
-}
-
-function ambiguousRepoOverrideKeys(
-  loaded: LoadedConfig,
-  repositories: readonly GitHubRepository[],
-): string[] {
-  const repoNameCounts = new Map<string, number>();
-  for (const repo of repositories) {
-    repoNameCounts.set(repo.name, (repoNameCounts.get(repo.name) ?? 0) + 1);
-  }
-  return Object.keys(loaded.config.repo)
-    .filter((key) => !key.includes("/") && (repoNameCounts.get(key) ?? 0) > 1)
-    .sort();
 }
 
 function hostedClonePathMismatches(
@@ -598,6 +643,17 @@ function hostedClonePathMismatches(
     })
     .filter((mismatch): mismatch is HostedClonePathMismatch => mismatch !== undefined)
     .sort((a, b) => a.projectId.localeCompare(b.projectId));
+}
+
+function projectConfigId(loaded: LoadedConfig, project: Project): string {
+  const existing = Object.entries(loaded.config.project).find(([_, config]) => {
+    if (project.source !== config.source) return false;
+    if (config.source === "github") return config.repo === `${project.owner}/${project.repo}`;
+    return (
+      config.path === project.repo || config.path === relativeWorkspacePath(loaded, project.path)
+    );
+  });
+  return existing?.[0] ?? project.slug;
 }
 
 function hostedClonesByRemote(repositories: readonly LocalRepository[]): Map<string, string> {
