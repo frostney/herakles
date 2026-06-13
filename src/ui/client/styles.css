@@ -308,7 +308,16 @@ nav a.active {
   align-items: end;
 }
 
+.import-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(160px, 240px) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
 .form-grid label,
+.import-filters label,
 .automation-form label,
 .checkbox-label {
   display: grid;
@@ -328,6 +337,7 @@ nav a.active {
 
 .search input,
 .form-grid input,
+.import-filters input,
 .automation-form input {
   min-height: 42px;
   border: 1px solid #34414f;
@@ -655,6 +665,7 @@ code {
 
   .metrics,
   .split,
+  .import-filters,
   .project-settings-controls,
   .move-controls,
   .automation-form,

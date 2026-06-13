@@ -23,7 +23,7 @@ _Avoid_: Sparse override as the primary project record
 The primary Herakles flow for bringing work into the workspace, whether by importing an existing hosted repository, creating a local experiment, or creating a new hosted repository. Herakles asks for the missing choices, writes the smallest required tracked-project config, and then refreshes the resolved project model.
 
 **Bulk Import**:
-A guided add-project flow that lets the user select multiple accessible hosted repositories from configured GitHub users or organizations and create tracked-project config entries for them at once.
+A guided add-project flow that lets the user select multiple accessible hosted repositories from configured GitHub users or organizations plus the authenticated GitHub user's own account and organizations, then create tracked-project config entries for them at once.
 
 **Lifecycle Suggestion**:
 A default lifecycle state Herakles proposes during add or bulk import from hosted facts such as visibility, archive state, topics, owner, and repository metadata. The user may accept or override the suggestion before the tracked-project config is written.

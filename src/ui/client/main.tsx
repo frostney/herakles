@@ -377,9 +377,8 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
   const [repo, setRepo] = useState("");
   const [path, setPath] = useState("");
   const [state, setState] = useState<ProjectState>("experiment");
-  const [checkout, setCheckout] = useState(true);
   const [message, setMessage] = useState("");
-  const add = async () => {
+  const add = async (checkout: boolean) => {
     setMessage("");
     try {
       const projectId = id || defaultProjectId(source === "github" ? repo : path);
@@ -444,22 +443,36 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
           <span>State</span>
           <StateSelect id="add-project-state" value={state} onChange={setState} />
         </label>
-        {source === "github" && (
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={checkout}
-              onChange={(event) => setCheckout(event.target.checked)}
-            />
-            <span>Checkout after adding</span>
-          </label>
-        )}
       </div>
-      <button type="button" onClick={add}>
-        <Plus size={16} aria-hidden /> Add
-      </button>
+      <AddProjectActions source={source} onAdd={add} />
       {message && <p className={message.includes("added") ? "success" : "error"}>{message}</p>}
     </section>
+  );
+}
+
+function AddProjectActions({
+  source,
+  onAdd,
+}: {
+  source: "github" | "local";
+  onAdd: (checkout: boolean) => void;
+}) {
+  if (source === "github") {
+    return (
+      <div className="row-actions">
+        <button type="button" onClick={() => onAdd(true)}>
+          <Plus size={16} aria-hidden /> Add and checkout
+        </button>
+        <button type="button" className="secondary-button" onClick={() => onAdd(false)}>
+          Add only
+        </button>
+      </div>
+    );
+  }
+  return (
+    <button type="button" onClick={() => onAdd(false)}>
+      <Plus size={16} aria-hidden /> Add
+    </button>
   );
 }
 
@@ -468,10 +481,14 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [states, setStates] = useState<Record<string, ProjectState>>({});
   const [checkout, setCheckout] = useState(true);
+  const [query, setQuery] = useState("");
+  const [owner, setOwner] = useState("all");
   const [message, setMessage] = useState("");
   const rows = candidates.status === "ready" ? candidates.data : [];
+  const owners = Array.from(new Set(rows.map((candidate) => candidate.owner))).sort();
+  const filteredRows = rows.filter((candidate) => importCandidateMatches(candidate, query, owner));
   const importSelected = async () => {
-    const projects = rows
+    const projects = filteredRows
       .filter((candidate) => selected[candidate.repo])
       .map((candidate) => ({
         id: candidate.id,
@@ -501,11 +518,22 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
   };
   return (
     <section>
+      {candidates.status === "ready" && (
+        <ImportCandidateFilters
+          query={query}
+          owner={owner}
+          owners={owners}
+          shown={filteredRows.length}
+          total={rows.length}
+          onQuery={setQuery}
+          onOwner={setOwner}
+        />
+      )}
       {candidates.status === "ready" ? (
         <div className="table-wrap compact-table">
           <table>
             <tbody>
-              {rows.slice(0, 8).map((candidate) => (
+              {filteredRows.map((candidate) => (
                 <ImportCandidateRow
                   key={candidate.repo}
                   candidate={candidate}
@@ -534,6 +562,57 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
       </button>
       {message && <p className={message.startsWith("Imported") ? "success" : "error"}>{message}</p>}
     </section>
+  );
+}
+
+function ImportCandidateFilters({
+  query,
+  owner,
+  owners,
+  shown,
+  total,
+  onQuery,
+  onOwner,
+}: {
+  query: string;
+  owner: string;
+  owners: string[];
+  shown: number;
+  total: number;
+  onQuery: (query: string) => void;
+  onOwner: (owner: string) => void;
+}) {
+  return (
+    <div className="import-filters">
+      <label>
+        <span>Search repositories</span>
+        <input value={query} onChange={(event) => onQuery(event.target.value)} />
+      </label>
+      <label>
+        <span>Owner</span>
+        <select value={owner} onChange={(event) => onOwner(event.target.value)}>
+          <option value="all">All owners</option>
+          {owners.map((candidateOwner) => (
+            <option key={candidateOwner} value={candidateOwner}>
+              {candidateOwner}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="muted">
+        Showing {shown} of {total}
+      </p>
+    </div>
+  );
+}
+
+function importCandidateMatches(candidate: HostedImportCandidate, query: string, owner: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const ownerMatches = owner === "all" || candidate.owner === owner;
+  if (!ownerMatches) return false;
+  if (!normalizedQuery) return true;
+  return [candidate.repo, candidate.name, candidate.description ?? ""].some((value) =>
+    value.toLowerCase().includes(normalizedQuery),
   );
 }
 

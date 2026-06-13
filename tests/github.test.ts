@@ -34,6 +34,59 @@ describe("github context wrappers", () => {
     expect(calls[0]).not.toContain("--source");
   });
 
+  test("discovers authenticated user and organization repositories for imports", async () => {
+    const calls: string[][] = [];
+    const config = heraklesConfigSchema.parse({
+      github: { owners: [], include_archived: false },
+    });
+    const repos = await listGitHubRepositoriesWithRunner(
+      config,
+      async (argv) => {
+        calls.push([...argv]);
+        if (argv.join(" ") === "gh api user --jq .login") {
+          return { exitCode: 0, stderr: "", stdout: "frostney\n" };
+        }
+        if (argv.join(" ") === "gh org list --limit 1000") {
+          return { exitCode: 0, stderr: "", stdout: "herakles-labs\n" };
+        }
+        const owner = argv[3];
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: JSON.stringify([
+            {
+              name: "tool",
+              nameWithOwner: `${owner}/tool`,
+              owner: { login: owner },
+              visibility: "PUBLIC",
+              isArchived: false,
+              repositoryTopics: [],
+              languages: [],
+            },
+          ]),
+        };
+      },
+      { includeAuthenticatedOwners: true },
+    );
+
+    expect(calls.map((call) => call.slice(0, 4))).toContainEqual([
+      "gh",
+      "repo",
+      "list",
+      "frostney",
+    ]);
+    expect(calls.map((call) => call.slice(0, 4))).toContainEqual([
+      "gh",
+      "repo",
+      "list",
+      "herakles-labs",
+    ]);
+    expect(repos.map((repo) => repo.nameWithOwner)).toEqual([
+      "frostney/tool",
+      "herakles-labs/tool",
+    ]);
+  });
+
   test("lists pull requests with explicit gh argv", async () => {
     const calls: string[][] = [];
     const prs = await listOpenPullRequests("frostney/herakles", async (argv) => {

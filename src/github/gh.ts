@@ -68,23 +68,68 @@ export async function listGitHubRepositories(config: HeraklesConfig): Promise<Gi
   return listGitHubRepositoriesWithRunner(config, runCommand);
 }
 
+export async function listImportableGitHubRepositories(
+  config: HeraklesConfig,
+): Promise<GitHubRepository[]> {
+  return listGitHubRepositoriesWithRunner(config, runCommand, { includeAuthenticatedOwners: true });
+}
+
 export async function listGitHubRepositoriesWithRunner(
   config: HeraklesConfig,
   runner: Runner,
+  options: { includeAuthenticatedOwners?: boolean } = {},
 ): Promise<GitHubRepository[]> {
   const repos = new Map<string, GitHubRepository>();
+  const listedOwners = new Set<string>();
   for (const owner of config.github.owners) {
+    listedOwners.add(owner);
     const result = await runner(repoListArgs(config, owner));
-    const parsed = JSON.parse(result.stdout) as GhRepo[];
-    for (const repo of parsed) {
-      const normalized = normalizeRepository(repo);
-      if (!config.github.include_archived && normalized.isArchived) {
-        continue;
-      }
-      repos.set(normalized.nameWithOwner, normalized);
+    addRepositoryResults(repos, config, result.stdout);
+  }
+  if (options.includeAuthenticatedOwners) {
+    for (const owner of await discoverAuthenticatedOwners(runner)) {
+      if (listedOwners.has(owner)) continue;
+      listedOwners.add(owner);
+      const result = await runner(repoListArgs(config, owner));
+      addRepositoryResults(repos, config, result.stdout);
     }
   }
   return [...repos.values()].sort((a, b) => a.nameWithOwner.localeCompare(b.nameWithOwner));
+}
+
+function addRepositoryResults(
+  repos: Map<string, GitHubRepository>,
+  config: HeraklesConfig,
+  stdout: string,
+) {
+  const parsed = JSON.parse(stdout) as GhRepo[];
+  for (const repo of parsed) {
+    const normalized = normalizeRepository(repo);
+    if (!config.github.include_archived && normalized.isArchived) {
+      continue;
+    }
+    repos.set(normalized.nameWithOwner, normalized);
+  }
+}
+
+async function discoverAuthenticatedOwners(runner: Runner): Promise<string[]> {
+  const owners = new Set<string>();
+  try {
+    const user = (await runner(["gh", "api", "user", "--jq", ".login"])).stdout.trim();
+    if (user) owners.add(user);
+  } catch {
+    return [];
+  }
+  try {
+    const orgs = (await runner(["gh", "org", "list", "--limit", "1000"])).stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    for (const org of orgs) owners.add(org);
+  } catch {
+    // Organization visibility can fail independently of user lookup; keep user-owned imports.
+  }
+  return [...owners];
 }
 
 function repoListArgs(config: HeraklesConfig, owner: string): string[] {

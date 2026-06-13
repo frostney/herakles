@@ -42,6 +42,7 @@ import type {
   ValidationResult,
 } from "./domain";
 import { listProjectIssues, listProjectPullRequests } from "./github/context";
+import { listImportableGitHubRepositories } from "./github/gh";
 import { type HostedClonePathMismatch, validateProjects } from "./lifecycle/validate";
 import {
   type LocalPromotionOptions,
@@ -344,13 +345,13 @@ export async function hostedImportCandidates(
   options: { includeTracked?: boolean } = {},
 ): Promise<HostedImportCandidate[]> {
   const loaded = await loadOperationalConfig(workspaceRoot);
-  const discovery = await refreshProjectDiscovery(loaded);
+  const hosted = await listImportableGitHubRepositories(loaded.config);
   const trackedRepos = new Set(
     Object.values(loaded.config.project)
       .map((project) => (project.source === "github" ? project.repo?.toLowerCase() : undefined))
       .filter((repo): repo is string => Boolean(repo)),
   );
-  return discovery.hosted
+  return hosted
     .map((repo) => {
       const candidate: HostedImportCandidate = {
         id: slug(repo.owner, repo.name),
