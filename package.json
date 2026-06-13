@@ -1,25 +1,25 @@
 {
   "name": "herakles",
-  "version": "1.2.0",
-  "description": "Slay the multi-repository monster!",
-  "main": "lib/index.js",
+  "version": "2.0.0",
+  "description": "A Bun-first workspace orchestrator for many repositories.",
+  "type": "module",
+  "bin": {
+    "herakles": "./src/cli/main.ts",
+    "herakles-ui": "./src/ui/server/main.ts"
+  },
   "scripts": {
-    "lint": "eslint .",
-    "test": "npm run lint"
+    "herakles": "bun run src/cli/main.ts",
+    "ui": "bun run src/ui/server/main.ts",
+    "test": "bun test",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "quality": "fallow audit --gate new-only && fallow health --score --report-only"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/frostney/herakles.git"
   },
-  "keywords": [
-    "git",
-    "github",
-    "repository",
-    "multi",
-    "multi-repository",
-    "repo",
-    "repos"
-  ],
+  "keywords": ["git", "github", "repository", "workspace", "automation", "bun"],
   "author": "Johannes Stein",
   "license": "MIT",
   "bugs": {
@@ -27,15 +27,19 @@
   },
   "homepage": "https://github.com/frostney/herakles#readme",
   "dependencies": {
-    "js-yaml": "^3.4.6",
-    "mkdirp-promise": "^1.0.3",
-    "nodegit": "^0.6.3",
-    "pinkie-promise": "^2.0.0"
+    "@stricli/core": "^1.2.7",
+    "@tanstack/react-router": "^1.131.48",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
-    "chai": "^3.4.1",
-    "eslint": "^1.10.3",
-    "eslint-config-airbnb": "^2.1.1",
-    "mocha": "^2.3.4"
+    "@biomejs/biome": "^1.9.4",
+    "@types/bun": "^1.1.14",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "fallow": "^2.32.0",
+    "typescript": "^5.7.2"
   }
 }

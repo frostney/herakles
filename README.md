@@ -1,19 +1,57 @@
-# herakles
-Slay the multi-repository monster and manage multiple repositories with a simple interface.
+# Herakles
 
-Managing multiple repositories is hard. Trying to stay up-to-date on all your machines is even harder. You may have tried putting your repository in your Dropbox, a different cloud provider or using BitTorrent Sync. You might have a put code in a virtual machine and then sync'ed your virtual machine across multiple machines. (I did all those things!)
-But there are some shortcomings with all of those and chances are your repository is already centralized on Github, Bitbucket or on your own hosted platform, so we only need sync our repositories with that centralized repository.
+Herakles is a Bun-first TypeScript workspace orchestrator for managing many GitHub repositories, local experiments, sync plans, reports, approvals, and recurring automation from one CLI and local browser UI.
 
-For anyone seeing this, this a small project for managing multiple repositories as a library and as a command-line interface. I am incubating and testing this over winter break 2015 to see if it's worth being turned into a real project or if it should stay as an experiment.
+## Install
 
-TODO:
-- [ ] Dogfood for a week
-- [ ] Unit tests
-- [ ] Scripts
+```sh
+bun install
+```
 
-Oberservations:
-- I'm not liking the tree-like structure with passing down `root` and `name`. Maybe have two with groups and repositories and repositories linking to the group. Not sure about the serialization though :/
-- Events shouldn't be static -> for 1.3.0+
-- Events should be more granular -> for 1.3.0+
+## Usage
 
-If you are a fan of the monorepo approach, you might want to check out lerna.
+Create the workspace scaffold:
+
+```sh
+bun run herakles init --root ~/Code
+```
+
+Inspect and sync repositories:
+
+```sh
+bun run herakles inventory refresh --root ~/Code
+bun run herakles repo list --root ~/Code
+bun run herakles sync --root ~/Code --dry-run
+bun run herakles sync --root ~/Code
+```
+
+Open the local UI:
+
+```sh
+bun run herakles ui --root ~/Code --no-open
+bun run ui -- --root ~/Code --no-open
+```
+
+Run automation explicitly:
+
+```sh
+bun run herakles automate due --root ~/Code
+bun run herakles automate tick --root ~/Code
+bun run herakles automate run coderabbit --root ~/Code --slot now
+```
+
+See [docs/architecture.md](docs/architecture.md) for the domain model, sync contract, UI/API boundaries, and automation design.
+
+## Background
+
+Herakles treats GitHub as the source for repository facts and keeps `_herakles/herakles.toml` sparse. Local experiments stay local unless explicitly promoted. Remote synchronization happens through token-protected Herakles server sync plans rather than synced machine profiles.
+
+## Contribution
+
+For local development, use Bun and run `bun test`, `bun run lint`, `bunx tsc --noEmit`, and `bun run quality` before handoff.
+
+## References
+
+- [Architecture](docs/architecture.md)
+- [Decision Records](docs/adr/)
+- [License](LICENSE)

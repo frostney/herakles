@@ -2,3 +2,16 @@ node_modules
 npm-debug.log
 
 examples/tmp
+node_modules/
+dist/
+.playwright-cli/
+output/playwright/
+_cache/
+_reports/
+_worktrees/
+_herakles/.cache/
+_herakles/.runs/
+_herakles/.herakles-state/
+_herakles/herakles.local.toml
+.herakles-state/
+tests/fixtures/workspace/_cache/

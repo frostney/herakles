@@ -1,0 +1,21 @@
+version = 2
+root = "."
+timezone = "Europe/London"
+
+[github]
+owners = []
+remote_style = "ssh"
+include_archived = true
+
+[sync]
+exclude_topics = ["no-sync"]
+pin_topics = ["pinned", "current", "travel"]
+
+[repo."paid-api"]
+state = "commercial"
+tags = ["strategic"]
+
+[job.friday_summary]
+schedule = "00 16 * * FRI"
+mode = "summary"
+output = "_reports/weekly/{iso_week}.md"

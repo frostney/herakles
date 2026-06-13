@@ -1,0 +1,4 @@
+[health]
+maxCyclomatic = 20
+maxCognitive = 20
+maxCrap = 100

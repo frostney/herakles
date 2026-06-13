@@ -1,0 +1,5 @@
+[test]
+coverage = false
+
+[serve.static]
+plugins = []
