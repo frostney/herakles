@@ -2,7 +2,11 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TOML } from "bun";
-import { type WorkspacePaths, resolveWorkspacePaths } from "./paths";
+import {
+  type WorkspacePaths,
+  resolveConfiguredWorkspacePaths,
+  resolveWorkspacePaths,
+} from "./paths";
 import { type HeraklesConfig, heraklesConfigSchema } from "./schema";
 
 export type LoadedConfig = {
@@ -20,12 +24,13 @@ async function readToml(path: string): Promise<Record<string, unknown>> {
 }
 
 export async function loadConfig(workspaceRoot: string): Promise<LoadedConfig> {
-  const paths = resolveWorkspacePaths(workspaceRoot);
-  if (!existsSync(paths.syncedConfigPath)) {
-    throw new Error(`Missing synced configuration at ${paths.syncedConfigPath}`);
+  const bootstrapPaths = resolveWorkspacePaths(workspaceRoot);
+  if (!existsSync(bootstrapPaths.syncedConfigPath)) {
+    throw new Error(`Missing synced configuration at ${bootstrapPaths.syncedConfigPath}`);
   }
-  const synced = await readToml(paths.syncedConfigPath);
+  const synced = await readToml(bootstrapPaths.syncedConfigPath);
   const config = heraklesConfigSchema.parse(synced);
+  const paths = resolveConfiguredWorkspacePaths(bootstrapPaths.workspaceRoot, config.root);
   const source: LoadedConfig["source"] = {
     syncedConfigPath: paths.syncedConfigPath,
   };

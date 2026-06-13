@@ -20,7 +20,21 @@ function expandHome(value: string): string {
 
 export function resolveWorkspacePaths(workspaceRoot: string): WorkspacePaths {
   const root = resolve(expandHome(workspaceRoot));
-  const configDir = join(root, "_herakles");
+  return workspacePaths(root, root);
+}
+
+export function resolveConfiguredWorkspacePaths(
+  configRoot: string,
+  workspaceRoot: string,
+): WorkspacePaths {
+  const configBase = resolve(expandHome(configRoot));
+  const root = resolveUnder(configBase, workspaceRoot);
+  return workspacePaths(configBase, root);
+}
+
+function workspacePaths(configBase: string, workspaceRoot: string): WorkspacePaths {
+  const root = resolve(workspaceRoot);
+  const configDir = join(configBase, "_herakles");
   return {
     workspaceRoot: root,
     configDir,

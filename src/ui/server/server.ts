@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import { routeApi } from "../../api/routes";
 import { startUiCron } from "../../automation/cron";
 import { loadConfig } from "../../config/load";
@@ -19,6 +20,7 @@ export async function startUiServer(options: UiServerOptions) {
   const token = await ensureAccessToken(loaded);
   const remoteSyncOnly = !isLoopbackHost(host);
   const cron = startUiCron(loaded);
+  const configRoot = dirname(loaded.paths.configDir);
 
   const server = Bun.serve({
     hostname: host,
@@ -33,8 +35,7 @@ export async function startUiServer(options: UiServerOptions) {
       "/automation": index,
       "/settings": index,
       "/favicon.ico": () => new Response(null, { status: 204 }),
-      "/api/*": (req) =>
-        routeApi(req, { workspaceRoot: loaded.paths.workspaceRoot, token, remoteSyncOnly }),
+      "/api/*": (req) => routeApi(req, { workspaceRoot: configRoot, token, remoteSyncOnly }),
     },
   } as Parameters<typeof Bun.serve>[0]);
 

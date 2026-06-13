@@ -16,6 +16,8 @@ Create the workspace scaffold:
 bun run herakles init --root ~/Code
 ```
 
+`--root` points at the folder containing `_herakles`; hosted checkouts are resolved under the synced `root` value in `_herakles/herakles.toml`.
+
 Add, import, inspect, and check out projects:
 
 ```sh

@@ -74,6 +74,17 @@ async function postProjectConfigPlan(workspaceRoot: string, body: Record<string,
   return { response, body: await response?.json() };
 }
 
+async function checkoutProjectDryRun(workspaceRoot: string, projectId: string) {
+  const response = await routeApi(
+    new Request("http://x/api/projects/checkout", {
+      method: "POST",
+      body: JSON.stringify({ projectId, dryRun: true }),
+    }),
+    { workspaceRoot },
+  );
+  return { response, body: await response?.json() };
+}
+
 async function getRemoteSyncPlan(workspaceRoot: string) {
   return getRemote(workspaceRoot, "/api/sync/remote/plan");
 }
@@ -642,14 +653,7 @@ owners = ["frostney"]
     await configureGithubOwner(workspaceRoot);
     await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
     await withFakeGhRepo({ name: "public-tool" }, async () => {
-      const response = await routeApi(
-        new Request("http://x/api/projects/checkout", {
-          method: "POST",
-          body: JSON.stringify({ projectId: "public-tool", dryRun: true }),
-        }),
-        { workspaceRoot },
-      );
-      const body = await response?.json();
+      const { response, body } = await checkoutProjectDryRun(workspaceRoot, "public-tool");
 
       expect(response?.status).toBe(200);
       expect(body).toHaveLength(1);
@@ -657,6 +661,29 @@ owners = ["frostney"]
       expect(body[0].item.action).toBe("clone");
       expect(body[0].item.project.id).toBe("github:frostney/public-tool");
       expect(body[0].item.project.remote).toBe("git@github.com:frostney/public-tool.git");
+    });
+  });
+
+  test("checks out hosted projects under the synced root setting", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await writeFile(
+      join(workspaceRoot, "_herakles", "herakles.toml"),
+      `version = 2
+root = "checkout-root"
+
+[github]
+owners = ["frostney"]
+
+[project."public-tool"]
+source = "github"
+repo = "frostney/public-tool"
+`,
+    );
+    await withFakeGhRepo({ name: "public-tool" }, async () => {
+      const { response, body } = await checkoutProjectDryRun(workspaceRoot, "public-tool");
+
+      expect(response?.status).toBe(200);
+      expect(body[0].item.project.path).toBe(join(workspaceRoot, "checkout-root", "public-tool"));
     });
   });
 

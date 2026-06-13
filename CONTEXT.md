@@ -98,6 +98,14 @@ _Avoid_: Patch candidate, publish candidate
 The desired Herakles workspace and orchestration configuration stored in `_herakles/herakles.toml`. It should be sufficient to bootstrap the Herakles orchestrator for the configured remote repositories.
 _Avoid_: Project-local config
 
+**Config Root**:
+The local folder that contains `_herakles`. CLI and UI `--root` flags point at this folder so Herakles can find the synced configuration checkout.
+_Avoid_: Checkout root
+
+**Workspace Root**:
+The effective local folder where Herakles resolves project paths, checkouts, local reports, caches, worktrees, and ignored runtime state. It comes from the `root` value in `_herakles/herakles.toml`, resolved relative to the config root unless absolute.
+_Avoid_: Config root
+
 **Local Configuration**:
 Optional machine-specific Herakles settings stored outside synced configuration, limited to UI host, UI port, browser opening, and access token location.
 _Avoid_: Required config

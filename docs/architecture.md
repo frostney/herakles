@@ -4,6 +4,8 @@ Herakles v2 is a Bun-first TypeScript orchestrator for a personal multi-reposito
 
 The canonical configuration is `_herakles/herakles.toml`. It describes the remote repository universe and orchestration defaults; it is not supplemented by project-local config files or synced machine profiles. Local configuration is optional and limited to UI-only machine preferences such as host, port, browser opening, and access token location.
 
+CLI and UI `--root` flags identify the local config root: the folder that contains `_herakles`. The synced `root` field inside `_herakles/herakles.toml` identifies the effective workspace root where project paths, hosted checkouts, local reports, caches, worktrees, and ignored runtime state are resolved. Relative synced roots are resolved under the config root, so a synced config checkout can bootstrap the same project layout on a new machine without making `_herakles` itself the checkout destination.
+
 `herakles init` creates the canonical config scaffold, local support directories, `_herakles/herakles.local.toml`, `_herakles/.gitignore`, and default report-only automation jobs with inline prompts in `herakles.toml`. Existing config is left untouched so setup can be rerun safely and a synced config repository can customize its orchestration assets.
 
 Operational commands auto-pull the `_herakles` Git checkout when `config.auto_pull` is true and the config directory is a Git checkout. A successful fast-forward pull reloads `herakles.toml` before project discovery, project resolution, validation, sync planning, reports, or automation continue. Non-Git scaffolds are left alone, and `herakles config pull` remains the explicit command that fails loudly when `_herakles` is not a checkout.

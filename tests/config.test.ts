@@ -4,12 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
 
+async function tempConfigWorkspace(config: string) {
+  const root = await mkdtemp(join(tmpdir(), "herakles-config-"));
+  await mkdir(join(root, "_herakles"), { recursive: true });
+  await writeFile(join(root, "_herakles", "herakles.toml"), config);
+  return root;
+}
+
 describe("configuration loading", () => {
   test("local config is limited to UI machine preferences", async () => {
-    const root = await mkdtemp(join(tmpdir(), "herakles-config-"));
-    await mkdir(join(root, "_herakles"), { recursive: true });
-    await writeFile(
-      join(root, "_herakles", "herakles.toml"),
+    const root = await tempConfigWorkspace(
       `version = 2
 root = "."
 
@@ -42,5 +46,22 @@ open_browser = false
     expect(loaded.config.ui.host).toBe("localhost");
     expect(loaded.config.ui.port).toBe(4900);
     expect(loaded.config.ui.open_browser).toBe(false);
+  });
+
+  test("synced root controls the effective workspace root", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+root = "checkout-root"
+
+[github]
+owners = []
+`,
+    );
+
+    const loaded = await loadConfig(root);
+
+    expect(loaded.paths.configDir).toBe(join(root, "_herakles"));
+    expect(loaded.paths.syncedConfigPath).toBe(join(root, "_herakles", "herakles.toml"));
+    expect(loaded.paths.workspaceRoot).toBe(join(root, "checkout-root"));
   });
 });
