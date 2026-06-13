@@ -52,7 +52,7 @@ Automation eligibility uses project filters. The default automation filter is `n
 
 Prompt-driven report-only jobs receive a Herakles-authored context block on stdin after the configured prompt. That context includes slot metadata, eligible project evidence, detected package managers, roadmap presence, and recent generated reports. Herakles does not model harness-specific implementation branches, review resolution, or publishing.
 
-Lock payloads use deterministic state branches in the same config repository when a config remote is available. Local fallback locks live under `_herakles/state/locks`. Run ledgers live under `_herakles/cache/runs`.
+Automation locks are local file claims under `_herakles/state/locks` and honor their expiry before a slot can be claimed again. Run ledgers live under `_herakles/cache/runs`. Herakles does not coordinate automation through a config repository, remote sync endpoint, or branch-lock protocol.
 
 ## Tooling
 

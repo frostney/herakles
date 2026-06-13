@@ -17,12 +17,6 @@ import {
   createProjectConfigPlan,
   createRemoveProjectConfigPlan,
 } from "./config/projects";
-import {
-  inspectConfigRepo,
-  isConfigGitCheckout,
-  pullConfigRepo,
-  pushConfigRepo,
-} from "./config/repo";
 import { heraklesConfigSchema } from "./config/schema";
 import { type ProjectDiscovery, normalizeRemote, refreshProjectDiscovery } from "./discovery";
 import { readProjectDiscoverySnapshot, writeProjectDiscoverySnapshot } from "./discovery/cache";
@@ -70,18 +64,11 @@ type WorkspaceState = {
 };
 
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   const discovery = await refreshProjectDiscovery(loaded);
   const projects = resolveProjects(loaded, discovery);
   const validation = validateWorkspaceProjects(loaded, discovery, projects);
   return { loaded, discovery, projects, validation };
-}
-
-async function loadOperationalConfig(workspaceRoot: string): Promise<LoadedConfig> {
-  const loaded = await loadConfig(workspaceRoot);
-  if (!loaded.config.config.auto_pull || !isConfigGitCheckout(loaded)) return loaded;
-  const pull = await pullConfigRepo(loaded);
-  return pull.status === "done" ? loadConfig(workspaceRoot) : loaded;
 }
 
 export async function status(workspaceRoot: string) {
@@ -152,7 +139,6 @@ export async function applyProjectConfig(
     options,
   );
   const result = await applyProjectConfigPlan(plan);
-  await maybePushConfigRepo(state.loaded, `Update ${result.projectId} Herakles project config`);
   return result;
 }
 
@@ -174,21 +160,19 @@ export async function addProject(
   input: ProjectConfigChanges & { id: string },
 ) {
   validateProjectInput(input);
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   const plan = createProjectConfigPlan(loaded, input.id, input);
   const result = await applyProjectConfigPlan(plan);
-  await maybePushConfigRepo(loaded, `Add ${input.id} Herakles project`);
   return result;
 }
 
 export async function removeProject(workspaceRoot: string, projectId: string) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   const resolved = resolveProjects(loaded, await refreshProjectDiscovery(loaded));
   const id = loaded.config.project[projectId] ? projectId : findProject(resolved, projectId)?.slug;
   if (!id) throw new Error(`Unknown tracked project: ${projectId}`);
   const plan = createRemoveProjectConfigPlan(loaded, id);
   const result = await applyProjectConfigPlan(plan);
-  await maybePushConfigRepo(loaded, `Remove ${id} Herakles project`);
   return result;
 }
 
@@ -202,7 +186,7 @@ export async function importHostedProjects(
     tags?: string[];
   }>,
 ) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   const results = [];
   for (const input of inputs) {
     const result = await applyProjectConfigPlan(
@@ -217,7 +201,6 @@ export async function importHostedProjects(
     loaded.config.project[input.id] = result.after as (typeof loaded.config.project)[string];
     results.push(result);
   }
-  await maybePushConfigRepo(loaded, `Import ${results.length} Herakles project(s)`);
   return results;
 }
 
@@ -245,7 +228,7 @@ export async function archiveLocalProject(
   projectId: string,
   learning: string,
 ) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   const target = findProject(
     resolveProjects(loaded, await refreshProjectDiscovery(loaded)),
     projectId,
@@ -287,14 +270,14 @@ export async function validation(
   workspaceRoot: string,
   options: { strict?: boolean } = {},
 ): Promise<ValidationResult> {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   const discovery = await refreshProjectDiscovery(loaded);
   const projects = resolveProjects(loaded, discovery);
   return validateWorkspaceProjects(loaded, discovery, projects, options);
 }
 
 export async function projectDiscoveryRefresh(workspaceRoot: string) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   const discovery = await refreshProjectDiscovery(loaded);
   return (
     (await readProjectDiscoverySnapshot(loaded)) ?? writeProjectDiscoverySnapshot(loaded, discovery)
@@ -302,7 +285,7 @@ export async function projectDiscoveryRefresh(workspaceRoot: string) {
 }
 
 export async function projectDiscoveryShow(workspaceRoot: string) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   const snapshot = await readProjectDiscoverySnapshot(loaded);
   return snapshot ?? projectDiscoveryRefresh(workspaceRoot);
 }
@@ -311,7 +294,7 @@ export async function hostedImportCandidates(
   workspaceRoot: string,
   options: { includeTracked?: boolean } = {},
 ): Promise<HostedImportCandidate[]> {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   const hosted = await listImportableGitHubRepositories(loaded.config);
   const trackedRepos = new Set(
     Object.values(loaded.config.project)
@@ -337,14 +320,6 @@ export async function hostedImportCandidates(
     })
     .filter((candidate) => options.includeTracked === true || !candidate.alreadyTracked)
     .sort((a, b) => a.repo.localeCompare(b.repo));
-}
-
-export async function configDoctor(workspaceRoot: string) {
-  return inspectConfigRepo(await loadConfig(workspaceRoot));
-}
-
-export async function configPull(workspaceRoot: string) {
-  return pullConfigRepo(await loadConfig(workspaceRoot));
 }
 
 export async function configToml(workspaceRoot: string) {
@@ -397,17 +372,17 @@ export async function up(
 }
 
 export async function doctor(workspaceRoot: string) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   return runDoctor(loaded);
 }
 
 export async function reports(workspaceRoot: string) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   return listReports(loaded);
 }
 
 export async function report(workspaceRoot: string, id: string) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   return readReport(loaded, id);
 }
 
@@ -415,12 +390,12 @@ export async function reportNote(
   workspaceRoot: string,
   input: { title: string; body: string; projectId?: string },
 ) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   return createReportNote(loaded, input);
 }
 
 export async function latestAutomationReport(workspaceRoot: string) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   return latestReport(loaded);
 }
 
@@ -453,7 +428,7 @@ export async function automationJobConfigPlan(
   jobId: string,
   changes: AutomationJobConfigChanges,
 ) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   return createAutomationJobConfigPlan(loaded, jobId, changes);
 }
 
@@ -462,11 +437,10 @@ export async function applyAutomationJobConfig(
   jobId: string,
   changes: AutomationJobConfigChanges,
 ) {
-  const loaded = await loadOperationalConfig(workspaceRoot);
+  const loaded = await loadConfig(workspaceRoot);
   const result = await applyAutomationJobConfigPlan(
     createAutomationJobConfigPlan(loaded, jobId, changes),
   );
-  await maybePushConfigRepo(loaded, `Update ${jobId} Herakles automation`);
   return result;
 }
 
@@ -575,14 +549,6 @@ function projectConfigProjection(
 function withoutArchiveEvidence(project: Project): Project {
   const { learningPath: _learningPath, archiveNote: _archiveNote, ...rest } = project;
   return rest;
-}
-
-async function maybePushConfigRepo(loaded: LoadedConfig, message: string) {
-  if (!loaded.config.config.auto_push) return;
-  const push = await pushConfigRepo(loaded, message);
-  if (push.status === "failed") {
-    throw new Error(`Config auto-push failed: ${push.message}`);
-  }
 }
 
 function validateWorkspaceProjects(

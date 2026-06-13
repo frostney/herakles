@@ -94,6 +94,11 @@ export async function listGitHubRepositoriesWithRunner(
       addRepositoryResults(repos, config, result.stdout);
     }
   }
+  for (const repo of trackedHostedRepos(config)) {
+    if (repos.has(repo)) continue;
+    const result = await readRepository(repo, config, runner);
+    if (result) repos.set(result.nameWithOwner, result);
+  }
   return [...repos.values()].sort((a, b) => a.nameWithOwner.localeCompare(b.nameWithOwner));
 }
 
@@ -109,6 +114,32 @@ function addRepositoryResults(
       continue;
     }
     repos.set(normalized.nameWithOwner, normalized);
+  }
+}
+
+function trackedHostedRepos(config: HeraklesConfig): string[] {
+  return [
+    ...new Set(
+      Object.values(config.project)
+        .map((project) => (project.source === "github" ? project.repo : undefined))
+        .filter((repo): repo is string => Boolean(repo)),
+    ),
+  ].sort();
+}
+
+async function readRepository(
+  repo: string,
+  config: HeraklesConfig,
+  runner: Runner,
+): Promise<GitHubRepository | undefined> {
+  try {
+    const result = await runner(["gh", "repo", "view", repo, "--json", repoListFields().join(",")]);
+    const parsed = JSON.parse(result.stdout) as GhRepo;
+    const normalized = normalizeRepository(parsed);
+    if (!config.github.include_archived && normalized.isArchived) return undefined;
+    return normalized;
+  } catch {
+    return undefined;
   }
 }
 

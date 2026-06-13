@@ -213,7 +213,7 @@ export type AutomationLock = {
   machine: string;
   startedAt: string;
   expiresAt: string;
-  backend: "git-branch" | "local-file";
+  backend: "local-file";
 };
 
 export type IssueRecommendation = {

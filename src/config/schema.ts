@@ -30,13 +30,6 @@ const projectConfigSchema = z
 export const heraklesConfigSchema = z.object({
   version: z.number().default(2),
   timezone: z.string().default("Europe/London"),
-  config: z
-    .object({
-      remote: z.string().optional(),
-      auto_pull: z.boolean().default(true),
-      auto_push: z.boolean().default(false),
-    })
-    .default({}),
   github: z
     .object({
       owners: z.array(z.string()).default([]),
@@ -69,7 +62,6 @@ export const heraklesConfigSchema = z.object({
     .object({
       enabled: z.boolean().default(true),
       include: z.string().default("not archived"),
-      lock_backend: z.enum(["git-branch"]).default("git-branch"),
       exclude_topics: z.array(z.string()).default(["no-agent", "manual-only"]),
       catch_up_window_minutes: z
         .number()

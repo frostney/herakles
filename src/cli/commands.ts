@@ -843,25 +843,6 @@ const projectsDiscoveryCommand = buildCommand<CommonFlags>({
   },
 });
 
-const configPullCommand = buildCommand<CommonFlags>({
-  docs: { brief: "Fast-forward the _herakles config repository." },
-  parameters: { flags: commonFlags },
-  async func(flags) {
-    const result = await app.configPull(root(flags));
-    shouldJson(flags) ? printJson(result) : printTable([result]);
-    if (result.status === "failed") process.exitCode = 1;
-  },
-});
-
-const configDoctorCommand = buildCommand<CommonFlags>({
-  docs: { brief: "Check the _herakles config repository." },
-  parameters: { flags: commonFlags },
-  async func(flags) {
-    const result = await app.configDoctor(root(flags));
-    shouldJson(flags) ? printJson(result) : printTable(result.checks);
-  },
-});
-
 const upCommand = buildCommand<CommonFlags & { plan?: boolean }>({
   docs: { brief: "Spin up the Herakles Workspace from its configuration." },
   parameters: {
@@ -1278,13 +1259,6 @@ export const rootRoute = buildRouteMap({
     remove: removeProjectCommand,
     status: statusCommand,
     validate: validateCommand,
-    config: buildRouteMap({
-      docs: { brief: "Config repository commands." },
-      routes: {
-        pull: configPullCommand,
-        doctor: configDoctorCommand,
-      },
-    }),
     projects: buildRouteMap({
       docs: { brief: "Project commands." },
       defaultCommand: "list",

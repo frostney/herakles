@@ -283,7 +283,25 @@ repo = "frostney/silent-archive"
   });
 
   test("project lookup accepts slug and repository name", async () => {
-    await expect(loadProject(fixtureRoot, "local-spike")).resolves.toMatchObject({
+    const root = await mkdtemp(join(tmpdir(), "herakles-project-lookup-"));
+    await mkdir(join(root, "_herakles"), { recursive: true });
+    await mkdir(join(root, "experiment", "local-spike", ".git"), { recursive: true });
+    await writeFile(
+      join(root, "experiment", "local-spike", ".git", "HEAD"),
+      "ref: refs/heads/main\n",
+    );
+    await writeFile(
+      join(root, "_herakles", "herakles.toml"),
+      `version = 2
+[github]
+owners = []
+
+[project."local-spike"]
+source = "local"
+`,
+    );
+
+    await expect(loadProject(root, "local-spike")).resolves.toMatchObject({
       source: "local",
       slug: "local-spike",
     });

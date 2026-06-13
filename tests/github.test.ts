@@ -87,6 +87,38 @@ describe("github context wrappers", () => {
     ]);
   });
 
+  test("reads explicitly tracked repositories outside configured owners", async () => {
+    const calls: string[][] = [];
+    const config = heraklesConfigSchema.parse({
+      github: { owners: [] },
+      project: {
+        "frostney-tool": { source: "github", repo: "frostney/tool" },
+      },
+    });
+    const repos = await listGitHubRepositoriesWithRunner(config, async (argv) => {
+      calls.push([...argv]);
+      return {
+        exitCode: 0,
+        stderr: "",
+        stdout: JSON.stringify({
+          name: "tool",
+          nameWithOwner: "frostney/tool",
+          owner: { login: "frostney" },
+          visibility: "PUBLIC",
+          isArchived: false,
+          repositoryTopics: [],
+          languages: [],
+        }),
+      };
+    });
+
+    expect(calls[0]?.slice(0, 4)).toEqual(["gh", "repo", "view", "frostney/tool"]);
+    expect(repos[0]).toMatchObject({
+      nameWithOwner: "frostney/tool",
+      visibility: "PUBLIC",
+    });
+  });
+
   test("lists pull requests with explicit gh argv", async () => {
     const calls: string[][] = [];
     const prs = await listOpenPullRequests("frostney/herakles", async (argv) => {

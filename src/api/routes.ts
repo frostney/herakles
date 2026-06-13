@@ -150,7 +150,6 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/import": (context) => routeImportProjects(context),
   "/api/projects/remove": (context) => routeRemoveProject(context),
   "/api/projects/checkout": (context) => routeCheckoutProject(context),
-  "/api/config/pull": ({ options }) => routeConfigPull(options.workspaceRoot),
   "/api/config/toml/plan": (context) =>
     routeConfigToml(context, context.options.workspaceRoot, false),
   "/api/config/toml/apply": (context) =>
@@ -310,10 +309,6 @@ async function routeCheckoutProject(context: ApiContext): Promise<Response> {
     results: result.length,
   });
   return json(result);
-}
-
-async function routeConfigPull(workspaceRoot: string): Promise<Response> {
-  return json(await app.configPull(workspaceRoot));
 }
 
 async function routeConfigToml(
