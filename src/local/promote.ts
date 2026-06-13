@@ -76,7 +76,7 @@ function assertRepoName(value: string) {
 function notes(project: Project): string[] {
   const result = [
     "Promotion is explicit and does not write the synced Herakles config.",
-    "After GitHub inventory refresh, the promoted repository is discovered as a hosted project.",
+    "After project refresh, the promoted repository is discovered as a hosted project.",
   ];
   if (project.remote) {
     result.push(`The local project already has an origin remote: ${project.remote}`);

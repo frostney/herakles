@@ -19,8 +19,8 @@ bun run herakles init --root ~/Code
 Inspect and sync repositories:
 
 ```sh
-bun run herakles inventory refresh --root ~/Code
-bun run herakles repo list --root ~/Code
+bun run herakles projects refresh --root ~/Code
+bun run herakles projects list --root ~/Code
 bun run herakles sync --root ~/Code --dry-run
 bun run herakles sync --root ~/Code
 ```

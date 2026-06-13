@@ -21,7 +21,7 @@ describe("github context wrappers", () => {
     expect(calls[0]).toContain("--no-archived");
   });
 
-  test("can include forks in GitHub inventory", async () => {
+  test("can include forks in GitHub project discovery", async () => {
     const calls: string[][] = [];
     const config = heraklesConfigSchema.parse({
       github: { owners: ["frostney"], include_forks: true },

@@ -102,7 +102,8 @@ function requireToken(req: Request, token?: string): Response | undefined {
 
 const getRoutes: Record<string, ApiHandler> = {
   "/api/status": ({ options }) => jsonAsync(app.status(options.workspaceRoot)),
-  "/api/inventory": ({ options }) => jsonAsync(app.inventoryShow(options.workspaceRoot)),
+  "/api/projects/discovery": ({ options }) =>
+    jsonAsync(app.projectDiscoveryShow(options.workspaceRoot)),
   "/api/projects": ({ options }) => jsonAsync(app.projects(options.workspaceRoot)),
   "/api/local-projects": ({ options }) => jsonAsync(app.localProjects(options.workspaceRoot)),
   "/api/sync/remote/status": ({ options, url }) =>
@@ -128,7 +129,7 @@ const getRoutes: Record<string, ApiHandler> = {
 };
 
 const postRoutes: Record<string, ApiHandler> = {
-  "/api/inventory/refresh": ({ options }) => routeInventoryRefresh(options.workspaceRoot),
+  "/api/projects/refresh": ({ options }) => routeProjectsRefresh(options.workspaceRoot),
   "/api/validate": ({ options, url }) =>
     routeValidation(options.workspaceRoot, { strict: isStrict(url) }),
   "/api/sync/dry-run": ({ options }) => routeSync(options.workspaceRoot, true),
@@ -226,15 +227,15 @@ async function routeAutomationRun(context: ApiContext): Promise<Response> {
   return json(run);
 }
 
-async function routeInventoryRefresh(workspaceRoot: string): Promise<Response> {
-  emitApiEvent("inventory-refresh-started", "inventory refresh started");
-  const inventory = await app.inventoryRefresh(workspaceRoot);
-  emitApiEvent("inventory-refresh-finished", "inventory refresh finished", {
-    github: inventory.github.length,
-    hostedLocal: inventory.hostedLocal.length,
-    local: inventory.local.length,
+async function routeProjectsRefresh(workspaceRoot: string): Promise<Response> {
+  emitApiEvent("projects-refresh-started", "project refresh started");
+  const discovery = await app.projectDiscoveryRefresh(workspaceRoot);
+  emitApiEvent("projects-refresh-finished", "project refresh finished", {
+    hosted: discovery.hosted.length,
+    hostedClones: discovery.hostedClones.length,
+    local: discovery.local.length,
   });
-  return json(inventory);
+  return json(discovery);
 }
 
 async function routeValidation(

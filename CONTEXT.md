@@ -12,12 +12,42 @@ _Avoid_: Project when referring only to Git or GitHub facts
 Herakles's resolved operating model for a repository or local experiment, including lifecycle state, local path, sync decision, automation eligibility, reports, validation, and sparse overrides.
 _Avoid_: Repository when referring to Herakles-specific resolved state
 
+**Tracked Project**:
+A project that Herakles should remember through the minimal synced configuration needed to reproduce or understand it. Hosted repositories can still infer most facts from the host, while local experiments need enough config to be intentionally part of the workspace.
+
+**Tracked Project Config**:
+The minimal synced config entry that makes a project part of Herakles. It identifies the project source and location, while host facts and local discovery fill in the rest of the resolved project model.
+_Avoid_: Sparse override as the primary project record
+
+**Add Project**:
+The primary Herakles flow for bringing work into the workspace, whether by importing an existing hosted repository, creating a local experiment, or creating a new hosted repository. Herakles asks for the missing choices, writes the smallest required tracked-project config, and then refreshes the resolved project model.
+
+**Bulk Import**:
+A guided add-project flow that lets the user select multiple accessible hosted repositories from configured GitHub users or organizations and create tracked-project config entries for them at once.
+
+**Lifecycle Suggestion**:
+A default lifecycle state Herakles proposes during add or bulk import from hosted facts such as visibility, archive state, topics, owner, and repository metadata. The user may accept or override the suggestion before the tracked-project config is written.
+_Avoid_: Project type
+
+Archived hosted repositories suggest `archived`; public non-archived hosted repositories suggest `open-source`; private hosted repositories and local projects suggest `experiment`. `commercial` and `candidate` are suggested only from explicit configured evidence such as topics, tags, name rules, or owner rules.
+
+**Remove Project**:
+The primary Herakles flow for stopping tracking of a project. Removal requires confirmation and removes the Herakles project entry without deleting local files or hosted repositories by default.
+_Avoid_: Delete project
+
+**Project Discovery**:
+The Herakles refresh flow that reads hosted repositories and local Git folders, then updates the resolved project model. It is user-facing as project discovery or project refresh; cached discovery data stays an implementation detail.
+
+**Project Settings**:
+The user-facing place for changing a project's connection and interpretation, including lifecycle state, path, archive evidence, sync behavior, and promotion from a local experiment to a hosted repository.
+_Avoid_: Separate promotion workflow
+
 **Hosted Visibility**:
 Whether a hosted repository is public or private. Local experiments do not have hosted visibility until they are promoted to a host.
 _Avoid_: local-only visibility, internal visibility
 
 **Local Experiment**:
-A local Git-backed project that has not been promoted to a hosted repository. It participates in Herakles workspace views and validation without being written into synced configuration by default.
+A local Git-backed project that has not been promoted to a hosted repository. It participates in Herakles workspace views and validation when it is tracked through minimal Herakles configuration.
 _Avoid_: Local-only repository
 
 **Commercial**:
@@ -51,6 +81,18 @@ _Avoid_: archive file
 **Report**:
 A local generated record of Herakles analysis, automation output, or review context. Reports are surfaced in the UI but are not synced configuration.
 _Avoid_: Synced report, config report
+
+**AI Harness**:
+The development-agent runtime that receives Herakles-prepared prompts and project context, performs the AI-assisted work, and returns reports or other outputs. Codex is one possible AI harness; Herakles schedules harness runs but does not own the harness's internal workflow.
+_Avoid_: Automation harness, GitHub Actions harness, Codex-only automation
+
+**Harness Run**:
+A scheduled Herakles handoff to an AI harness for a prompt and a selected set of projects. Herakles prepares context, invokes the configured harness, records the returned report, and stops there.
+_Avoid_: Herakles-owned approval workflow, Herakles-owned implementation workflow
+
+**Harness Report**:
+The Herakles-owned output of a harness run. It records what the AI harness returned or where to inspect its result, without Herakles modeling pull request approvals, patch worktrees, or review resolution.
+_Avoid_: Approval candidate, patch candidate, publish candidate
 
 **Synced Configuration**:
 The desired Herakles workspace and orchestration configuration stored in `_herakles/herakles.toml`. It should be sufficient to bootstrap the Herakles orchestrator for the configured remote repositories.
@@ -94,7 +136,7 @@ A hosted repository discovered by Herakles, such as a GitHub repository. Non-arc
 _Avoid_: Local experiment
 
 **Automation Tick**:
-A Herakles scheduler wake-up that calculates due job slots and attempts to run only the slots it can safely claim. The UI server can run ticks in-process while it is open, and OS-level ticks must be installed explicitly.
+A Herakles scheduler wake-up that calculates due prompt runs and attempts to hand claimed runs to the configured AI harness. The UI server can run ticks in-process while it is open, and OS-level ticks must be installed explicitly.
 _Avoid_: Cron job as duplicate-prevention mechanism
 
 Default prompt templates live under `_herakles/prompts/` and are synced orchestration assets. `herakles init` creates the standard report-only prompt files when they are absent, but never overwrites customized prompts.
@@ -103,12 +145,12 @@ Startup catch-up is a special automation tick mode. It uses the local run ledger
 
 Explicit OS-level cron installation writes a generated worker script under the local cache path and registers that script through Bun cron. The generated worker is local machine state, not synced configuration.
 
-Patch-candidate automation is implementation-shaped work and is manually gated. A due `patch-candidate` slot creates a local automation report and approval candidate; it does not run Codex implementation work until that candidate is explicitly approved.
+Implementation-shaped automation is delegated to the configured AI harness. Herakles may schedule the prompt and store the resulting report, but it should not model harness-specific pull request approval or review workflows as Herakles-owned concepts.
 
 Disabled automation still surfaces configured jobs in the UI and CLI, but scheduled ticks produce no due slots and the UI server does not start its in-process Bun cron loop.
 
 Local fallback automation locks honor their `expiresAt` timestamp before a slot is claimed again. Expired local locks are not shown as current locks.
 
-Implementation-plan automation is recommendation-shaped work. A due `implementation-plan` slot evaluates the configured eligible repositories and issue labels, writes an issue recommendation report, and creates pending issue approval candidates without preparing worktrees or running implementation.
+Implementation-plan automation is recommendation-shaped work. A due `implementation-plan` slot evaluates the configured eligible repositories and issue labels, then asks the configured AI harness to produce an implementation planning report without Herakles running implementation.
 
-CodeRabbit-review automation is recommendation-shaped work. A due `coderabbit-review` slot evaluates eligible pull requests, writes unresolved CodeRabbit review context, and creates pending review approval candidates without pushing commits or resolving threads.
+CodeRabbit-review automation is recommendation-shaped work. A due `coderabbit-review` slot evaluates eligible pull requests, then asks the configured AI harness to produce unresolved review context or a report without Herakles pushing commits or resolving threads.

@@ -2,9 +2,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { LoadedConfig } from "../config/load";
 import { resolveUnder } from "../config/paths";
+import type { ProjectDiscovery } from "../discovery";
 import type { GitHubRepository, LocalRepository, Project, ProjectState } from "../domain";
 import { matchesProjectFilter } from "../filters/project";
-import type { Inventory } from "../inventory";
 import { readLocalProjectState } from "../local/state";
 
 const archiveDescriptionPatterns = [
@@ -79,18 +79,18 @@ function repoPath(loaded: LoadedConfig, repo: GitHubRepository, duplicateName: b
   return override?.path ?? applyPathTemplate(template, repo);
 }
 
-export function resolveProjects(loaded: LoadedConfig, inventory: Inventory): Project[] {
+export function resolveProjects(loaded: LoadedConfig, discovery: ProjectDiscovery): Project[] {
   const repoNameCounts = new Map<string, number>();
-  for (const repo of inventory.github) {
+  for (const repo of discovery.hosted) {
     repoNameCounts.set(repo.name, (repoNameCounts.get(repo.name) ?? 0) + 1);
   }
 
   const projects: Project[] = [];
-  for (const repo of inventory.github) {
+  for (const repo of discovery.hosted) {
     projects.push(resolveGitHubProject(loaded, repo, repoNameCounts.get(repo.name)! > 1));
   }
 
-  for (const repo of inventory.local) {
+  for (const repo of discovery.local) {
     projects.push(resolveLocalProject(loaded, repo));
   }
 

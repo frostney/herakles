@@ -53,7 +53,7 @@ describe("config repository commands", () => {
 
       expect(log).toContain("git:pull --ff-only");
       expect(log).toContain("gh:repo list frostney");
-      expect(result.githubCount).toBe(1);
+      expect(result.hostedCount).toBe(1);
     });
   });
 
@@ -66,7 +66,7 @@ describe("config repository commands", () => {
       const log = await readFile(logPath, "utf8").catch(() => "");
 
       expect(log).not.toContain("git:pull --ff-only");
-      expect(result.githubCount).toBe(0);
+      expect(result.hostedCount).toBe(0);
     });
   });
 

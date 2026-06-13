@@ -34,7 +34,7 @@ describe("project resolution", () => {
   test("infers lifecycle states and sparse commercial override", async () => {
     const loaded = await loadConfig(fixtureRoot);
     const projects = resolveProjects(loaded, {
-      github: [
+      hosted: [
         repo({ name: "herakles", nameWithOwner: "frostney/herakles", owner: "frostney" }),
         repo({
           name: "paid-api",
@@ -52,7 +52,7 @@ describe("project resolution", () => {
         }),
       ],
       local: [{ name: "local-spike", path: join(fixtureRoot, "local-spike") }],
-      hostedLocal: [],
+      hostedClones: [],
     });
 
     expect(projects.find((project) => project.repo === "herakles")?.state).toBe("open-source");
@@ -64,7 +64,7 @@ describe("project resolution", () => {
   test("sync plan includes non-archived remote repositories only", async () => {
     const loaded = await loadConfig(fixtureRoot);
     const projects = resolveProjects(loaded, {
-      github: [
+      hosted: [
         repo({ name: "active", nameWithOwner: "frostney/active", owner: "frostney" }),
         repo({
           name: "archived",
@@ -75,7 +75,7 @@ describe("project resolution", () => {
         }),
       ],
       local: [{ name: "local-spike", path: join(fixtureRoot, "local-spike") }],
-      hostedLocal: [],
+      hostedClones: [],
     });
 
     const plan = createSyncPlan(projects);
@@ -112,7 +112,7 @@ sync = true
 `,
     );
     const projects = resolveProjects(await loadConfig(root), {
-      github: [
+      hosted: [
         repo({
           name: "public-ts",
           nameWithOwner: "frostney/public-ts",
@@ -144,7 +144,7 @@ sync = true
         }),
       ],
       local: [],
-      hostedLocal: [],
+      hostedClones: [],
     });
 
     expect(projects.find((project) => project.repo === "public-ts")?.sync).toBe(true);
@@ -174,12 +174,12 @@ state = "commercial"
     );
     const loaded = await loadConfig(root);
     const projects = resolveProjects(loaded, {
-      github: [
+      hosted: [
         repo({ name: "tool", nameWithOwner: "alt/tool", owner: "alt" }),
         repo({ name: "tool", nameWithOwner: "frostney/tool", owner: "frostney" }),
       ],
       local: [],
-      hostedLocal: [],
+      hostedClones: [],
     });
 
     expect(projects.map((project) => project.state)).toEqual(["open-source", "open-source"]);
@@ -263,7 +263,7 @@ path = "shared-tool"
   test("archived project requires archive note evidence", async () => {
     const loaded = await loadConfig(fixtureRoot);
     const projects = resolveProjects(loaded, {
-      github: [
+      hosted: [
         repo({
           name: "silent-archive",
           nameWithOwner: "frostney/silent-archive",
@@ -273,7 +273,7 @@ path = "shared-tool"
         }),
       ],
       local: [],
-      hostedLocal: [],
+      hostedClones: [],
     });
 
     const validation = validateProjects(projects, { strict: true });

@@ -31,7 +31,7 @@ export type StatusPayload = {
   };
   root: string;
   projectCount: number;
-  githubCount: number;
+  hostedCount: number;
   localExperimentCount: number;
   hostedCloneCount: number;
   counts: Record<string, number>;
@@ -76,10 +76,10 @@ export type SyncRunResult = Array<{
   message: string;
 }>;
 
-export type InventoryRefreshResult = {
-  github: unknown[];
+export type ProjectDiscoveryRefreshResult = {
+  hosted: unknown[];
   local: unknown[];
-  hostedLocal: unknown[];
+  hostedClones: unknown[];
   generatedAt: string;
   path: string;
 };
@@ -145,8 +145,8 @@ export async function postSyncRun(): Promise<SyncRunResult> {
   return post("/api/sync");
 }
 
-export async function postInventoryRefresh(): Promise<InventoryRefreshResult> {
-  return post("/api/inventory/refresh");
+export async function postProjectsRefresh(): Promise<ProjectDiscoveryRefreshResult> {
+  return post("/api/projects/refresh");
 }
 
 export async function postValidate(options: { strict?: boolean } = {}): Promise<ValidationResult> {

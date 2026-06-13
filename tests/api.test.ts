@@ -119,18 +119,18 @@ describe("api routes", () => {
       const [connected] = await readSseEvents(reader, 1);
       expect(connected?.type).toBe("connected");
 
-      const refresh = routeApi(new Request("http://x/api/inventory/refresh", { method: "POST" }), {
+      const refresh = routeApi(new Request("http://x/api/projects/refresh", { method: "POST" }), {
         workspaceRoot,
       });
       const events = await readSseEvents(reader, 2);
       await refresh;
 
       expect(events.map((event) => event.type)).toEqual([
-        "inventory-refresh-started",
-        "inventory-refresh-finished",
+        "projects-refresh-started",
+        "projects-refresh-finished",
       ]);
       expect(events[1]?.payload?.local).toBe(1);
-      expect(events[1]?.payload?.hostedLocal).toBe(0);
+      expect(events[1]?.payload?.hostedClones).toBe(0);
     } finally {
       await reader.cancel();
     }
@@ -227,7 +227,7 @@ describe("api routes", () => {
       expect(projects.body[0].path).toBe("public-tool");
       expect(status.response?.status).toBe(200);
       expect(status.body.projectCount).toBe(1);
-      expect(status.body.githubCount).toBe(1);
+      expect(status.body.hostedCount).toBe(1);
       expect(status.body.localExperimentCount).toBeUndefined();
       expect(status.body.counts).toEqual({ "open-source": 1 });
       expect(status.body.validation.valid).toBe(true);
@@ -410,12 +410,12 @@ mode = "summary"
     expect(legacy?.status).toBe(200);
   });
 
-  test("refreshes inventory through the API", async () => {
+  test("refreshes project discovery through the API", async () => {
     const workspaceRoot = await tempWorkspace();
     await addLocalGitProject(workspaceRoot, "scratch");
 
     const response = await routeApi(
-      new Request("http://x/api/inventory/refresh", { method: "POST" }),
+      new Request("http://x/api/projects/refresh", { method: "POST" }),
       { workspaceRoot },
     );
     const body = await response?.json();

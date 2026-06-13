@@ -1,13 +1,13 @@
 import type { LoadedConfig } from "../config/load";
 import type { GitHubRepository, LocalRepository } from "../domain";
 import { listGitHubRepositories } from "../github/gh";
-import { writeInventorySnapshot } from "./cache";
+import { writeProjectDiscoverySnapshot } from "./cache";
 import { scanLocalRepositories } from "./local";
 
-export type Inventory = {
-  github: GitHubRepository[];
+export type ProjectDiscovery = {
+  hosted: GitHubRepository[];
   local: LocalRepository[];
-  hostedLocal: LocalRepository[];
+  hostedClones: LocalRepository[];
 };
 
 export function normalizeRemote(remote?: string): string | undefined {
@@ -18,17 +18,17 @@ export function normalizeRemote(remote?: string): string | undefined {
     .toLowerCase();
 }
 
-export async function refreshInventory(loaded: LoadedConfig): Promise<Inventory> {
-  const [github, rawLocal] = await Promise.all([
+export async function refreshProjectDiscovery(loaded: LoadedConfig): Promise<ProjectDiscovery> {
+  const [hosted, rawLocal] = await Promise.all([
     listGitHubRepositories(loaded.config),
     scanLocalRepositories(loaded.paths.workspaceRoot),
   ]);
   const githubRemotes = new Set(
-    github.flatMap((repo) => [repo.sshUrl, repo.url].map(normalizeRemote).filter(Boolean)),
+    hosted.flatMap((repo) => [repo.sshUrl, repo.url].map(normalizeRemote).filter(Boolean)),
   );
   const local = rawLocal.filter((repo) => !githubRemotes.has(normalizeRemote(repo.remote)));
-  const hostedLocal = rawLocal.filter((repo) => githubRemotes.has(normalizeRemote(repo.remote)));
-  const inventory = { github, local, hostedLocal };
-  await writeInventorySnapshot(loaded, inventory);
-  return inventory;
+  const hostedClones = rawLocal.filter((repo) => githubRemotes.has(normalizeRemote(repo.remote)));
+  const discovery = { hosted, local, hostedClones };
+  await writeProjectDiscoverySnapshot(loaded, discovery);
+  return discovery;
 }

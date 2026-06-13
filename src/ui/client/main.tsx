@@ -35,10 +35,10 @@ import type {
 import {
   type AutomationPayload,
   type HeraklesEvent,
-  type InventoryRefreshResult,
   type LocalArchiveResult,
   type LocalPromotionResult,
   type OverridePlan,
+  type ProjectDiscoveryRefreshResult,
   type RepoMovePlan,
   type StatusPayload,
   type SyncRunResult,
@@ -58,13 +58,13 @@ import {
   postAutomationRun,
   postAutomationTick,
   postCodeRabbitRecommendations,
-  postInventoryRefresh,
   postIssueRecommendations,
   postLocalArchive,
   postLocalPromotion,
   postLocalPromotionPlan,
   postOverrideApply,
   postOverridePlan,
+  postProjectsRefresh,
   postPrune,
   postRepoMove,
   postRepoMovePlan,
@@ -187,15 +187,15 @@ function Dashboard() {
   const [automation, refreshAutomation] = useResource(getAutomations);
   const [doctor, refreshDoctor] = useResource(getDoctor);
   useRefreshOnEvents(refresh, [
-    "inventory-refresh-finished",
+    "projects-refresh-finished",
     "sync-finished",
     "validation-updated",
     "automation-finished",
   ]);
-  useRefreshOnEvents(refreshProjects, ["inventory-refresh-finished", "sync-finished"]);
+  useRefreshOnEvents(refreshProjects, ["projects-refresh-finished", "sync-finished"]);
   useRefreshOnEvents(refreshAutomation, ["automation-log", "automation-finished"]);
   useRefreshOnEvents(refreshDoctor, [
-    "inventory-refresh-finished",
+    "projects-refresh-finished",
     "sync-finished",
     "validation-updated",
   ]);
@@ -208,7 +208,7 @@ function Dashboard() {
     >
       <div className="metrics">
         <Metric label="Projects" value={status.data.projectCount} />
-        <Metric label="Remote repositories" value={status.data.githubCount} />
+        <Metric label="Hosted repositories" value={status.data.hostedCount} />
         <Metric label="Hosted clones" value={status.data.hostedCloneCount} />
         <Metric label="Local experiments" value={status.data.localExperimentCount} />
         <Metric label="Validation issues" value={status.data.validation.issues.length} />
@@ -316,11 +316,7 @@ function Repositories() {
   const [projects, refresh] = useResource(getProjects);
   const [query, setQuery] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
-  useRefreshOnEvents(refresh, [
-    "inventory-refresh-finished",
-    "sync-finished",
-    "validation-updated",
-  ]);
+  useRefreshOnEvents(refresh, ["projects-refresh-finished", "sync-finished", "validation-updated"]);
   const filtered = useMemo(() => {
     if (projects.status !== "ready") return [];
     const needle = query.toLowerCase();
@@ -366,7 +362,7 @@ function RepositoryDetail() {
   const { projectId } = repositoriesDetailRoute.useParams();
   const [detail, refresh] = useResource(() => getProjectDetail(projectId));
   useRefreshOnEvents(refresh, [
-    "inventory-refresh-finished",
+    "projects-refresh-finished",
     "sync-finished",
     "validation-updated",
     "report-created",
@@ -536,7 +532,7 @@ function ReportLink({ report }: { report: ReportSummary }) {
 
 function LocalExperiments() {
   const [projects, refresh] = useResource(getLocalProjects);
-  useRefreshOnEvents(refresh, ["inventory-refresh-finished", "sync-finished"]);
+  useRefreshOnEvents(refresh, ["projects-refresh-finished", "sync-finished"]);
   return (
     <Screen
       title="Local"
@@ -680,16 +676,17 @@ function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [syncResults, setSyncResults] = useState<SyncRunResult>([]);
   const [syncMode, setSyncMode] = useState<"dry-run" | "run">("dry-run");
-  const [inventoryResult, setInventoryResult] = useState<InventoryRefreshResult>();
+  const [projectDiscoveryResult, setProjectDiscoveryResult] =
+    useState<ProjectDiscoveryRefreshResult>();
   const [validationResult, setValidationResult] = useState<ValidationResult>();
   const [message, setMessage] = useState("");
   const [messageKind, setMessageKind] = useState<"success" | "error">("success");
   useRefreshOnEvents(refreshStatus, [
-    "inventory-refresh-finished",
+    "projects-refresh-finished",
     "sync-finished",
     "validation-updated",
   ]);
-  useRefreshOnEvents(refreshPrunePlan, ["sync-finished", "inventory-refresh-finished"]);
+  useRefreshOnEvents(refreshPrunePlan, ["sync-finished", "projects-refresh-finished"]);
   const dryRun = async () => {
     setBusy(true);
     setMessage("");
@@ -722,16 +719,16 @@ function SettingsScreen() {
       setBusy(false);
     }
   };
-  const refreshInventory = async () => {
+  const refreshProjects = async () => {
     setBusy(true);
     setMessage("");
     try {
-      setInventoryResult(await postInventoryRefresh());
+      setProjectDiscoveryResult(await postProjectsRefresh());
       refreshStatus();
       refreshPrunePlan();
       refreshDoctor();
       setMessageKind("success");
-      setMessage("Inventory refreshed.");
+      setMessage("Projects refreshed.");
     } catch (error) {
       setMessageKind("error");
       setMessage(String(error));
@@ -764,8 +761,8 @@ function SettingsScreen() {
       title="Settings"
       actions={
         <>
-          <button type="button" onClick={refreshInventory} disabled={busy}>
-            Refresh Inventory
+          <button type="button" onClick={refreshProjects} disabled={busy}>
+            Refresh Projects
           </button>
           <button type="button" onClick={() => validate(false)} disabled={busy}>
             Validate
@@ -787,7 +784,7 @@ function SettingsScreen() {
     >
       {message && <p className={messageKind}>{message}</p>}
       {status.status === "ready" && <WorkspacePanel status={status.data} />}
-      {inventoryResult && <InventoryResultPanel result={inventoryResult} />}
+      {projectDiscoveryResult && <ProjectDiscoveryResultPanel result={projectDiscoveryResult} />}
       {validationResult && <ValidationResultPanel result={validationResult} />}
       <SyncResultsPanel mode={syncMode} results={syncResults} />
       {prunePlan.status === "ready" ? (
@@ -821,18 +818,18 @@ function WorkspacePanel({ status }: { status: StatusPayload }) {
   );
 }
 
-function InventoryResultPanel({ result }: { result: InventoryRefreshResult }) {
+function ProjectDiscoveryResultPanel({ result }: { result: ProjectDiscoveryRefreshResult }) {
   return (
     <section className="panel">
-      <h2>Inventory Refresh</h2>
+      <h2>Project Discovery</h2>
       <div className="state-grid">
         <div className="state-row">
           <span>Remote repositories</span>
-          <strong>{result.github.length}</strong>
+          <strong>{result.hosted.length}</strong>
         </div>
         <div className="state-row">
           <span>Hosted clones</span>
-          <strong>{result.hostedLocal.length}</strong>
+          <strong>{result.hostedClones.length}</strong>
         </div>
         <div className="state-row">
           <span>Local experiments</span>

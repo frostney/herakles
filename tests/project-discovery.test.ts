@@ -3,10 +3,10 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { inventoryRefresh, inventoryShow } from "../src/app";
+import { projectDiscoveryRefresh, projectDiscoveryShow } from "../src/app";
 
 async function tempWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-inventory-"));
+  const root = await mkdtemp(join(tmpdir(), "herakles-project-discovery-"));
   await mkdir(join(root, "_herakles"), { recursive: true });
   await mkdir(join(root, "local-tool", ".git"), { recursive: true });
   await writeFile(join(root, "local-tool", ".git", "HEAD"), "ref: refs/heads/main\n");
@@ -22,20 +22,20 @@ owners = []
   return root;
 }
 
-describe("inventory cache", () => {
+describe("project discovery cache", () => {
   test("refresh writes cache and show reads it", async () => {
     const root = await tempWorkspace();
-    const refreshed = await inventoryRefresh(root);
-    const shown = await inventoryShow(root);
-    const cachePath = join(root, "_cache", "inventory.json");
+    const refreshed = await projectDiscoveryRefresh(root);
+    const shown = await projectDiscoveryShow(root);
+    const cachePath = join(root, "_cache", "project-discovery.json");
     const cache = JSON.parse(await readFile(cachePath, "utf8"));
 
     expect(existsSync(cachePath)).toBe(true);
     expect(refreshed.local.map((repo) => repo.name)).toEqual(["local-tool"]);
-    expect(refreshed.hostedLocal).toEqual([]);
+    expect(refreshed.hostedClones).toEqual([]);
     expect(shown.local.map((repo) => repo.name)).toEqual(["local-tool"]);
-    expect(shown.hostedLocal).toEqual([]);
+    expect(shown.hostedClones).toEqual([]);
     expect(cache.local).toHaveLength(1);
-    expect(cache.hostedLocal).toEqual([]);
+    expect(cache.hostedClones).toEqual([]);
   });
 });

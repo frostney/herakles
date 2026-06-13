@@ -1,12 +1,12 @@
 # Herakles v2 Architecture
 
-Herakles v2 is a Bun-first TypeScript orchestrator for a personal multi-repository workspace. The CLI and UI call the same core services for configuration, inventory, project resolution, validation, sync planning, reports, and automation ticks.
+Herakles v2 is a Bun-first TypeScript orchestrator for a personal multi-repository workspace. The CLI and UI call the same core services for configuration, project discovery, project resolution, validation, sync planning, reports, and automation ticks.
 
 The canonical configuration is `_herakles/herakles.toml`. It describes the remote repository universe and orchestration defaults; it is not supplemented by project-local config files or synced machine profiles. Local configuration is optional and limited to UI-only machine preferences such as host, port, browser opening, and access token location.
 
 `herakles init` creates the canonical config scaffold, local support directories, `_herakles/herakles.local.toml`, `_herakles/.gitignore`, and default report-only prompt templates under `_herakles/prompts/`. Existing config and prompt files are left untouched so setup can be rerun safely and a synced config repository can customize its orchestration assets.
 
-Operational commands auto-pull the `_herakles` Git checkout when `config.auto_pull` is true and the config directory is a Git checkout. A successful fast-forward pull reloads `herakles.toml` before inventory, project resolution, validation, sync planning, reports, approvals, or automation continue. Non-Git scaffolds are left alone, and `herakles config pull` remains the explicit command that fails loudly when `_herakles` is not a checkout.
+Operational commands auto-pull the `_herakles` Git checkout when `config.auto_pull` is true and the config directory is a Git checkout. A successful fast-forward pull reloads `herakles.toml` before project discovery, project resolution, validation, sync planning, reports, approvals, or automation continue. Non-Git scaffolds are left alone, and `herakles config pull` remains the explicit command that fails loudly when `_herakles` is not a checkout.
 
 Synced config mutations can auto-push when `config.auto_push` is true. App-level sparse override and repo move writes stage `herakles.toml`, create a Herakles-authored commit, and push the config repository. Cache, report, approval, worktree, and local experiment state writes are not auto-pushed because they are generated or machine-local state rather than synced configuration.
 
@@ -24,7 +24,7 @@ Lifecycle states are:
 
 Public GitHub repositories infer `open-source` by default. Private hosted repositories and local experiments infer `experiment`. `candidate` and `commercial` require sparse Herakles overrides. GitHub archived repositories infer `archived`.
 
-GitHub inventory is collected with `gh repo list` for each configured owner. By default Herakles asks GitHub CLI for source repositories only so forks are excluded; setting `github.include_forks = true` removes that source-only filter. When `github.include_archived = false`, Herakles also asks `gh` to omit archived repositories before local resolution.
+Project discovery reads GitHub repositories with `gh repo list` for each configured owner. By default Herakles asks GitHub CLI for source repositories only so forks are excluded; setting `github.include_forks = true` removes that source-only filter. When `github.include_archived = false`, Herakles also asks `gh` to omit archived repositories before local resolution.
 
 Sparse repository overrides may use a short repository name only when that name is unambiguous across discovered hosted repositories. If two configured owners both have `tool`, `[repo."tool"]` is rejected and ignored for resolution; the config must use owner-qualified keys such as `[repo."frostney/tool"]`.
 
@@ -54,23 +54,23 @@ Remote sync routes can be exposed by the UI server, but remote callers remain re
 
 Mutating API routes validate request bodies with Zod at the server boundary. Invalid JSON and schema mismatches return structured `400` responses before any core service is invoked.
 
-The Settings screen is the UI control surface for typed workspace operations such as inventory refresh, validation, sync dry-run, explicit sync run, prune planning, and doctor checks. These actions call the same core services as the CLI and publish status events through the server stream. Doctor checks cover both local runtime tools and synced configuration bootstrap health, including whether `_herakles` is a Git checkout, has an origin, and ignores `.herakles-state/`.
+The Settings screen is the UI control surface for typed workspace operations such as project refresh, validation, sync dry-run, explicit sync run, prune planning, and doctor checks. These actions call the same core services as the CLI and publish status events through the server stream. Doctor checks cover both local runtime tools and synced configuration bootstrap health, including whether `_herakles` is a Git checkout, has an origin, and ignores `.herakles-state/`.
 
 Settings also surfaces the active workspace root plus the synced and local UI config paths. This makes machine-local UI configuration visible without turning the UI into a raw TOML editor or allowing local config to override project orchestration.
 
-Inventory refresh results distinguish hosted repositories, hosted clones already present locally, and local-only experiments. The hosted-clone bucket is used for diagnostics such as clone path mismatches without incorrectly treating those directories as local experiments.
+Project discovery results distinguish hosted repositories, hosted clones already present locally, and local-only experiments. The hosted-clone bucket is used for diagnostics such as clone path mismatches without incorrectly treating those directories as local experiments.
 
 The Reports screen lists generated local Markdown reports and links to a report detail view that renders the same report body returned by the shared report API. It can also create local Markdown notes under `_reports/notes/` through a typed service. Report content stays local under the configured reports path and is not synced configuration.
 
 Repository lifecycle and path overrides are plan-first writes. The plan includes the sparse TOML that would be written, any lifecycle transition metadata, and a projected validation result computed against the in-memory project model before the synced config file changes. Repository move plans use the same projected validation contract because they are path overrides plus a filesystem move.
 
-The Local screen can archive a local experiment by writing local machine state after verifying the configured learning file exists in that project. This does not write synced configuration. Promotion to GitHub is a separate plan-first action: Herakles previews the `gh repo create` command, and only an explicit promote action runs it. Promotion still does not write synced config; after the next inventory refresh, the hosted repository is discovered from GitHub facts.
+The Local screen can archive a local experiment by writing local machine state after verifying the configured learning file exists in that project. This does not write synced configuration. Promotion to GitHub is a separate plan-first action: Herakles previews the `gh repo create` command, and only an explicit promote action runs it. Promotion still does not write synced config; after the next project refresh, the hosted repository is discovered from GitHub facts.
 
 The Approvals screen surfaces each candidate's source URL, generated report, branch, and prepared worktree when those fields exist. Approval actions still go through typed Herakles services; the links are context for review, not a second mutation path.
 
 Approval candidate reruns preserve local execution state. Recommendation jobs may refresh titles, scores, reports, URLs, and reasons, but an already-approved candidate keeps its status, prepared branch, worktree path, and accumulated metadata unless a typed approval action explicitly changes them.
 
-The UI server also exposes `/api/events` as a server-sent event stream. Events are emitted around typed Herakles operations such as inventory refresh, sync, validation, automation runs, and report creation; the stream is a live status surface, not a command channel or persistence layer.
+The UI server also exposes `/api/events` as a server-sent event stream. Events are emitted around typed Herakles operations such as project refresh, sync, validation, automation runs, and report creation; the stream is a live status surface, not a command channel or persistence layer.
 
 ## Automation
 

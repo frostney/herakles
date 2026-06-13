@@ -16,6 +16,8 @@ import {
   pullConfigRepo,
   pushConfigRepo,
 } from "./config/repo";
+import { type ProjectDiscovery, normalizeRemote, refreshProjectDiscovery } from "./discovery";
+import { readProjectDiscoverySnapshot, writeProjectDiscoverySnapshot } from "./discovery/cache";
 import { runDoctor } from "./doctor";
 import type {
   AutomationRun,
@@ -34,8 +36,6 @@ import type {
   ValidationResult,
 } from "./domain";
 import { listProjectIssues, listProjectPullRequests } from "./github/context";
-import { type Inventory, normalizeRemote, refreshInventory } from "./inventory";
-import { readInventorySnapshot, writeInventorySnapshot } from "./inventory/cache";
 import { type HostedClonePathMismatch, validateProjects } from "./lifecycle/validate";
 import {
   type LocalPromotionOptions,
@@ -62,17 +62,17 @@ import { preparePatchWorktree } from "./worktrees";
 
 type WorkspaceState = {
   loaded: LoadedConfig;
-  inventory: Inventory;
+  discovery: ProjectDiscovery;
   projects: Project[];
   validation: ValidationResult;
 };
 
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
   const loaded = await loadOperationalConfig(workspaceRoot);
-  const inventory = await refreshInventory(loaded);
-  const projects = resolveProjects(loaded, inventory);
-  const validation = validateWorkspaceProjects(loaded, inventory, projects);
-  return { loaded, inventory, projects, validation };
+  const discovery = await refreshProjectDiscovery(loaded);
+  const projects = resolveProjects(loaded, discovery);
+  const validation = validateWorkspaceProjects(loaded, discovery, projects);
+  return { loaded, discovery, projects, validation };
 }
 
 async function loadOperationalConfig(workspaceRoot: string): Promise<LoadedConfig> {
@@ -93,9 +93,9 @@ export async function status(workspaceRoot: string) {
     config: state.loaded.source,
     root: state.loaded.paths.workspaceRoot,
     projectCount: state.projects.length,
-    githubCount: state.inventory.github.length,
-    localExperimentCount: state.inventory.local.length,
-    hostedCloneCount: state.inventory.hostedLocal.length,
+    hostedCount: state.discovery.hosted.length,
+    localExperimentCount: state.discovery.local.length,
+    hostedCloneCount: state.discovery.hostedClones.length,
     counts,
     validation: state.validation,
   };
@@ -193,7 +193,10 @@ export async function archiveLocalProject(
   learning: string,
 ) {
   const loaded = await loadOperationalConfig(workspaceRoot);
-  const target = findProject(resolveProjects(loaded, await refreshInventory(loaded)), projectId);
+  const target = findProject(
+    resolveProjects(loaded, await refreshProjectDiscovery(loaded)),
+    projectId,
+  );
   if (!target) throw new Error(`Unknown local project: ${projectId}`);
   if (target.source !== "local") throw new Error("Local archive can only target local projects.");
   if (!existsSync(resolveUnder(target.path, learning))) {
@@ -232,21 +235,23 @@ export async function validation(
   options: { strict?: boolean } = {},
 ): Promise<ValidationResult> {
   const loaded = await loadOperationalConfig(workspaceRoot);
-  const inventory = await refreshInventory(loaded);
-  const projects = resolveProjects(loaded, inventory);
-  return validateWorkspaceProjects(loaded, inventory, projects, options);
+  const discovery = await refreshProjectDiscovery(loaded);
+  const projects = resolveProjects(loaded, discovery);
+  return validateWorkspaceProjects(loaded, discovery, projects, options);
 }
 
-export async function inventoryRefresh(workspaceRoot: string) {
+export async function projectDiscoveryRefresh(workspaceRoot: string) {
   const loaded = await loadOperationalConfig(workspaceRoot);
-  const inventory = await refreshInventory(loaded);
-  return (await readInventorySnapshot(loaded)) ?? writeInventorySnapshot(loaded, inventory);
+  const discovery = await refreshProjectDiscovery(loaded);
+  return (
+    (await readProjectDiscoverySnapshot(loaded)) ?? writeProjectDiscoverySnapshot(loaded, discovery)
+  );
 }
 
-export async function inventoryShow(workspaceRoot: string) {
+export async function projectDiscoveryShow(workspaceRoot: string) {
   const loaded = await loadOperationalConfig(workspaceRoot);
-  const snapshot = await readInventorySnapshot(loaded);
-  return snapshot ?? inventoryRefresh(workspaceRoot);
+  const snapshot = await readProjectDiscoverySnapshot(loaded);
+  return snapshot ?? projectDiscoveryRefresh(workspaceRoot);
 }
 
 export async function configDoctor(workspaceRoot: string) {
@@ -282,10 +287,10 @@ export async function remoteStatus(workspaceRoot: string, server: string) {
     generatedAt: new Date().toISOString(),
     server,
     projectCount: remoteProjects.length,
-    githubCount: remoteProjects.length,
+    hostedCount: remoteProjects.length,
     counts,
     validation: validateProjects(remoteProjects, {
-      ambiguousRepoOverrideKeys: ambiguousRepoOverrideKeys(state.loaded, state.inventory.github),
+      ambiguousRepoOverrideKeys: ambiguousRepoOverrideKeys(state.loaded, state.discovery.hosted),
     }),
   };
 }
@@ -535,13 +540,13 @@ async function maybePushConfigRepo(loaded: LoadedConfig, message: string) {
 
 function validateWorkspaceProjects(
   loaded: LoadedConfig,
-  inventory: Inventory,
+  discovery: ProjectDiscovery,
   projects: Project[],
   options: { strict?: boolean } = {},
 ): ValidationResult {
   return validateProjects(projects, {
     ...options,
-    ...validationOptions(loaded, inventory, projects),
+    ...validationOptions(loaded, discovery, projects),
   });
 }
 
@@ -551,17 +556,17 @@ function validateProjectedWorkspace(
   changes: RepoOverrideChanges,
 ): ValidationResult {
   const projected = projectOverrideProjection(state.loaded, state.projects, target, changes);
-  return validateProjects(projected, validationOptions(state.loaded, state.inventory, projected));
+  return validateProjects(projected, validationOptions(state.loaded, state.discovery, projected));
 }
 
 function validationOptions(
   loaded: LoadedConfig,
-  inventory: Inventory,
+  discovery: ProjectDiscovery,
   projects: readonly Project[],
 ) {
   return {
-    ambiguousRepoOverrideKeys: ambiguousRepoOverrideKeys(loaded, inventory.github),
-    hostedClonePathMismatches: hostedClonePathMismatches(inventory, projects),
+    ambiguousRepoOverrideKeys: ambiguousRepoOverrideKeys(loaded, discovery.hosted),
+    hostedClonePathMismatches: hostedClonePathMismatches(discovery, projects),
   };
 }
 
@@ -579,10 +584,10 @@ function ambiguousRepoOverrideKeys(
 }
 
 function hostedClonePathMismatches(
-  inventory: Inventory,
+  discovery: ProjectDiscovery,
   projects: readonly Project[],
 ): HostedClonePathMismatch[] {
-  const localClones = hostedClonesByRemote(inventory.hostedLocal);
+  const localClones = hostedClonesByRemote(discovery.hostedClones);
   return projects
     .filter((project) => project.source === "github" && project.remote)
     .map((project) => {

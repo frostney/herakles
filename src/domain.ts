@@ -137,8 +137,8 @@ export type DoctorResult = {
 
 export type HeraklesEventType =
   | "connected"
-  | "inventory-refresh-started"
-  | "inventory-refresh-finished"
+  | "projects-refresh-started"
+  | "projects-refresh-finished"
   | "sync-started"
   | "sync-progress"
   | "sync-finished"

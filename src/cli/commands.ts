@@ -165,7 +165,7 @@ const statusCommand = buildCommand<CommonFlags>({
     if (shouldJson(flags)) return printJson(result);
     console.log(`Root: ${result.root}`);
     console.log(
-      `Projects: ${result.projectCount} (${result.githubCount} remote, ${result.hostedCloneCount} hosted clones, ${result.localExperimentCount} local)`,
+      `Projects: ${result.projectCount} (${result.hostedCount} hosted, ${result.hostedCloneCount} hosted clones, ${result.localExperimentCount} local)`,
     );
     console.log(`Validation: ${result.validation.valid ? "valid" : "issues"}`);
     printTable(Object.entries(result.counts).map(([state, count]) => ({ state, count })));
@@ -485,31 +485,31 @@ const validateCommand = buildCommand<CommonFlags & { strict?: boolean }>({
   },
 });
 
-const inventoryRefreshCommand = buildCommand<CommonFlags>({
-  docs: { brief: "Refresh and cache GitHub/local inventory." },
+const projectsRefreshCommand = buildCommand<CommonFlags>({
+  docs: { brief: "Refresh and cache project discovery." },
   parameters: { flags: commonFlags },
   async func(flags) {
-    const result = await app.inventoryRefresh(root(flags));
+    const result = await app.projectDiscoveryRefresh(root(flags));
     shouldJson(flags)
       ? printJson(result)
       : printTable([
-          { kind: "github", count: result.github.length },
-          { kind: "hosted-local", count: result.hostedLocal.length },
+          { kind: "hosted", count: result.hosted.length },
+          { kind: "hosted-clones", count: result.hostedClones.length },
           { kind: "local", count: result.local.length },
         ]);
   },
 });
 
-const inventoryShowCommand = buildCommand<CommonFlags>({
-  docs: { brief: "Show cached inventory, refreshing when cache is missing." },
+const projectsDiscoveryCommand = buildCommand<CommonFlags>({
+  docs: { brief: "Show cached project discovery, refreshing when cache is missing." },
   parameters: { flags: commonFlags },
   async func(flags) {
-    const result = await app.inventoryShow(root(flags));
+    const result = await app.projectDiscoveryShow(root(flags));
     shouldJson(flags)
       ? printJson(result)
       : printTable([
-          { kind: "github", count: result.github.length },
-          { kind: "hosted-local", count: result.hostedLocal.length },
+          { kind: "hosted", count: result.hosted.length },
+          { kind: "hosted-clones", count: result.hostedClones.length },
           { kind: "local", count: result.local.length },
           { kind: "cache", count: result.path },
         ]);
@@ -1219,11 +1219,14 @@ export const rootRoute = buildRouteMap({
         doctor: configDoctorCommand,
       },
     }),
-    inventory: buildRouteMap({
-      docs: { brief: "Inventory commands." },
+    projects: buildRouteMap({
+      docs: { brief: "Project commands." },
+      defaultCommand: "list",
       routes: {
-        refresh: inventoryRefreshCommand,
-        show: inventoryShowCommand,
+        list: repoListCommand,
+        show: repoShowCommand,
+        refresh: projectsRefreshCommand,
+        discovery: projectsDiscoveryCommand,
       },
     }),
     sync: buildRouteMap({
