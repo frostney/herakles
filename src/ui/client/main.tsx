@@ -378,7 +378,7 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
   const [path, setPath] = useState("");
   const [state, setState] = useState<ProjectState>("experiment");
   const [message, setMessage] = useState("");
-  const add = async (checkout: boolean) => {
+  const add = async () => {
     setMessage("");
     try {
       const projectId = id || defaultProjectId(source === "github" ? repo : path);
@@ -388,12 +388,10 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
         ...(source === "github" ? { repo } : { path }),
         state,
       });
-      if (source === "github" && checkout) {
+      if (source === "github") {
         await postCheckoutProject(projectId);
       }
-      setMessage(
-        source === "github" && checkout ? "Project added and checked out." : "Project added.",
-      );
+      setMessage(source === "github" ? "Project added and checked out." : "Project added.");
       setId("");
       setRepo("");
       setPath("");
@@ -444,35 +442,11 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
           <StateSelect id="add-project-state" value={state} onChange={setState} />
         </label>
       </div>
-      <AddProjectActions source={source} onAdd={add} />
+      <button type="button" onClick={add}>
+        <Plus size={16} aria-hidden /> Add Project
+      </button>
       {message && <p className={message.includes("added") ? "success" : "error"}>{message}</p>}
     </section>
-  );
-}
-
-function AddProjectActions({
-  source,
-  onAdd,
-}: {
-  source: "github" | "local";
-  onAdd: (checkout: boolean) => void;
-}) {
-  if (source === "github") {
-    return (
-      <div className="row-actions">
-        <button type="button" onClick={() => onAdd(true)}>
-          <Plus size={16} aria-hidden /> Add and checkout
-        </button>
-        <button type="button" className="secondary-button" onClick={() => onAdd(false)}>
-          Add only
-        </button>
-      </div>
-    );
-  }
-  return (
-    <button type="button" onClick={() => onAdd(false)}>
-      <Plus size={16} aria-hidden /> Add
-    </button>
   );
 }
 
@@ -480,7 +454,6 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
   const [candidates, refresh] = useResource(getHostedImportCandidates);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [states, setStates] = useState<Record<string, ProjectState>>({});
-  const [checkout, setCheckout] = useState(true);
   const [query, setQuery] = useState("");
   const [owner, setOwner] = useState("all");
   const [message, setMessage] = useState("");
@@ -501,14 +474,10 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
     }
     try {
       await postImportProjects(projects);
-      if (checkout) {
-        await Promise.all(projects.map((project) => postCheckoutProject(project.id)));
-      }
+      await Promise.all(projects.map((project) => postCheckoutProject(project.id)));
       setSelected({});
       setMessage(
-        checkout
-          ? `Imported and checked out ${projects.length} project${projects.length === 1 ? "" : "s"}.`
-          : `Imported ${projects.length} project${projects.length === 1 ? "" : "s"}.`,
+        `Imported and checked out ${projects.length} project${projects.length === 1 ? "" : "s"}.`,
       );
       refresh();
       onChanged();
@@ -549,14 +518,6 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
       ) : (
         <LoadState state={candidates} />
       )}
-      <label className="checkbox-label modal-option">
-        <input
-          type="checkbox"
-          checked={checkout}
-          onChange={(event) => setCheckout(event.target.checked)}
-        />
-        <span>Checkout after import</span>
-      </label>
       <button type="button" onClick={importSelected}>
         Import Selected
       </button>

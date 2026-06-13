@@ -19,9 +19,9 @@ bun run herakles init --root ~/Code
 Add, import, inspect, and check out projects:
 
 ```sh
-bun run herakles add --root ~/Code --source github --repo frostney/tool --checkout
+bun run herakles add --root ~/Code --source github --repo frostney/tool
 bun run herakles add --root ~/Code --source local --path local-spike --id local-spike
-bun run herakles projects import --root ~/Code --repo frostney/tool --repo frostney/app --checkout
+bun run herakles projects import --root ~/Code --repo frostney/tool --repo frostney/app
 bun run herakles projects checkout frostney-tool --root ~/Code
 bun run herakles projects refresh --root ~/Code
 bun run herakles projects list --root ~/Code
