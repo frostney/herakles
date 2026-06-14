@@ -178,7 +178,13 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
   if (req.method === "GET" && path === "/api/events") return createEventStream();
 
   try {
-    const routed = await routeKnownApi(req.method, { req, path, url, options });
+    const context = { req, path, url, options };
+    const routed =
+      req.method === "GET"
+        ? await routeGet(context)
+        : req.method === "POST"
+          ? await routePost(context)
+          : undefined;
     if (routed) return routed;
     return json({ error: "not found" }, { status: 404 });
   } catch (error) {
@@ -186,24 +192,10 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
       return json({ error: error.message, transition: error.transition }, { status: 400 });
     }
     if (error instanceof z.ZodError) {
-      return json(
-        {
-          error: "invalid request body",
-          issues: error.issues.map((issue) => ({
-            path: issue.path.join("."),
-            message: issue.message,
-          })),
-        },
-        { status: 400 },
-      );
+      return zodErrorResponse(error);
     }
     return json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
-}
-
-async function routeKnownApi(method: string, context: ApiContext): Promise<Response | undefined> {
-  if (method === "GET") return routeGet(context);
-  if (method === "POST") return routePost(context);
 }
 
 async function routeGet(context: ApiContext): Promise<Response | undefined> {
@@ -556,21 +548,22 @@ async function readJsonBody<T extends z.ZodTypeAny>(
   }
   const result = schema.safeParse(parsed);
   if (!result.success) {
-    return {
-      ok: false,
-      response: json(
-        {
-          error: "invalid request body",
-          issues: result.error.issues.map((issue) => ({
-            path: issue.path.join("."),
-            message: issue.message,
-          })),
-        },
-        { status: 400 },
-      ),
-    };
+    return { ok: false, response: zodErrorResponse(result.error) };
   }
   return { ok: true, data: result.data };
+}
+
+function zodErrorResponse(error: z.ZodError): Response {
+  return json(
+    {
+      error: "invalid request body",
+      issues: error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      })),
+    },
+    { status: 400 },
+  );
 }
 
 function projectConfigChanges(body: z.infer<typeof projectConfigBodySchema>) {

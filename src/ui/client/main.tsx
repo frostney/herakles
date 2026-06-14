@@ -15,7 +15,7 @@ import {
   RefreshCcw,
   Settings,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type {
   AutomationDueSlot,
@@ -82,6 +82,8 @@ type Loadable<T> =
   | { status: "error"; error: string }
   | { status: "ready"; data: T };
 
+const EventContext = createContext<HeraklesEvent | undefined>(undefined);
+
 function useResource<T>(loader: () => Promise<T>): [Loadable<T>, () => void] {
   const [state, setState] = useState<Loadable<T>>({ status: "loading" });
   const refresh = () => {
@@ -100,7 +102,6 @@ function useEventStreamStatus(): HeraklesEvent | undefined {
     () =>
       subscribeToEvents((event) => {
         setLatest(event);
-        window.dispatchEvent(new CustomEvent("herakles-event", { detail: event }));
       }),
     [],
   );
@@ -108,16 +109,18 @@ function useEventStreamStatus(): HeraklesEvent | undefined {
 }
 
 function useRefreshOnEvents(refresh: () => void, types: HeraklesEvent["type"][]) {
+  const latestEvent = useContext(EventContext);
+  const refreshRef = useRef(refresh);
   const key = types.join("|");
   useEffect(() => {
-    const allowed = new Set(key.split("|") as HeraklesEvent["type"][]);
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<HeraklesEvent>).detail;
-      if (allowed.has(detail.type)) refresh();
-    };
-    window.addEventListener("herakles-event", handler);
-    return () => window.removeEventListener("herakles-event", handler);
-  }, [refresh, key]);
+    refreshRef.current = refresh;
+  }, [refresh]);
+  useEffect(() => {
+    if (!latestEvent) return;
+    if ((key.split("|") as HeraklesEvent["type"][]).includes(latestEvent.type)) {
+      refreshRef.current();
+    }
+  }, [latestEvent, key]);
 }
 
 function Shell() {
@@ -157,7 +160,9 @@ function Shell() {
       </aside>
       <section className="content">
         {latestEvent && <EventBanner event={latestEvent} />}
-        <Outlet />
+        <EventContext.Provider value={latestEvent}>
+          <Outlet />
+        </EventContext.Provider>
       </section>
     </main>
   );

@@ -6,15 +6,6 @@ import { configKeySchema, projectConfigSchema } from "./schema";
 import { renderTomlDiff, renderTomlRemovalDiff, replaceTomlBlock } from "./toml-block";
 
 export type ProjectConfigChanges = {
-  source?: ProjectSource;
-  repo?: string;
-  group?: string;
-  state?: ProjectState;
-  tags?: string[];
-  learning?: string;
-};
-
-type LooseProjectConfigChanges = {
   source?: ProjectSource | undefined;
   repo?: string | undefined;
   group?: string | undefined;
@@ -106,7 +97,7 @@ export async function applyProjectConfigPlan(plan: ProjectConfigPlan): Promise<P
   return plan;
 }
 
-function compactProjectConfig(values: LooseProjectConfigChanges): ProjectConfigChanges {
+function compactProjectConfig(values: ProjectConfigChanges): ProjectConfigChanges {
   return {
     ...(values.source === undefined ? {} : { source: values.source }),
     ...(values.repo === undefined ? {} : { repo: values.repo }),
