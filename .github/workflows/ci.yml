@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -35,8 +37,22 @@ jobs:
       - name: Run typecheck
         run: bunx tsc --noEmit
 
-      - name: Run full Fallow audit
-        run: bunx fallow audit --ci
+      - name: Run Fallow audit
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:refs/remotes/origin/$PR_BASE_REF"
+            BASE_REF="origin/$PR_BASE_REF"
+          elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            BASE_REF="$PUSH_BEFORE"
+          else
+            BASE_REF="HEAD~1"
+          fi
+
+          bunx fallow audit --ci --base "$BASE_REF"
 
       - name: Run Fallow health report
         run: bunx fallow health --score --report-only --quiet
