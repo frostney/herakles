@@ -2,11 +2,13 @@
 
 ## Hard Constraints
 
+- Treat `CONTEXT.md` as the authoritative language guide for Herakles terms. If terminology changes, update `CONTEXT.md` first.
+- Treat `docs/architecture.md` and `docs/adr/` as the authoritative product and architecture decisions. Do not duplicate or override ADR decisions in this file.
 - Use Bun for package management, scripts, tests, TOML parsing, serving, bundling, cron integration, and subprocess-oriented runtime code.
 - Do not introduce npm, pnpm, yarn, Vite, project-local Herakles config, synced machine profiles, or a generic remote shell/API endpoint.
-- Keep `_herakles/herakles.toml` as the canonical configuration. Do not introduce `herakles.local.toml` or any project-local Herakles config.
-- Keep local experiments, reports, caches, run ledgers, and fallback lock files out of synced configuration.
-- Treat the CLI and UI as control surfaces over the same core services; do not duplicate project resolution, sync planning, validation, scheduling, or config mutation logic in the UI.
+- Keep `_herakles/herakles.toml` as the canonical configuration. Do not introduce `herakles.local.toml`, project-local Herakles config, or alternate synced config files.
+- Keep generated state out of synced configuration. Local Herakles artifacts belong under ignored folders inside `_herakles`.
+- Treat the CLI and UI as control surfaces over the same core services; do not duplicate project resolution, workspace up planning, validation, scheduling, or config mutation logic in the UI.
 
 ## Runtime / Commands
 
@@ -22,12 +24,15 @@ Use `bun run herakles -- <command>` for CLI smoke checks and `bun run ui -- --ro
 
 ## Code Organization
 
+Use `CONTEXT.md` for domain terminology and `docs/architecture.md` for the current system model. Keep this section limited to source ownership boundaries.
+
 - `src/app.ts` is the service facade shared by CLI and API routes.
 - `src/cli/` contains Stricli command wiring only; command implementations should call shared services.
 - `src/api/` contains typed API routing and event streaming; it must not expose generic shell execution.
-- `src/project/`, `src/sync/`, `src/lifecycle/`, and `src/config/` own resolved model, sync, validation, and config writes.
+- `src/project/`, `src/up/`, `src/lifecycle/`, and `src/config/` own project resolution, workspace spin-up, validation, and config writes.
+- `src/automation/` owns scheduling, locks, ledgers, and run context. `src/agent-runtime/` owns runtime dispatch.
 - `src/ui/client/` renders the browser UI over API client calls; keep plan/apply and read-only views aligned with the service contracts.
-- Generated local state belongs under `_cache`, `_reports`, or ignored `.herakles-state`, never inside synced config except through typed tracked-project config writes.
+- Generated local state belongs under ignored `_herakles/cache`, `_herakles/reports`, `_herakles/worktrees`, or `_herakles/state` paths, never inside synced config except through typed config writes.
 
 ## Testing
 
@@ -39,6 +44,6 @@ Use `bun run herakles -- <command>` for CLI smoke checks and `bun run ui -- --ro
 ## Safety / Boundaries
 
 - Never silently move, delete, prune, push, or publish repositories. Use explicit typed plan/apply paths.
-- Remote sync clients are read/sync-only and token-protected; automations may be mirrored remotely but are not run by remote callers.
-- Automation is a scheduled handoff to the configured agent runtime. Herakles owns scheduling, locks, GitHub lookup, project selection, and reports; the agent runtime owns implementation-specific workflows.
+- Herakles does not expose remote sync or generic shell APIs. Config Exchange is copy-paste TOML exchange through typed validation.
+- Automation is a scheduled handoff to the configured agent runtime. Herakles owns scheduling, locks, GitHub lookup, project selection, context, and reports; the agent runtime owns implementation-specific workflows.
 - Preserve user or generated changes. Do not revert unrelated files or use destructive Git commands unless explicitly requested.
