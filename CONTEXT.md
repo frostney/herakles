@@ -39,6 +39,12 @@ _Avoid_: Delete project
 The Herakles flow that makes a local Herakles Workspace match its configuration by creating required folders, checking out missing projects, safely updating existing projects, and reporting conflicts without destructive cleanup.
 _Avoid_: File sync, apply config, slay
 
+Spin up is a workspace-level flow, not a per-project checkout action. Add Project, Bulk Import, and explicit workspace spin-up may invoke it; normal project lists should not present checkout as an independent project operation.
+
+**Workspace Drift**:
+A Herakles Workspace state where synced configuration expects lifecycle folders or project checkouts that are missing, stale, misplaced, or blocked by conflicts on disk. Drift is surfaced as a reviewable spin-up plan with safe actions and validation issues; ignoring drift is a local UI choice, not synced configuration.
+_Avoid_: Sync mismatch, checkout task
+
 **Config Exchange**:
 The user-directed act of copying Herakles configuration into or out of the UI. It moves configuration text, not repositories, runtime state, reports, or remote commands.
 _Avoid_: Remote sync, machine profile, file sync
@@ -94,6 +100,18 @@ _Avoid_: Synced report, config report
 The development-agent runtime that receives Herakles-prepared prompts and project context, performs the AI-assisted work, and returns reports or other outputs. Codex is one possible AI harness; Herakles schedules harness runs but does not own the harness's internal workflow.
 _Avoid_: Automation harness, GitHub Actions harness, Codex-only automation
 
+**Harness Adapter**:
+The Herakles integration boundary for invoking a specific AI harness with prepared prompt and context. A harness adapter is runtime plumbing, not a Herakles automation mode.
+_Avoid_: Workflow mode, project-specific adapter
+
+**Automation Job**:
+A scheduled prompt definition that selects projects and hands context to an AI harness. It is not a Herakles-owned workflow type; the prompt and harness determine what kind of work is performed.
+_Avoid_: Mode, implementation-plan job, CodeRabbit-review job
+
+**Automation Tag Filter**:
+A first-class automation selection rule that includes or excludes projects by Herakles project tags. It is the normal way to target tagged project groups without writing a custom project filter expression.
+_Avoid_: Tag expression, topic filter
+
 **Harness Run**:
 A scheduled Herakles handoff to an AI harness for a prompt and a selected set of projects. Herakles prepares context, invokes the configured harness, records the returned report, and stops there.
 _Avoid_: Herakles-owned implementation workflow
@@ -134,18 +152,18 @@ _Avoid_: Local experiment
 A Herakles scheduler wake-up that calculates due prompt runs and attempts to hand claimed runs to the configured AI harness. The UI server can run ticks in-process while it is open, and OS-level ticks must be installed explicitly.
 _Avoid_: Cron job as duplicate-prevention mechanism
 
-Automation jobs and their prompts live in `_herakles/herakles.toml` as synced orchestration configuration. `herakles init` creates standard report-only job definitions inline in the TOML scaffold, and the UI edits those same job definitions instead of writing separate prompt files.
+Automation jobs and their prompts live in `_herakles/herakles.toml` as synced orchestration configuration. `herakles init` creates standard harness-run job definitions inline in the TOML scaffold, and the UI edits those same job definitions instead of writing separate prompt files.
+
+Automation schedules are interpreted in the local machine timezone of the Herakles process that runs them. Timezone is runtime context, not synced automation configuration.
+
+Automation schedules are stored as cron expressions in synced configuration, while user-facing automation screens lead with a human-readable schedule summary. The cron expression remains available as the precise editable form.
 
 Startup catch-up is a special automation tick mode. It uses the local run ledger plus the configured catch-up window to enumerate missed slots, then still relies on normal lock claims and successful-run checks before executing anything.
 
 Explicit OS-level cron installation writes a generated worker script under the local cache path and registers that script through Bun cron. The generated worker is local machine state, not synced configuration.
 
-Implementation-shaped automation is delegated to the configured AI harness. Herakles may schedule the prompt and store the resulting report, but it should not model harness-specific implementation or review workflows as Herakles-owned concepts.
+Implementation-shaped automation is delegated to the configured AI harness. Herakles may schedule the prompt and store the resulting report, but it should not model implementation planning, review follow-up, publishing, or other project-specific workflows as Herakles-owned automation modes.
 
 Disabled automation still surfaces configured jobs in the UI and CLI, but scheduled ticks produce no due slots and the UI server does not start its in-process Bun cron loop.
 
 Local fallback automation locks honor their `expiresAt` timestamp before a slot is claimed again. Expired local locks are not shown as current locks.
-
-Implementation-plan automation is recommendation-shaped work. A due `implementation-plan` slot evaluates the configured eligible repositories and issue labels, then asks the configured AI harness to produce an implementation planning report without Herakles running implementation.
-
-CodeRabbit-review automation is recommendation-shaped work. A due `coderabbit-review` slot evaluates eligible pull requests, then asks the configured AI harness to produce unresolved review context or a report without Herakles pushing commits or resolving threads.
