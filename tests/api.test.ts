@@ -218,7 +218,7 @@ owners = []
 
 [job.daily]
 schedule = "0 8 * * *"
-harness = "codex"
+runtime = "codex"
 prompt = "Summarize the workspace."
 `,
     );
@@ -504,7 +504,7 @@ group = "clients"
         body: JSON.stringify({
           jobId: "weekly-review",
           schedule: "0 9 * * 1",
-          harness: "codex",
+          runtime: "codex",
           prompt: "Review all tracked projects.\nReturn a short report.",
           output: "automation/weekly.md",
           repoFilter: "not archived",
@@ -523,7 +523,7 @@ group = "clients"
     expect(response?.status).toBe(200);
     expect(body.toml).toContain('[job."weekly-review"]');
     expect(config).toContain('[job."weekly-review"]');
-    expect(config).toContain('harness = "codex"');
+    expect(config).toContain('runtime = "codex"');
     expect(config).toContain('include_tags = ["weekly"]');
     expect(config).not.toContain("slot_timezone");
     expect(config).toContain("prompt = '''");

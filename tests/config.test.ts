@@ -44,4 +44,21 @@ owners = []
     expect(loaded.paths.syncedConfigPath).toBe(join(root, "_herakles", "herakles.toml"));
     expect(loaded.paths.workspaceRoot).toBe(root);
   });
+
+  test("rejects legacy harness automation job config", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[job.legacy]
+schedule = "0 9 * * *"
+harness = "codex"
+prompt = "Summarize."
+`,
+    );
+
+    await expect(loadConfig(root)).rejects.toThrow("harness");
+  });
 });

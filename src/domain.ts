@@ -170,7 +170,7 @@ export type HeraklesEvent = {
   payload?: Record<string, unknown>;
 };
 
-export type CodexRunResult = {
+export type AgentRuntimeRunResult = {
   status: "succeeded" | "failed";
   reportPath: string;
   exitCode: number;
@@ -180,7 +180,7 @@ export type CodexRunResult = {
 export type AutomationJob = {
   id: string;
   schedule: string;
-  harness: string;
+  runtime: string;
   prompt?: string;
   output?: string;
   repoFilter?: string;

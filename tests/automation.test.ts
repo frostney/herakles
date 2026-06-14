@@ -29,7 +29,7 @@ owners = []
 
 [job.friday_summary]
 schedule = "* * * * *"
-harness = "codex"
+runtime = "codex"
 prompt = "Summarize the workspace."
 output = "weekly/{iso_week}.md"
 repo_filter = 'has_topic("current")'
@@ -56,7 +56,7 @@ catch_up_window_minutes = 1440
 
 [job.coderabbit]
 schedule = "0 */4 * * *"
-harness = "codex"
+runtime = "codex"
 prompt = "Prepare recurring workspace context."
 output = "coderabbit/{slot}.md"
 `,
@@ -65,7 +65,7 @@ output = "coderabbit/{slot}.md"
 }
 
 async function tempManualGateWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-harness-report-"));
+  const root = await mkdtemp(join(tmpdir(), "herakles-agent-report-"));
   await mkdir(join(root, "_herakles"), { recursive: true });
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
@@ -73,11 +73,11 @@ async function tempManualGateWorkspace() {
 [github]
 owners = []
 
-[job.harness_report]
+[job.agent_report]
 schedule = "* * * * *"
-harness = "codex"
-prompt = "Create a harness report."
-output = "harness/{date}.md"
+runtime = "codex"
+prompt = "Create an agent runtime report."
+output = "agent/{date}.md"
 repo_filter = 'state == "open-source"'
 `,
   );
@@ -99,7 +99,7 @@ sandbox = "workspace-write"
 
 [job.morning_next_work]
 schedule = "30 08 * * 1-5"
-harness = "codex"
+runtime = "codex"
 prompt = "Recommend next work."
 output = "morning/{date}.md"
 repo_filter = 'has_roadmap'
@@ -109,6 +109,25 @@ repo_filter = 'has_roadmap'
   await writeFile(
     join(root, "_herakles", "reports", "previous", "summary.md"),
     "# Previous Report\n",
+  );
+  return root;
+}
+
+async function tempUnsupportedRuntimeWorkspace() {
+  const root = await mkdtemp(join(tmpdir(), "herakles-unsupported-runtime-"));
+  await mkdir(join(root, "_herakles"), { recursive: true });
+  await writeFile(
+    join(root, "_herakles", "herakles.toml"),
+    `version = 2
+[github]
+owners = []
+
+[job.external_agent]
+schedule = "0 12 * * *"
+runtime = "external-agent"
+prompt = "Summarize the workspace."
+output = "agent/{date}.md"
+`,
   );
   return root;
 }
@@ -127,7 +146,7 @@ enabled = false
 
 [job.friday_summary]
 schedule = "00 16 * * FRI"
-harness = "codex"
+runtime = "codex"
 prompt = "Summarize the workspace."
 `,
   );
@@ -164,7 +183,7 @@ function automationJob(
   return {
     id,
     schedule,
-    harness: "codex",
+    runtime: "codex",
     includeTags: [],
     excludeTags: [],
     issueLabels: [],
@@ -410,7 +429,7 @@ describe("automation", () => {
     });
   });
 
-  test("custom harness jobs generate reports without Herakles implementation workflow", async () => {
+  test("custom agent runtime jobs generate reports without Herakles implementation workflow", async () => {
     const loaded = await loadConfig(await tempManualGateWorkspace());
     await withFakeCodex(fakeCodexWritesReport, async () => {
       const runs = await automateTick(loaded, {
@@ -423,8 +442,19 @@ describe("automation", () => {
       expect(runs[0]?.status).toBe("succeeded");
       expect(runs[0]?.message).toContain("Codex report saved");
       expect(reports.length).toBe(1);
-      expect(await Bun.file(reports[0]!.path).text()).toContain("Harness: codex");
+      expect(await Bun.file(reports[0]!.path).text()).toContain("Agent runtime: codex");
     });
+  });
+
+  test("unsupported agent runtimes fail through the runtime boundary", async () => {
+    const loaded = await loadConfig(await tempUnsupportedRuntimeWorkspace());
+    const run = await runAutomationJob(loaded, "external_agent", { date: "2026-06-12" });
+    const report = await Bun.file(run.reportPath!).text();
+
+    expect(run.status).toBe("failed");
+    expect(run.message).toBe("unsupported agent runtime: external-agent");
+    expect(report).toContain("Agent Runtime Failed");
+    expect(report).toContain("Runtime: external-agent");
   });
 
   test("report-only jobs pass enriched Herakles context to Codex", async () => {

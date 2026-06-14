@@ -108,7 +108,9 @@ function renderCodeRabbitReport(
     lines.push(`PR: ${context.url}`);
     if (context.headRefName) lines.push(`Branch: ${context.headRefName}`);
     lines.push(`Threads: ${context.threads.length}`);
-    lines.push("Harness input: review unresolved threads and report recommended next action.");
+    lines.push(
+      "Agent runtime input: review unresolved threads and report recommended next action.",
+    );
     lines.push("Risk: medium until tests are discovered and run.");
     lines.push("Tests: discover from repository tooling before PR creation.");
     lines.push("");
@@ -124,7 +126,7 @@ function renderCodeRabbitReport(
     lines.push("");
   }
   lines.push(
-    "These are AI harness inputs only. Herakles does not push, resolve threads, or mutate GitHub.",
+    "These are agent runtime inputs only. Herakles does not push, resolve threads, or mutate GitHub.",
   );
   return `${lines.join("\n")}\n`;
 }

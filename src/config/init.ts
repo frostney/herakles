@@ -12,7 +12,7 @@ include_archived = true
 
 [job.review_context]
 schedule = "0 */4 * * *"
-harness = "codex"
+runtime = "codex"
 prompt = '''
 # Review Context
 
@@ -28,7 +28,7 @@ and not has_topic("no-agent")
 
 [job.morning_next_work]
 schedule = "30 08 * * 1-5"
-harness = "codex"
+runtime = "codex"
 prompt = '''
 # Morning Next Work
 
@@ -44,7 +44,7 @@ and has_roadmap
 
 [job.evening_issues]
 schedule = "00 19 * * 1-5"
-harness = "codex"
+runtime = "codex"
 prompt = '''
 # Evening Issue Planning
 
@@ -61,7 +61,7 @@ and not has_topic("no-agent")
 
 [job.friday_summary]
 schedule = "00 16 * * FRI"
-harness = "codex"
+runtime = "codex"
 prompt = '''
 # Friday Summary
 
@@ -73,7 +73,7 @@ output = "weekly/{iso_week}.md"
 
 [job.monday_maintenance]
 schedule = "00 09 * * MON"
-harness = "codex"
+runtime = "codex"
 prompt = '''
 # Monday Maintenance
 

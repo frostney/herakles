@@ -27,6 +27,21 @@ const projectConfigSchema = z
   })
   .strict();
 
+const jobConfigSchema = z
+  .object({
+    schedule: z.string().default("*/5 * * * *"),
+    runtime: z.string().default("codex"),
+    prompt: z.string().optional(),
+    output: z.string().optional(),
+    repo_filter: z.string().optional(),
+    include_tags: z.array(z.string()).default([]),
+    exclude_tags: z.array(z.string()).default([]),
+    issue_labels: z.array(z.string()).default([]),
+    skill: z.string().optional(),
+    enabled: z.boolean().default(true),
+  })
+  .strict();
+
 export const heraklesConfigSchema = z.object({
   version: z.number().default(2),
   github: z
@@ -80,7 +95,7 @@ export const heraklesConfigSchema = z.object({
       sandbox: z.string().default("workspace-write"),
     })
     .default({}),
-  job: z.record(z.any()).default({}),
+  job: z.record(jobConfigSchema).default({}),
   project: z.record(projectConfigSchema).default({}),
 });
 

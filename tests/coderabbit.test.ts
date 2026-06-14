@@ -143,6 +143,6 @@ describe("CodeRabbit review context", () => {
     const structured = await Bun.file(result.structuredPath).json();
     expect(structured.kind).toBe("coderabbit-review");
     expect(structured.contexts[0].prNumber).toBe(42);
-    expect(await Bun.file(result.reportPath).text()).toContain("AI harness inputs only");
+    expect(await Bun.file(result.reportPath).text()).toContain("agent runtime inputs only");
   });
 });

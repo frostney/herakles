@@ -473,6 +473,9 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
   const [busy, setBusy] = useState(false);
   const driftItems = result.items.filter((item) => item.action !== "skip");
   const ignored = ignoredPlanAt === result.generatedAt;
+  const primaryAction = shouldScaffoldFromConfiguration(driftItems)
+    ? "Scaffold from Configuration"
+    : "Sync Workspace";
 
   if (ignored || driftItems.length === 0) return null;
 
@@ -503,7 +506,7 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
         </div>
         <div className="row-actions">
           <button type="button" onClick={runUp} disabled={busy}>
-            Run Up
+            {primaryAction}
           </button>
           <button type="button" className="small-button" onClick={() => setReviewing(!reviewing)}>
             {reviewing ? "Hide Dry Run" : "Review Dry Run"}
@@ -1104,10 +1107,10 @@ function SettingsScreen() {
             Refresh Projects
           </button>
           <button type="button" onClick={() => runUp(true)} disabled={busy}>
-            Dry Run Up
+            Dry Run
           </button>
           <button type="button" onClick={() => runUp(false)} disabled={busy}>
-            Run Up
+            Sync Workspace
           </button>
           <button type="button" onClick={() => validate(false)} disabled={busy}>
             Validate
@@ -1168,6 +1171,10 @@ function UpResultList({ result }: { result: UpRunResult }) {
       ))}
     </div>
   );
+}
+
+function shouldScaffoldFromConfiguration(items: UpPlan["items"]): boolean {
+  return items.length > 0 && items.every((item) => item.action === "clone");
 }
 
 function ConfigExchangePanel({ onApplied }: { onApplied: () => void }) {
@@ -2370,10 +2377,10 @@ function AutomationJobFields({
         />
       </label>
       <label>
-        <span>Harness</span>
+        <span>Agent Runtime</span>
         <input
-          value={form.harness}
-          onChange={(event) => onUpdate({ harness: event.target.value })}
+          value={form.runtime}
+          onChange={(event) => onUpdate({ runtime: event.target.value })}
         />
       </label>
       <label>
@@ -2481,7 +2488,7 @@ function automationJobInput(job: AutomationJob | undefined): AutomationJobConfig
     return {
       jobId: "",
       schedule: "0 9 * * 1-5",
-      harness: "codex",
+      runtime: "codex",
       prompt: "",
       output: "automation/{date}.md",
       repoFilter: "not archived",
@@ -2494,7 +2501,7 @@ function automationJobInput(job: AutomationJob | undefined): AutomationJobConfig
   return {
     jobId: job.id,
     schedule: job.schedule,
-    harness: job.harness,
+    runtime: job.runtime,
     prompt: job.prompt ?? "",
     output: job.output ?? "",
     repoFilter: job.repoFilter ?? "",
@@ -2510,7 +2517,7 @@ function normalizeAutomationJobInput(input: AutomationJobConfigInput): Automatio
   return {
     jobId: input.jobId.trim(),
     schedule: input.schedule.trim(),
-    harness: input.harness.trim(),
+    runtime: input.runtime.trim(),
     ...optionalText("prompt", input.prompt),
     ...optionalText("output", input.output),
     ...optionalText("repoFilter", input.repoFilter),
@@ -2545,7 +2552,7 @@ function splitCsv(value: string): string[] {
 }
 
 function automationJobDescription(job: AutomationPayload["jobs"][number]) {
-  const parts = [`harness ${job.harness}`];
+  const parts = [`runtime ${job.runtime}`];
   if (job.skill) parts.push(`skill ${job.skill}`);
   if (job.includeTags.length) parts.push(`include tags ${job.includeTags.join(", ")}`);
   if (job.excludeTags.length) parts.push(`exclude tags ${job.excludeTags.join(", ")}`);

@@ -193,7 +193,7 @@ function renderIssueRecommendationReport(
   }
   lines.push("");
   lines.push(
-    "These are AI harness inputs only. Herakles does not implement or mutate repositories.",
+    "These are agent runtime inputs only. Herakles does not implement or mutate repositories.",
   );
   return `${lines.join("\n")}\n`;
 }

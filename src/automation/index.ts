@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { runCodexReportOnly } from "../codex";
+import { runAgentRuntime } from "../agent-runtime";
 import type { LoadedConfig } from "../config/load";
 import { resolveUnder } from "../config/paths";
 import type { AutomationDueSlot, AutomationJob, AutomationRun, Project } from "../domain";
@@ -23,7 +23,7 @@ export function configuredJobs(loaded: LoadedConfig): AutomationJob[] {
     const automationJob: AutomationJob = {
       id,
       schedule: String(job.schedule ?? "*/5 * * * *"),
-      harness: String(job.harness ?? "codex"),
+      runtime: String(job.runtime ?? "codex"),
       issueLabels: stringList(job.issue_labels),
       includeTags: stringList(job.include_tags),
       excludeTags: stringList(job.exclude_tags),
@@ -158,13 +158,13 @@ async function runJob(
 ): Promise<AutomationRun> {
   const eligibleProjects = projects ? eligibleProjectsForJob(projects, job) : undefined;
   if (job.prompt) {
-    return runHarnessJob(loaded, job, slot, startedAt, eligibleProjects);
+    return runAgentRuntimeJob(loaded, job, slot, startedAt, eligibleProjects);
   }
   return {
     jobId: slot.jobId,
     slotId: slot.slotId,
     status: "failed",
-    message: "automation job has no prompt to hand to the harness",
+    message: "automation job has no prompt to hand to the agent runtime",
     startedAt,
     finishedAt: new Date().toISOString(),
   };
@@ -188,26 +188,17 @@ function slotKeyFromDate(date: Date): string {
   return `${date.toISOString().slice(0, 16)}Z`;
 }
 
-async function runHarnessJob(
+async function runAgentRuntimeJob(
   loaded: LoadedConfig,
   job: AutomationJob,
   slot: AutomationDueSlot,
   startedAt: string,
   eligibleProjects: readonly Project[] | undefined,
 ): Promise<AutomationRun> {
-  if (job.harness !== "codex") {
-    return {
-      jobId: slot.jobId,
-      slotId: slot.slotId,
-      status: "failed",
-      message: `unsupported harness: ${job.harness}`,
-      startedAt,
-      finishedAt: new Date().toISOString(),
-    };
-  }
   const relativeOutputPath = outputPath(job, slot);
   const reportPath = resolveUnder(reportsRoot(loaded), relativeOutputPath);
-  const result = await runCodexReportOnly(loaded, {
+  const result = await runAgentRuntime(loaded, {
+    runtime: job.runtime,
     prompt: job.prompt!,
     worktree: loaded.paths.workspaceRoot,
     reportPath,
@@ -277,7 +268,7 @@ async function renderJobContext(
   return `# Herakles Automation Context
 
 Job: ${job.id}
-Harness: ${job.harness}
+Agent runtime: ${job.runtime}
 Slot: ${slot.slotId}
 Due at: ${slot.dueAt}
 Skill: ${job.skill ?? "none"}

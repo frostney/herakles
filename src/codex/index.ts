@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { LoadedConfig } from "../config/load";
-import type { CodexRunResult, DoctorCheck } from "../domain";
+import type { AgentRuntimeRunResult, DoctorCheck } from "../domain";
 import type { CommandResult } from "../utils/command";
 import { runCommand } from "../utils/command";
 
@@ -31,7 +31,7 @@ export async function runCodexReportOnly(
     reportPath: string;
     context?: string;
   },
-): Promise<CodexRunResult> {
+): Promise<AgentRuntimeRunResult> {
   if (!options.prompt.trim()) {
     throw new Error("Codex prompt is required.");
   }
@@ -110,7 +110,7 @@ function escapeRegExp(value: string): string {
 async function unsupportedCodexResult(
   reportPath: string,
   message: string,
-): Promise<CodexRunResult> {
+): Promise<AgentRuntimeRunResult> {
   const result = {
     stdout: "",
     stderr: message,

@@ -2,7 +2,7 @@
 
 Herakles v2 is a Bun-first TypeScript orchestrator for a personal Herakles Workspace. The CLI and UI call the same core services for configuration, project discovery, project resolution, validation, workspace spin-up, reports, and automation ticks.
 
-The canonical configuration is `_herakles/herakles.toml`. It describes hosted repository discovery, tracked projects, lifecycle defaults, automation jobs, and AI-harness settings. Herakles does not support project-local config, machine profiles, `herakles.local.toml`, or a remote sync API.
+The canonical configuration is `_herakles/herakles.toml`. It describes hosted repository discovery, tracked projects, lifecycle defaults, automation jobs, and agent runtime settings. Herakles does not support project-local config, machine profiles, `herakles.local.toml`, or a remote sync API.
 
 `--root` identifies the Herakles Workspace: the folder containing `_herakles` and the mandatory lifecycle folders `open-source/`, `commercial/`, `experiment/`, `candidate/`, and `archived/`. Generated Herakles state lives inside `_herakles/cache`, `_herakles/reports`, `_herakles/worktrees`, and `_herakles/state`; `_herakles/.gitignore` keeps those folders out of synced configuration.
 
@@ -48,9 +48,9 @@ The UI server exposes `/api/events` as a server-sent event stream. Events are em
 
 Cron matching uses the local machine timezone of the Herakles process that runs the automation tick. Timezone is runtime context and is not stored in synced configuration.
 
-Automation eligibility uses project filters and tag filters. The default automation filter is `not archived`, then automation-level excluded topics are applied. Automation jobs live in `_herakles/herakles.toml` and can declare `harness`, `repo_filter`, `include_tags`, `exclude_tags`, `issue_labels`, `skill`, `output`, and inline prompts. Herakles owns scheduling, project selection, locks, GitHub lookup, and report recording; the configured AI harness owns the work performed from the prepared prompt and context.
+Automation eligibility uses project filters and tag filters. The default automation filter is `not archived`, then automation-level excluded topics are applied. Automation jobs live in `_herakles/herakles.toml` and can declare `runtime`, `repo_filter`, `include_tags`, `exclude_tags`, `issue_labels`, `skill`, `output`, and inline prompts. Herakles owns scheduling, project selection, locks, GitHub lookup, and report recording; the configured agent runtime owns the work performed from the prepared prompt and context.
 
-Prompt-driven harness jobs receive a Herakles-authored context block on stdin after the configured prompt. That context includes slot metadata, eligible project evidence, detected package managers, roadmap presence, and recent generated reports. Herakles does not model harness-specific implementation branches, review resolution, or publishing. The UI leads with human-readable schedule summaries while keeping the cron expression as the precise editable form.
+Prompt-driven agent runtime jobs receive a Herakles-authored context block on stdin after the configured prompt. That context includes slot metadata, eligible project evidence, detected package managers, roadmap presence, and recent generated reports. Herakles does not model runtime-specific implementation branches, review resolution, or publishing. The UI leads with human-readable schedule summaries while keeping the cron expression as the precise editable form.
 
 Automation locks are local file claims under `_herakles/state/locks` and honor their expiry before a slot can be claimed again. Run ledgers live under `_herakles/cache/runs`. Herakles does not coordinate automation through a config repository, remote sync endpoint, or branch-lock protocol.
 

@@ -1,6 +1,6 @@
 # Herakles
 
-Herakles is a Bun-first TypeScript orchestrator for a personal Herakles Workspace: `_herakles/herakles.toml`, lifecycle folders, GitHub-backed projects, local experiments, generated reports, and recurring AI-harness automation from one CLI and local browser UI.
+Herakles is a Bun-first TypeScript orchestrator for a personal Herakles Workspace: `_herakles/herakles.toml`, lifecycle folders, GitHub-backed projects, local experiments, generated reports, and recurring agent-runtime automation from one CLI and local browser UI.
 
 ## Install
 

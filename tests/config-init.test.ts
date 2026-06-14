@@ -32,7 +32,8 @@ describe("config init", () => {
     ).json();
     expect(synced).toContain("[job.morning_next_work]");
     expect(synced).toContain("# Morning Next Work");
-    expect(synced).toContain('harness = "codex"');
+    expect(synced).toContain('runtime = "codex"');
+    expect(synced).not.toContain("harness =");
     expect(synced).not.toContain("mode =");
     expect(synced).not.toContain("slot_timezone");
     expect(synced).not.toContain("timezone =");

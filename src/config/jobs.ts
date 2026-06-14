@@ -4,7 +4,7 @@ import { renderTomlDiff, replaceTomlBlock } from "./toml-block";
 
 export type AutomationJobConfigChanges = {
   schedule: string;
-  harness?: string;
+  runtime?: string;
   prompt?: string;
   output?: string;
   repo_filter?: string;
@@ -58,7 +58,7 @@ export async function applyAutomationJobConfigPlan(
 function compactJobConfig(values: Record<string, unknown>): AutomationJobConfigChanges {
   return {
     schedule: stringValue(values.schedule, "*/5 * * * *"),
-    ...(typeof values.harness === "string" ? { harness: values.harness } : {}),
+    ...(typeof values.runtime === "string" ? { runtime: values.runtime } : {}),
     ...(typeof values.prompt === "string" ? { prompt: values.prompt } : {}),
     ...(typeof values.output === "string" ? { output: values.output } : {}),
     ...(typeof values.repo_filter === "string" ? { repo_filter: values.repo_filter } : {}),
@@ -91,7 +91,7 @@ function stringValue(value: unknown, fallback: string): string {
 function renderAutomationJobConfig(jobId: string, values: AutomationJobConfigChanges): string {
   const lines = [`[job.${JSON.stringify(jobId)}]`];
   lines.push(`schedule = ${JSON.stringify(values.schedule)}`);
-  if (values.harness) lines.push(`harness = ${JSON.stringify(values.harness)}`);
+  if (values.runtime) lines.push(`runtime = ${JSON.stringify(values.runtime)}`);
   if (values.prompt) lines.push(`prompt = ${renderTomlString(values.prompt)}`);
   if (values.output) lines.push(`output = ${JSON.stringify(values.output)}`);
   if (values.repo_filter) lines.push(`repo_filter = ${renderTomlString(values.repo_filter)}`);

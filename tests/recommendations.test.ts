@@ -99,6 +99,6 @@ describe("issue recommendations", () => {
       "herakles/issue-12-add-pull-request-workflow",
     );
 
-    expect(await Bun.file(first.reportPath).text()).toContain("AI harness inputs only");
+    expect(await Bun.file(first.reportPath).text()).toContain("agent runtime inputs only");
   });
 });

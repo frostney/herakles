@@ -36,7 +36,7 @@ const automationJobBodySchema = z
   .object({
     jobId: nonEmptyString,
     schedule: nonEmptyString,
-    harness: nonEmptyString,
+    runtime: nonEmptyString,
     prompt: z.string().optional(),
     output: z.string().optional(),
     repoFilter: z.string().optional(),
@@ -573,7 +573,7 @@ function projectConfigChanges(body: z.infer<typeof projectConfigBodySchema>) {
 function automationJobChanges(body: z.infer<typeof automationJobBodySchema>) {
   return {
     schedule: body.schedule,
-    harness: body.harness,
+    runtime: body.runtime,
     ...(body.prompt === undefined ? {} : { prompt: body.prompt }),
     ...(body.output === undefined ? {} : { output: body.output }),
     ...(body.repoFilter === undefined ? {} : { repo_filter: body.repoFilter }),

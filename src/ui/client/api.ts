@@ -70,7 +70,7 @@ export type ProjectConfigValues = {
 export type AutomationJobConfigInput = {
   jobId: string;
   schedule: string;
-  harness: string;
+  runtime: string;
   prompt?: string;
   output?: string;
   repoFilter?: string;

@@ -28,6 +28,6 @@ source = "local"
 
 [job.friday_summary]
 schedule = "00 16 * * FRI"
-harness = "codex"
+runtime = "codex"
 prompt = "Summarize the workspace."
 output = "weekly/{iso_week}.md"
