@@ -1,19 +1,48 @@
-# herakles
-Slay the multi-repository monster and manage multiple repositories with a simple interface.
+# Herakles
 
-Managing multiple repositories is hard. Trying to stay up-to-date on all your machines is even harder. You may have tried putting your repository in your Dropbox, a different cloud provider or using BitTorrent Sync. You might have a put code in a virtual machine and then sync'ed your virtual machine across multiple machines. (I did all those things!)
-But there are some shortcomings with all of those and chances are your repository is already centralized on Github, Bitbucket or on your own hosted platform, so we only need sync our repositories with that centralized repository.
+Herakles is a Bun-first TypeScript orchestrator for a personal Herakles Workspace: `_herakles/herakles.toml`, lifecycle folders, GitHub-backed projects, local experiments, generated reports, and recurring agent-runtime automation from one CLI and local browser UI.
 
-For anyone seeing this, this a small project for managing multiple repositories as a library and as a command-line interface. I am incubating and testing this over winter break 2015 to see if it's worth being turned into a real project or if it should stay as an experiment.
+## Install
 
-TODO:
-- [ ] Dogfood for a week
-- [ ] Unit tests
-- [ ] Scripts
+```sh
+bun install
+```
 
-Oberservations:
-- I'm not liking the tree-like structure with passing down `root` and `name`. Maybe have two with groups and repositories and repositories linking to the group. Not sure about the serialization though :/
-- Events shouldn't be static -> for 1.3.0+
-- Events should be more granular -> for 1.3.0+
+## Usage
 
-If you are a fan of the monorepo approach, you might want to check out lerna.
+Create a workspace, add a project, and spin it up:
+
+```sh
+bun run herakles init --root ~/Code
+bun run herakles add --root ~/Code --repo frostney/tool
+bun run herakles up --root ~/Code
+```
+
+Open the local UI:
+
+```sh
+bun run ui -- --root ~/Code --no-open
+```
+
+Run automation explicitly:
+
+```sh
+bun run herakles automate tick --root ~/Code
+```
+
+See [Quick Start](docs/quick-start.md) for add/import, drift, UI, and automation flows.
+
+## Background
+
+Herakles treats GitHub as the source for hosted repository facts and keeps `_herakles/herakles.toml` as the sparse tracked-project list plus orchestration config. Local experiments stay local unless explicitly promoted. Generated reports, caches, worktrees, locks, and run ledgers live under `_herakles` but outside the synced TOML.
+
+## Contribution
+
+Use Bun for local development. See [Tooling](docs/tooling.md) for checks.
+
+## References
+
+- [Documentation](docs/README.md)
+- [Decision Records](docs/adr/)
+- [Agent Instructions](AGENTS.md)
+- [License](LICENSE)

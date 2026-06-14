@@ -1,0 +1,33 @@
+version = 2
+
+[github]
+owners = []
+remote_style = "ssh"
+include_archived = true
+
+[up]
+exclude_topics = ["no-up"]
+
+[project."frostney-herakles"]
+source = "github"
+repo = "frostney/herakles"
+
+[project."paid-api"]
+source = "github"
+repo = "frostney/paid-api"
+state = "commercial"
+group = "clients"
+tags = ["strategic"]
+
+[project."old-tool"]
+source = "github"
+repo = "frostney/old-tool"
+
+[project."local-spike"]
+source = "local"
+
+[job.friday_summary]
+schedule = "00 16 * * FRI"
+runtime = "codex"
+prompt = "Summarize the workspace."
+output = "weekly/{iso_week}.md"
