@@ -1,17 +1,25 @@
 # Agent Instructions
 
+## Authoritative Docs
+
+- Product language: `CONTEXT.md`
+- System model: `docs/architecture.md`
+- Implementation conventions: `docs/code-style.md`
+- Development workflow: `docs/tooling.md`
+- Decisions: `docs/adr/`
+
+Read the relevant source before changing that area. Keep decisions in one place; do not restate architecture or code-style detail here.
+
 ## Hard Constraints
 
-- Source map: `CONTEXT.md` owns Herakles terms, `docs/architecture.md` owns the system model, `docs/code-style.md` owns implementation conventions, and `docs/adr/` owns decisions. Do not duplicate or override them here.
 - Use Bun for package management, scripts, tests, TOML parsing, serving, bundling, cron integration, and subprocess-oriented runtime code. Do not introduce npm, pnpm, yarn, or Vite.
 - Do not introduce project-local Herakles config, synced machine profiles, a remote sync API, or a generic remote shell/API endpoint.
 - Keep `_herakles/herakles.toml` as the canonical configuration. Do not introduce `herakles.local.toml`, project-local Herakles config, or alternate synced config files.
 - Keep generated state out of synced configuration. Local Herakles artifacts belong under ignored folders inside `_herakles`.
 - Treat the CLI and UI as control surfaces over the same core services; do not duplicate project resolution, workspace up planning, validation, scheduling, or config mutation logic in the UI.
+- Never silently move, delete, prune, push, or publish repositories.
 
 ## Runtime / Commands
-
-See `docs/tooling.md` for the full local workflow. Core checks:
 
 ```sh
 bun install
@@ -21,26 +29,20 @@ bunx tsc --noEmit
 bun run quality
 ```
 
-Use `bun run herakles -- <command>` for CLI smoke checks and `bun run ui -- --root <workspace> --no-open` for UI server smoke checks.
+Smoke CLI changes with `bun run herakles -- <command>`. Smoke UI changes with `bun run ui -- --root <workspace> --no-open`.
 
 ## Code Organization
 
-- `src/app.ts` is the service facade shared by CLI and API routes.
-- `src/cli/` contains Stricli command wiring only; command implementations should call shared services.
-- `src/api/` contains typed API routing and event streaming; it must not expose generic shell execution.
-- `src/project/`, `src/up/`, `src/lifecycle/`, and `src/config/` own project resolution, workspace spin-up, validation, and config writes.
-- `src/automation/` owns scheduling, locks, ledgers, and run context. `src/agent-runtime/` owns runtime dispatch.
-- `src/ui/client/` renders the browser UI over API client calls; keep plan/apply and read-only views aligned with the service contracts.
+Do not add a directory map here. Source ownership belongs in the implementation conventions doc.
 
 ## Testing
 
 - Use `bun test` for the full suite.
-- Add focused tests near the behavior surface being changed.
-- Prefer fake `git`, `gh`, and `codex` binaries or injected loaders over live network/tool mutation in tests.
+- Add focused tests near the behavior surface being changed; do not add tests that only restate implementation.
+- Prefer fake `git`, `gh`, and `codex` binaries or injected loaders over live network or tool mutation.
 - After UI-facing changes, smoke the Bun UI server with a temporary workspace when the in-app Browser tool is unavailable.
 
 ## Safety / Boundaries
 
-- Never silently move, delete, prune, push, or publish repositories. Use explicit typed plan/apply paths.
-- Herakles does not expose remote sync or generic shell APIs.
+- Use explicit typed plan/apply paths for repository operations.
 - Preserve user or generated changes. Do not revert unrelated files or use destructive Git commands unless explicitly requested.
