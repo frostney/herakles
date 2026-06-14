@@ -346,7 +346,7 @@ async function routeValidation(
 }
 
 async function routeUp(workspaceRoot: string, dryRun: boolean): Promise<Response> {
-  emitApiEvent("up-started", dryRun ? "workspace up plan started" : "workspace up started", {
+  emitApiEvent("up-started", dryRun ? "workspace up dry run started" : "workspace up started", {
     dryRun,
   });
   const result = await app.up(workspaceRoot, {
@@ -359,7 +359,7 @@ async function routeUp(workspaceRoot: string, dryRun: boolean): Promise<Response
       });
     },
   });
-  emitApiEvent("up-finished", dryRun ? "workspace up plan finished" : "workspace up finished", {
+  emitApiEvent("up-finished", dryRun ? "workspace up dry run finished" : "workspace up finished", {
     dryRun,
     results: result.length,
   });

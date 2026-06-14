@@ -493,10 +493,9 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
   };
 
   return (
-    <section className="panel">
+    <Modal title="Workspace Drift" onClose={() => setIgnoredPlanAt(result.generatedAt)}>
       <div className="panel-heading-row">
         <div>
-          <h2>Workspace Drift</h2>
           <p className="muted">
             Configuration expects {driftItems.length} workspace item
             {driftItems.length === 1 ? "" : "s"} that do not fully match disk.
@@ -507,7 +506,7 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
             Run Up
           </button>
           <button type="button" className="small-button" onClick={() => setReviewing(!reviewing)}>
-            {reviewing ? "Hide Plan" : "Review Plan"}
+            {reviewing ? "Hide Dry Run" : "Review Dry Run"}
           </button>
           <button
             type="button"
@@ -534,7 +533,7 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
       )}
       {upResult && <UpResultList result={upResult} />}
       {message && <p className={messageKind}>{message}</p>}
-    </section>
+    </Modal>
   );
 }
 
@@ -1080,15 +1079,15 @@ function SettingsScreen() {
       setBusy(false);
     }
   };
-  const runUp = async (plan: boolean) => {
+  const runUp = async (dryRun: boolean) => {
     setBusy(true);
     setMessage("");
     try {
-      setUpResult(await postUp({ plan }));
+      setUpResult(await postUp({ dryRun }));
       refreshStatus();
       refreshDoctor();
       setMessageKind("success");
-      setMessage(plan ? "Workspace up plan complete." : "Workspace up complete.");
+      setMessage(dryRun ? "Workspace up dry run complete." : "Workspace up complete.");
     } catch (error) {
       setMessageKind("error");
       setMessage(String(error));
@@ -1105,7 +1104,7 @@ function SettingsScreen() {
             Refresh Projects
           </button>
           <button type="button" onClick={() => runUp(true)} disabled={busy}>
-            Plan Up
+            Dry Run Up
           </button>
           <button type="button" onClick={() => runUp(false)} disabled={busy}>
             Run Up

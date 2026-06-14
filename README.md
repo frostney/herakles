@@ -22,9 +22,9 @@ Add, import, inspect, and spin up projects:
 
 ```sh
 bun run herakles add --root ~/Code --repo frostney/tool
-bun run herakles add --root ~/Code --source local --id local-spike
+bun run herakles add --root ~/Code --source local --name local-spike
 bun run herakles projects import --root ~/Code --repo frostney/tool --repo frostney/app
-bun run herakles up --root ~/Code --plan
+bun run herakles up --root ~/Code --dry-run
 bun run herakles up --root ~/Code
 bun run herakles projects refresh --root ~/Code
 bun run herakles projects list --root ~/Code

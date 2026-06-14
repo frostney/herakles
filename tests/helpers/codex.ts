@@ -18,6 +18,18 @@ async function fakeCodexBin(script: string): Promise<string> {
   await writeFile(
     join(bin, "codex"),
     `#!/bin/sh
+if [ "$1" = "exec" ] && [ "$2" = "--help" ]; then
+cat <<'HELP'
+Usage: codex exec [OPTIONS] [PROMPT]
+  -p, --profile <CONFIG_PROFILE_V2>
+  -s, --sandbox <SANDBOX_MODE>
+  -C, --cd <DIR>
+      --skip-git-repo-check
+      --json
+  -o, --output-last-message <FILE>
+HELP
+exit 0
+fi
 ${script}
 `,
   );

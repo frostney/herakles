@@ -9,8 +9,10 @@ import { withFakeCodex } from "./helpers/codex";
 describe("Codex report-only integration", () => {
   test("passes the prepared prompt and context to codex exec stdin", async () => {
     const workspace = await tempCodexWorkspace("herakles-codex-");
+    const argvPath = join(workspace.root, "codex-argv.txt");
     await withFakeCodex(
-      `out=""
+      `printf '%s\\n' "$*" > ${JSON.stringify(argvPath)}
+out=""
 previous=""
 for arg in "$@"; do
   if [ "$previous" = "--output-last-message" ]; then
@@ -33,6 +35,10 @@ printf '{"event":"done"}\\n'
         expect(await Bun.file(workspace.reportPath).text()).toBe(
           "Summarize this.\n\nProject context.",
         );
+        const argv = await Bun.file(argvPath).text();
+        expect(argv).toContain("--skip-git-repo-check");
+        expect(argv).not.toContain("--ask-for-approval");
+        expect(argv.trim().endsWith(" -")).toBe(true);
       },
     );
   });

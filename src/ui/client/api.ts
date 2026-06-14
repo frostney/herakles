@@ -212,8 +212,8 @@ export async function postValidate(options: { strict?: boolean } = {}): Promise<
   return post(`/api/validate${options.strict ? "?strict=true" : ""}`);
 }
 
-export async function postUp(options: { plan?: boolean } = {}): Promise<UpRunResult> {
-  return post(options.plan ? "/api/up/plan" : "/api/up");
+export async function postUp(options: { dryRun?: boolean } = {}): Promise<UpRunResult> {
+  return post(options.dryRun ? "/api/up/plan" : "/api/up");
 }
 
 export async function postAutomationTick() {

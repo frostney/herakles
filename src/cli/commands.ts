@@ -798,12 +798,12 @@ const projectsDiscoveryCommand = buildCommand<CommonFlags>({
   },
 });
 
-const upCommand = buildCommand<CommonFlags & { plan?: boolean }>({
+const upCommand = buildCommand<CommonFlags & { dryRun?: boolean }>({
   docs: { brief: "Spin up the Herakles Workspace from its configuration." },
   parameters: {
     flags: {
       ...commonFlags,
-      plan: {
+      dryRun: {
         kind: "boolean",
         optional: true,
         brief: "Explain workspace actions without running git.",
@@ -811,7 +811,7 @@ const upCommand = buildCommand<CommonFlags & { plan?: boolean }>({
     },
   },
   async func(flags) {
-    const result = await app.up(root(flags), { dryRun: flags.plan === true });
+    const result = await app.up(root(flags), { dryRun: flags.dryRun === true });
     if (shouldJson(flags)) return printJson(result);
     printTable(
       result.map((entry) => ({
