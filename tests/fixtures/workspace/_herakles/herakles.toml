@@ -1,5 +1,4 @@
 version = 2
-timezone = "Europe/London"
 
 [github]
 owners = []
@@ -29,5 +28,6 @@ source = "local"
 
 [job.friday_summary]
 schedule = "00 16 * * FRI"
-mode = "summary"
+harness = "codex"
+prompt = "Summarize the workspace."
 output = "weekly/{iso_week}.md"

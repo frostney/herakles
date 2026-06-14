@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { ensureConfigScaffold } from "./load";
 
 const sampleConfig = `version = 2
-timezone = "Europe/London"
 
 [github]
 owners = []
@@ -13,8 +12,14 @@ include_archived = true
 
 [job.review_context]
 schedule = "0 */4 * * *"
-slot_timezone = "UTC"
-mode = "coderabbit-review"
+harness = "codex"
+prompt = '''
+# Review Context
+
+Use the Herakles automation context below to prepare a review follow-up report.
+
+Focus on unresolved review context, stale pull requests, and concrete next actions. Do not write code, create branches, push commits, or mutate GitHub.
+'''
 output = "reviews/{slot}.md"
 repo_filter = '''
 not archived
@@ -23,8 +28,7 @@ and not has_topic("no-agent")
 
 [job.morning_next_work]
 schedule = "30 08 * * 1-5"
-slot_timezone = "Europe/London"
-mode = "recommendation-only"
+harness = "codex"
 prompt = '''
 # Morning Next Work
 
@@ -40,8 +44,14 @@ and has_roadmap
 
 [job.evening_issues]
 schedule = "00 19 * * 1-5"
-slot_timezone = "Europe/London"
-mode = "implementation-plan"
+harness = "codex"
+prompt = '''
+# Evening Issue Planning
+
+Use the Herakles automation context below to recommend implementation planning candidates.
+
+Focus on issues with the configured labels, explain why they are ready or risky, and return planning recommendations only. Do not write code, create branches, push commits, or mutate GitHub.
+'''
 issue_labels = ["well-defined", "ready-for-agent"]
 output = "evening/{date}.md"
 repo_filter = '''
@@ -51,8 +61,7 @@ and not has_topic("no-agent")
 
 [job.friday_summary]
 schedule = "00 16 * * FRI"
-slot_timezone = "Europe/London"
-mode = "summary"
+harness = "codex"
 prompt = '''
 # Friday Summary
 
@@ -64,8 +73,7 @@ output = "weekly/{iso_week}.md"
 
 [job.monday_maintenance]
 schedule = "00 09 * * MON"
-slot_timezone = "Europe/London"
-mode = "maintenance-candidates"
+harness = "codex"
 prompt = '''
 # Monday Maintenance
 

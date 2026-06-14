@@ -28,6 +28,7 @@ import type {
   ProjectState,
   ReportDetail,
   ReportSummary,
+  UpPlan,
   ValidationIssue,
   ValidationResult,
 } from "../../domain";
@@ -52,6 +53,7 @@ import {
   getReport,
   getReports,
   getStatus,
+  getUpPlan,
   postAddProject,
   postAutomationJobApply,
   postAutomationJobPlan,
@@ -304,10 +306,20 @@ function automationRunTime(run: AutomationRun) {
 
 function Projects() {
   const [projects, refresh] = useResource(getProjects);
+  const [upPlan, refreshUpPlan] = useResource(getUpPlan);
   const [query, setQuery] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const refreshProjects = () => {
+    refresh();
+    refreshUpPlan();
+  };
   useRefreshOnEvents(refresh, ["projects-refresh-finished", "up-finished", "validation-updated"]);
+  useRefreshOnEvents(refreshUpPlan, [
+    "projects-refresh-finished",
+    "up-finished",
+    "validation-updated",
+  ]);
   const filtered = useMemo(() => {
     if (projects.status !== "ready") return [];
     const needle = query.toLowerCase();
@@ -325,16 +337,19 @@ function Projects() {
           <button type="button" onClick={() => setImportOpen(true)}>
             Import from GitHub
           </button>
-          <IconButton label="Refresh" onClick={refresh} icon={<RefreshCcw size={16} />} />
+          <IconButton label="Refresh" onClick={refreshProjects} icon={<RefreshCcw size={16} />} />
         </>
       }
     >
-      <AddProjectPanel onChanged={refresh} />
+      <AddProjectPanel onChanged={refreshProjects} />
+      {upPlan.status === "ready" ? (
+        <WorkspaceDriftPanel result={upPlan.data} onChanged={refreshProjects} />
+      ) : null}
       {importOpen && (
         <Modal title="Import from GitHub" onClose={() => setImportOpen(false)}>
           <GitHubImportPanel
             onChanged={() => {
-              refresh();
+              refreshProjects();
               setImportOpen(false);
             }}
           />
@@ -350,14 +365,13 @@ function Projects() {
             projects={filtered}
             selectedProjectId={selectedProjectId}
             onSelectProject={setSelectedProjectId}
-            onRemove={refresh}
-            onCheckout={refresh}
+            onRemove={refreshProjects}
           />
           <ProjectSettingsPanel
             projects={projects.data}
             selectedProjectId={selectedProjectId}
             onApplied={() => {
-              refresh();
+              refreshProjects();
               setSelectedProjectId("");
             }}
           />
@@ -375,7 +389,6 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
   const [name, setName] = useState("");
   const [group, setGroup] = useState("");
   const [tags, setTags] = useState("");
-  const [state, setState] = useState<ProjectState | "infer">("infer");
   const [message, setMessage] = useState("");
   const add = async () => {
     setMessage("");
@@ -387,17 +400,15 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
         ...(source === "local" ? { name } : {}),
         ...(group.trim() ? { group: group.trim() } : {}),
         ...(tagList.length > 0 ? { tags: tagList } : {}),
-        ...(state === "infer" ? {} : { state }),
       });
       if (source === "github") {
         assertCheckoutSucceeded(await postCheckoutProject(result.projectId));
       }
-      setMessage(source === "github" ? "Project added and checked out." : "Project added.");
+      setMessage(source === "github" ? "Project added and workspace updated." : "Project added.");
       setRepo("");
       setName("");
       setGroup("");
       setTags("");
-      setState("infer");
       onChanged();
     } catch (error) {
       setMessage(String(error));
@@ -436,21 +447,6 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
             />
           </label>
         )}
-        <label htmlFor="add-project-state">
-          <span>Lifecycle</span>
-          <select
-            id="add-project-state"
-            value={state}
-            onChange={(event) => setState(event.target.value as ProjectState | "infer")}
-          >
-            <option value="infer">infer</option>
-            <option value="experiment">experiment</option>
-            <option value="candidate">candidate</option>
-            <option value="commercial">commercial</option>
-            <option value="open-source">open-source</option>
-            <option value="archived">archived</option>
-          </select>
-        </label>
         <label>
           <span>Group</span>
           <input value={group} onChange={(event) => setGroup(event.target.value)} />
@@ -464,6 +460,80 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
         <Plus size={16} aria-hidden /> Add Project
       </button>
       {message && <p className={message.includes("added") ? "success" : "error"}>{message}</p>}
+    </section>
+  );
+}
+
+function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged: () => void }) {
+  const [ignoredPlanAt, setIgnoredPlanAt] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  const [upResult, setUpResult] = useState<UpRunResult>();
+  const [message, setMessage] = useState("");
+  const [messageKind, setMessageKind] = useState<"success" | "error">("success");
+  const [busy, setBusy] = useState(false);
+  const driftItems = result.items.filter((item) => item.action !== "skip");
+  const ignored = ignoredPlanAt === result.generatedAt;
+
+  if (ignored || driftItems.length === 0) return null;
+
+  const runUp = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      setUpResult(await postUp());
+      setMessageKind("success");
+      setMessage("Workspace up complete.");
+      onChanged();
+    } catch (error) {
+      setMessageKind("error");
+      setMessage(String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="panel">
+      <div className="panel-heading-row">
+        <div>
+          <h2>Workspace Drift</h2>
+          <p className="muted">
+            Configuration expects {driftItems.length} workspace item
+            {driftItems.length === 1 ? "" : "s"} that do not fully match disk.
+          </p>
+        </div>
+        <div className="row-actions">
+          <button type="button" onClick={runUp} disabled={busy}>
+            Run Up
+          </button>
+          <button type="button" className="small-button" onClick={() => setReviewing(!reviewing)}>
+            {reviewing ? "Hide Plan" : "Review Plan"}
+          </button>
+          <button
+            type="button"
+            className="small-button"
+            onClick={() => setIgnoredPlanAt(result.generatedAt)}
+          >
+            Ignore
+          </button>
+        </div>
+      </div>
+      {reviewing && (
+        <div className="list">
+          {driftItems.map((item) => (
+            <article className="list-row" key={`${item.project.id}-${item.action}`}>
+              <div>
+                <strong>{item.project.repo}</strong>
+                <span>{item.reason}</span>
+                <span className="mono">{item.project.path}</span>
+              </div>
+              <span className="badge">{item.action}</span>
+            </article>
+          ))}
+        </div>
+      )}
+      {upResult && <UpResultList result={upResult} />}
+      {message && <p className={messageKind}>{message}</p>}
     </section>
   );
 }
@@ -499,13 +569,13 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
     }
     try {
       const imported = await postImportProjects(projects);
-      const checkout = await Promise.all(
+      const up = await Promise.all(
         imported.map((project) => postCheckoutProject(project.projectId)),
       );
-      for (const result of checkout) assertCheckoutSucceeded(result);
+      for (const result of up) assertCheckoutSucceeded(result);
       setSelected({});
       setMessage(
-        `Imported and checked out ${projects.length} project${projects.length === 1 ? "" : "s"}.`,
+        `Imported and updated ${projects.length} project${projects.length === 1 ? "" : "s"}.`,
       );
       refresh();
       onChanged();
@@ -1076,22 +1146,28 @@ function UpResultPanel({ result }: { result: UpRunResult }) {
       {result.length === 0 ? (
         <p className="empty">No eligible hosted projects.</p>
       ) : (
-        <div className="list">
-          {result.map((item) => (
-            <article
-              className="list-row"
-              key={`${item.item.project.id}-${item.item.action}-${item.status}`}
-            >
-              <div>
-                <strong>{item.item.project.repo}</strong>
-                <span>{item.message}</span>
-              </div>
-              <span className={`badge ${item.status}`}>{item.status}</span>
-            </article>
-          ))}
-        </div>
+        <UpResultList result={result} />
       )}
     </section>
+  );
+}
+
+function UpResultList({ result }: { result: UpRunResult }) {
+  return (
+    <div className="list">
+      {result.map((item) => (
+        <article
+          className="list-row"
+          key={`${item.item.project.id}-${item.item.action}-${item.status}`}
+        >
+          <div>
+            <strong>{item.item.project.repo}</strong>
+            <span>{item.message}</span>
+          </div>
+          <span className={`badge ${item.status}`}>{item.status}</span>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -1271,7 +1347,6 @@ type ProjectTableProps =
       selectedProjectId: string;
       onSelectProject: (id: string) => void;
       onRemove: () => void;
-      onCheckout: () => void;
     };
 
 function ProjectTable(props: ProjectTableProps) {
@@ -1290,7 +1365,7 @@ function CompactProjectTable({ projects }: { projects: Project[] }) {
         <tr>
           <th>Project</th>
           <th>State</th>
-          <th>Checkout eligible</th>
+          <th>Workspace up</th>
         </tr>
       }
     >
@@ -1316,13 +1391,11 @@ function FullProjectTable({
   selectedProjectId,
   onSelectProject,
   onRemove,
-  onCheckout,
 }: {
   projects: Project[];
   selectedProjectId: string;
   onSelectProject: (id: string) => void;
   onRemove: () => void;
-  onCheckout: () => void;
 }) {
   return (
     <ProjectTableShell
@@ -1331,10 +1404,9 @@ function FullProjectTable({
           <th>Project</th>
           <th>Source</th>
           <th>State</th>
-          <th>Checkout eligible</th>
+          <th>Workspace up</th>
           <th>Settings</th>
           <th>Path</th>
-          <th>Checkout</th>
           <th>Tracking</th>
         </tr>
       }
@@ -1343,7 +1415,6 @@ function FullProjectTable({
         <FullProjectTableRow
           key={project.id}
           onRemove={onRemove}
-          onCheckout={onCheckout}
           onSelectProject={onSelectProject}
           project={project}
           selectedProjectId={selectedProjectId}
@@ -1372,13 +1443,11 @@ function ProjectTableShell({
 
 function FullProjectTableRow({
   onRemove,
-  onCheckout,
   onSelectProject,
   project,
   selectedProjectId,
 }: {
   onRemove: () => void;
-  onCheckout: () => void;
   onSelectProject: (id: string) => void;
   project: Project;
   selectedProjectId: string;
@@ -1395,7 +1464,6 @@ function FullProjectTableRow({
         selectedProjectId={selectedProjectId}
       />
       <td className="mono">{project.path}</td>
-      <ProjectCheckoutCell onCheckout={onCheckout} project={project} />
       <ProjectRemoveCell onRemove={onRemove} project={project} />
     </tr>
   );
@@ -1420,43 +1488,6 @@ function yesNo(value: boolean) {
 
 function projectName(project: Project) {
   return project.repo;
-}
-
-function ProjectCheckoutCell({
-  onCheckout,
-  project,
-}: { onCheckout: () => void; project: Project }) {
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string }>();
-  const checkout = async () => {
-    setBusy(true);
-    setMessage(undefined);
-    try {
-      const results = await postCheckoutProject(project.id);
-      assertCheckoutSucceeded(results);
-      setMessage({ kind: "success", text: results.map((result) => result.message).join("; ") });
-      onCheckout();
-    } catch (error) {
-      setMessage({ kind: "error", text: String(error) });
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (project.source !== "github") {
-    return (
-      <td>
-        <span className="muted">local</span>
-      </td>
-    );
-  }
-  return (
-    <td>
-      <button type="button" className="small-button" disabled={busy} onClick={checkout}>
-        Checkout
-      </button>
-      {message && <span className={message.kind}>{message.text}</span>}
-    </td>
-  );
 }
 
 function ProjectSettingsCell({
@@ -1546,7 +1577,7 @@ function projectDetailItems(project: Project): DetailItemModel[] {
     { label: "Source", value: project.source },
     { label: "State", value: project.state },
     { label: "Visibility", value: project.visibility ?? "local" },
-    { label: "Checkout eligible", value: project.up ? "yes" : "no" },
+    { label: "Workspace up", value: project.up ? "yes" : "no" },
     { label: "Automation", value: project.automationEnabled ? "yes" : "no" },
     { label: "Path", value: project.path, mono: true },
   ];
@@ -2140,6 +2171,7 @@ function AutomationPanel({
               <article className="list-row" key={job.id}>
                 <div>
                   <strong>{job.id}</strong>
+                  <span>{humanSchedule(job.schedule)}</span>
                   <span>{automationJobDescription(job)}</span>
                   {job.prompt && <span>{job.prompt.slice(0, 120)}</span>}
                 </div>
@@ -2339,8 +2371,11 @@ function AutomationJobFields({
         />
       </label>
       <label>
-        <span>Mode</span>
-        <input value={form.mode} onChange={(event) => onUpdate({ mode: event.target.value })} />
+        <span>Harness</span>
+        <input
+          value={form.harness}
+          onChange={(event) => onUpdate({ harness: event.target.value })}
+        />
       </label>
       <label>
         <span>Output</span>
@@ -2357,6 +2392,20 @@ function AutomationJobFields({
         />
       </label>
       <label>
+        <span>Include tags</span>
+        <input
+          value={(form.includeTags ?? []).join(", ")}
+          onChange={(event) => onUpdate({ includeTags: splitCsv(event.target.value) })}
+        />
+      </label>
+      <label>
+        <span>Exclude tags</span>
+        <input
+          value={(form.excludeTags ?? []).join(", ")}
+          onChange={(event) => onUpdate({ excludeTags: splitCsv(event.target.value) })}
+        />
+      </label>
+      <label>
         <span>Issue labels</span>
         <input
           value={(form.issueLabels ?? []).join(", ")}
@@ -2368,13 +2417,6 @@ function AutomationJobFields({
         <input
           value={form.skill ?? ""}
           onChange={(event) => onUpdate({ skill: event.target.value })}
-        />
-      </label>
-      <label>
-        <span>Timezone</span>
-        <input
-          value={form.slotTimezone ?? ""}
-          onChange={(event) => onUpdate({ slotTimezone: event.target.value })}
         />
       </label>
       <label className="checkbox-label">
@@ -2440,10 +2482,12 @@ function automationJobInput(job: AutomationJob | undefined): AutomationJobConfig
     return {
       jobId: "",
       schedule: "0 9 * * 1-5",
-      mode: "recommendation-only",
+      harness: "codex",
       prompt: "",
       output: "automation/{date}.md",
       repoFilter: "not archived",
+      includeTags: [],
+      excludeTags: [],
       issueLabels: [],
       enabled: true,
     };
@@ -2451,13 +2495,14 @@ function automationJobInput(job: AutomationJob | undefined): AutomationJobConfig
   return {
     jobId: job.id,
     schedule: job.schedule,
-    mode: job.mode,
+    harness: job.harness,
     prompt: job.prompt ?? "",
     output: job.output ?? "",
     repoFilter: job.repoFilter ?? "",
+    includeTags: job.includeTags,
+    excludeTags: job.excludeTags,
     issueLabels: job.issueLabels,
     skill: job.skill ?? "",
-    slotTimezone: job.slotTimezone ?? "",
     enabled: job.enabled,
   };
 }
@@ -2466,15 +2511,31 @@ function normalizeAutomationJobInput(input: AutomationJobConfigInput): Automatio
   return {
     jobId: input.jobId.trim(),
     schedule: input.schedule.trim(),
-    mode: input.mode.trim(),
-    ...(input.prompt?.trim() ? { prompt: input.prompt } : {}),
-    ...(input.output?.trim() ? { output: input.output.trim() } : {}),
-    ...(input.repoFilter?.trim() ? { repoFilter: input.repoFilter.trim() } : {}),
-    ...(input.issueLabels?.length ? { issueLabels: input.issueLabels } : {}),
-    ...(input.skill?.trim() ? { skill: input.skill.trim() } : {}),
-    ...(input.slotTimezone?.trim() ? { slotTimezone: input.slotTimezone.trim() } : {}),
+    harness: input.harness.trim(),
+    ...optionalText("prompt", input.prompt),
+    ...optionalText("output", input.output),
+    ...optionalText("repoFilter", input.repoFilter),
+    ...optionalList("includeTags", input.includeTags),
+    ...optionalList("excludeTags", input.excludeTags),
+    ...optionalList("issueLabels", input.issueLabels),
+    ...optionalText("skill", input.skill),
     enabled: input.enabled !== false,
   };
+}
+
+function optionalText<K extends keyof AutomationJobConfigInput>(
+  key: K,
+  value: string | undefined,
+): Partial<AutomationJobConfigInput> {
+  const trimmed = value?.trim();
+  return trimmed ? ({ [key]: trimmed } as Partial<AutomationJobConfigInput>) : {};
+}
+
+function optionalList<K extends keyof AutomationJobConfigInput>(
+  key: K,
+  value: string[] | undefined,
+): Partial<AutomationJobConfigInput> {
+  return value?.length ? ({ [key]: value } as Partial<AutomationJobConfigInput>) : {};
 }
 
 function splitCsv(value: string): string[] {
@@ -2485,11 +2546,93 @@ function splitCsv(value: string): string[] {
 }
 
 function automationJobDescription(job: AutomationPayload["jobs"][number]) {
-  const parts = [job.mode];
+  const parts = [`harness ${job.harness}`];
   if (job.skill) parts.push(`skill ${job.skill}`);
+  if (job.includeTags.length) parts.push(`include tags ${job.includeTags.join(", ")}`);
+  if (job.excludeTags.length) parts.push(`exclude tags ${job.excludeTags.join(", ")}`);
   if (job.issueLabels.length) parts.push(`labels ${job.issueLabels.join(", ")}`);
   if (job.repoFilter) parts.push(`filter ${job.repoFilter.replace(/\s+/g, " ").trim()}`);
   return parts.join(" / ");
+}
+
+function humanSchedule(schedule: string) {
+  const fields = cronFields(schedule);
+  return fields ? (scheduleSummary(fields) ?? "Custom schedule") : "Custom schedule";
+}
+
+type CronFields = {
+  minute: string;
+  hour: string;
+  dayOfMonth: string;
+  month: string;
+  dayOfWeek: string;
+};
+
+function cronFields(schedule: string): CronFields | undefined {
+  const [minute, hour, dayOfMonth, month, dayOfWeek, extra] = schedule.trim().split(/\s+/);
+  if (extra || !minute || !hour || !dayOfMonth || !month || !dayOfWeek) return undefined;
+  return { minute, hour, dayOfMonth, month, dayOfWeek };
+}
+
+function scheduleSummary(fields: CronFields): string | undefined {
+  return [everyNHoursSummary, fixedTimeSummary]
+    .map((summarize) => summarize(fields))
+    .find((summary): summary is string => Boolean(summary));
+}
+
+function everyNHoursSummary(fields: CronFields): string | undefined {
+  return fields.minute === "0" &&
+    fields.hour.startsWith("*/") &&
+    fields.dayOfMonth === "*" &&
+    fields.month === "*" &&
+    fields.dayOfWeek === "*"
+    ? `Every ${fields.hour.slice(2)} hours`
+    : undefined;
+}
+
+function fixedTimeSummary(fields: CronFields): string | undefined {
+  const time = cronTime(fields.minute, fields.hour);
+  if (!time || fields.dayOfMonth !== "*" || fields.month !== "*") return undefined;
+  return fixedTimeDaySummary(fields.dayOfWeek, time);
+}
+
+function fixedTimeDaySummary(dayOfWeek: string, time: string): string | undefined {
+  const weekday = cronWeekday(dayOfWeek);
+  const summaries: Record<string, string> = {
+    "*": `Daily at ${time}`,
+    "1-5": `Weekdays at ${time}`,
+    "MON-FRI": `Weekdays at ${time}`,
+  };
+  return summaries[dayOfWeek.toUpperCase()] ?? (weekday ? `${weekday}s at ${time}` : undefined);
+}
+
+function cronTime(minute: string, hour: string): string | undefined {
+  if (!isCronNumber(minute, 59) || !isCronNumber(hour, 23)) return undefined;
+  return `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+}
+
+function isCronNumber(value: string, max: number) {
+  return /^\d{1,2}$/.test(value) && Number(value) <= max;
+}
+
+function cronWeekday(value: string): string | undefined {
+  const weekdays: Record<string, string> = {
+    "0": "Sunday",
+    "1": "Monday",
+    "2": "Tuesday",
+    "3": "Wednesday",
+    "4": "Thursday",
+    "5": "Friday",
+    "6": "Saturday",
+    SUN: "Sunday",
+    MON: "Monday",
+    TUE: "Tuesday",
+    WED: "Wednesday",
+    THU: "Thursday",
+    FRI: "Friday",
+    SAT: "Saturday",
+  };
+  return weekdays[value.toUpperCase()];
 }
 
 function DoctorPanel({ data, title = "Doctor" }: { data: DoctorResult; title?: string }) {

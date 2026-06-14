@@ -4,13 +4,14 @@ import { renderTomlDiff, replaceTomlBlock } from "./toml-block";
 
 export type AutomationJobConfigChanges = {
   schedule: string;
-  mode: string;
+  harness?: string;
   prompt?: string;
   output?: string;
   repo_filter?: string;
+  include_tags?: string[];
+  exclude_tags?: string[];
   issue_labels?: string[];
   skill?: string;
-  slot_timezone?: string;
   enabled?: boolean;
 };
 
@@ -57,10 +58,20 @@ export async function applyAutomationJobConfigPlan(
 function compactJobConfig(values: Record<string, unknown>): AutomationJobConfigChanges {
   return {
     schedule: stringValue(values.schedule, "*/5 * * * *"),
-    mode: stringValue(values.mode, "summary"),
+    ...(typeof values.harness === "string" ? { harness: values.harness } : {}),
     ...(typeof values.prompt === "string" ? { prompt: values.prompt } : {}),
     ...(typeof values.output === "string" ? { output: values.output } : {}),
     ...(typeof values.repo_filter === "string" ? { repo_filter: values.repo_filter } : {}),
+    ...(Array.isArray(values.include_tags)
+      ? {
+          include_tags: values.include_tags.filter((tag): tag is string => typeof tag === "string"),
+        }
+      : {}),
+    ...(Array.isArray(values.exclude_tags)
+      ? {
+          exclude_tags: values.exclude_tags.filter((tag): tag is string => typeof tag === "string"),
+        }
+      : {}),
     ...(Array.isArray(values.issue_labels)
       ? {
           issue_labels: values.issue_labels.filter(
@@ -69,7 +80,6 @@ function compactJobConfig(values: Record<string, unknown>): AutomationJobConfigC
         }
       : {}),
     ...(typeof values.skill === "string" ? { skill: values.skill } : {}),
-    ...(typeof values.slot_timezone === "string" ? { slot_timezone: values.slot_timezone } : {}),
     ...(typeof values.enabled === "boolean" ? { enabled: values.enabled } : {}),
   };
 }
@@ -81,11 +91,20 @@ function stringValue(value: unknown, fallback: string): string {
 function renderAutomationJobConfig(jobId: string, values: AutomationJobConfigChanges): string {
   const lines = [`[job.${JSON.stringify(jobId)}]`];
   lines.push(`schedule = ${JSON.stringify(values.schedule)}`);
-  if (values.slot_timezone) lines.push(`slot_timezone = ${JSON.stringify(values.slot_timezone)}`);
-  lines.push(`mode = ${JSON.stringify(values.mode)}`);
+  if (values.harness) lines.push(`harness = ${JSON.stringify(values.harness)}`);
   if (values.prompt) lines.push(`prompt = ${renderTomlString(values.prompt)}`);
   if (values.output) lines.push(`output = ${JSON.stringify(values.output)}`);
   if (values.repo_filter) lines.push(`repo_filter = ${renderTomlString(values.repo_filter)}`);
+  if (values.include_tags?.length) {
+    lines.push(
+      `include_tags = [${values.include_tags.map((tag) => JSON.stringify(tag)).join(", ")}]`,
+    );
+  }
+  if (values.exclude_tags?.length) {
+    lines.push(
+      `exclude_tags = [${values.exclude_tags.map((tag) => JSON.stringify(tag)).join(", ")}]`,
+    );
+  }
   if (values.issue_labels?.length) {
     lines.push(
       `issue_labels = [${values.issue_labels.map((label) => JSON.stringify(label)).join(", ")}]`,

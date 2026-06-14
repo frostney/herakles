@@ -13,6 +13,7 @@ import type {
   ProjectState,
   ReportDetail,
   ReportSummary,
+  UpPlan,
   ValidationResult,
 } from "../../domain";
 
@@ -69,13 +70,14 @@ export type ProjectConfigValues = {
 export type AutomationJobConfigInput = {
   jobId: string;
   schedule: string;
-  mode: string;
+  harness: string;
   prompt?: string;
   output?: string;
   repoFilter?: string;
+  includeTags?: string[];
+  excludeTags?: string[];
   issueLabels?: string[];
   skill?: string;
-  slotTimezone?: string;
   enabled?: boolean;
 };
 
@@ -146,6 +148,10 @@ export async function getAutomations(): Promise<AutomationPayload> {
 
 export async function getHostedImportCandidates(): Promise<HostedImportCandidate[]> {
   return get("/api/projects/import-candidates");
+}
+
+export async function getUpPlan(): Promise<UpPlan> {
+  return get("/api/up/plan");
 }
 
 export async function getDoctor(): Promise<DoctorResult> {

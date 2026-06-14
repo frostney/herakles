@@ -29,7 +29,6 @@ const projectConfigSchema = z
 
 export const heraklesConfigSchema = z.object({
   version: z.number().default(2),
-  timezone: z.string().default("Europe/London"),
   github: z
     .object({
       owners: z.array(z.string()).default([]),

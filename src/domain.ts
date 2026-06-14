@@ -180,13 +180,14 @@ export type CodexRunResult = {
 export type AutomationJob = {
   id: string;
   schedule: string;
-  mode: string;
+  harness: string;
   prompt?: string;
   output?: string;
   repoFilter?: string;
+  includeTags: string[];
+  excludeTags: string[];
   issueLabels: string[];
   skill?: string;
-  slotTimezone?: string;
   enabled: boolean;
 };
 

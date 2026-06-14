@@ -3,40 +3,18 @@ import { join } from "node:path";
 import { runCodexReportOnly } from "../codex";
 import type { LoadedConfig } from "../config/load";
 import { resolveUnder } from "../config/paths";
-import type {
-  AutomationDueSlot,
-  AutomationJob,
-  AutomationRun,
-  GitHubIssue,
-  GitHubPullRequest,
-  GitHubReviewThread,
-  Project,
-} from "../domain";
+import type { AutomationDueSlot, AutomationJob, AutomationRun, Project } from "../domain";
 import { matchesProjectFilter } from "../filters/project";
-import { generateCodeRabbitRecommendations } from "../recommendations/coderabbit";
-import { generateIssueRecommendations } from "../recommendations/issues";
-import { listReports, reportsRoot, writeReport } from "../reports";
+import { listReports, reportsRoot } from "../reports";
 import { appendRuns, hasSuccessfulRun, listRuns } from "./ledger";
 import { claimLock } from "./locks";
 import { dueSlotForJob, dueSlotsForJobBetween } from "./schedule";
 import { isoWeekKey } from "./time";
 
-type IssueLoader = (
-  projects: readonly Project[],
-  labels: readonly string[],
-) => Promise<GitHubIssue[]>;
-
-type CodeRabbitPullRequestLoader = (projects: readonly Project[]) => Promise<GitHubPullRequest[]>;
-
-type CodeRabbitThreadLoader = (repo: string, prNumber: number) => Promise<GitHubReviewThread[]>;
-
 type AutomationRunOptions = {
   catchUp?: boolean;
   now?: Date;
   projects?: Project[];
-  issueLoader?: IssueLoader;
-  codeRabbitPullRequestLoader?: CodeRabbitPullRequestLoader;
-  codeRabbitThreadLoader?: CodeRabbitThreadLoader;
 };
 
 export function configuredJobs(loaded: LoadedConfig): AutomationJob[] {
@@ -45,15 +23,16 @@ export function configuredJobs(loaded: LoadedConfig): AutomationJob[] {
     const automationJob: AutomationJob = {
       id,
       schedule: String(job.schedule ?? "*/5 * * * *"),
-      mode: String(job.mode ?? "summary"),
+      harness: String(job.harness ?? "codex"),
       issueLabels: stringList(job.issue_labels),
+      includeTags: stringList(job.include_tags),
+      excludeTags: stringList(job.exclude_tags),
       enabled: job.enabled !== false,
     };
     if (typeof job.prompt === "string") automationJob.prompt = job.prompt;
     if (typeof job.output === "string") automationJob.output = job.output;
     if (typeof job.repo_filter === "string") automationJob.repoFilter = job.repo_filter;
     if (typeof job.skill === "string") automationJob.skill = job.skill;
-    if (typeof job.slot_timezone === "string") automationJob.slotTimezone = job.slot_timezone;
     return automationJob;
   });
 }
@@ -62,7 +41,7 @@ export function dueSlots(loaded: LoadedConfig, now = new Date()): AutomationDueS
   if (!loaded.config.automation.enabled) return [];
   return configuredJobs(loaded)
     .filter((job) => job.enabled)
-    .map((job) => dueSlotForJob(job, now, loaded.config.timezone))
+    .map((job) => dueSlotForJob(job, now))
     .filter((slot): slot is AutomationDueSlot => Boolean(slot));
 }
 
@@ -78,16 +57,7 @@ export async function automateTick(
     const job = jobs.get(slot.jobId);
     if (!job) continue;
     runs.push(
-      await runClaimedJob(
-        loaded,
-        job,
-        slot,
-        startedAt,
-        options.catchUp ?? false,
-        options.projects,
-        options.issueLoader,
-        codeRabbitLoaders(options),
-      ),
+      await runClaimedJob(loaded, job, slot, startedAt, options.catchUp ?? false, options.projects),
     );
   }
   await appendRuns(loaded, runs);
@@ -103,9 +73,7 @@ async function tickSlots(
   const runs = await listRuns(loaded);
   const slots = configuredJobs(loaded)
     .filter((job) => job.enabled)
-    .flatMap((job) =>
-      dueSlotsForJobBetween(job, catchUpStart(loaded, job, runs, now), now, loaded.config.timezone),
-    );
+    .flatMap((job) => dueSlotsForJobBetween(job, catchUpStart(loaded, job, runs, now), now));
   return slots.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
 }
 
@@ -143,8 +111,6 @@ export async function runAutomationJob(
     new Date().toISOString(),
     false,
     options.projects,
-    options.issueLoader,
-    codeRabbitLoaders(options),
   );
   await appendRuns(loaded, [run]);
   return run;
@@ -157,8 +123,6 @@ async function runClaimedJob(
   startedAt: string,
   catchUp: boolean,
   projects: readonly Project[] | undefined,
-  issueLoader?: IssueLoader,
-  codeRabbitLoaders?: CodeRabbitLoaders,
 ): Promise<AutomationRun> {
   if (await hasSuccessfulRun(loaded, slot.slotId)) {
     return {
@@ -181,7 +145,7 @@ async function runClaimedJob(
       finishedAt: new Date().toISOString(),
     };
   }
-  return runJob(loaded, job, slot, startedAt, catchUp, projects, issueLoader, codeRabbitLoaders);
+  return runJob(loaded, job, slot, startedAt, catchUp, projects);
 }
 
 async function runJob(
@@ -189,103 +153,18 @@ async function runJob(
   job: AutomationJob,
   slot: AutomationDueSlot,
   startedAt: string,
-  catchUp: boolean,
+  _catchUp: boolean,
   projects: readonly Project[] | undefined,
-  issueLoader?: IssueLoader,
-  codeRabbitLoaders?: CodeRabbitLoaders,
 ): Promise<AutomationRun> {
   const eligibleProjects = projects ? eligibleProjectsForJob(projects, job) : undefined;
-  if (job.mode === "implementation-plan") {
-    return runIssueRecommendationJob(loaded, job, slot, startedAt, eligibleProjects, issueLoader);
-  }
-  if (job.mode === "coderabbit-review") {
-    return runCodeRabbitRecommendationJob(
-      loaded,
-      job,
-      slot,
-      startedAt,
-      eligibleProjects,
-      codeRabbitLoaders,
-    );
-  }
   if (job.prompt) {
-    return runCodexJob(loaded, job, slot, startedAt, eligibleProjects);
+    return runHarnessJob(loaded, job, slot, startedAt, eligibleProjects);
   }
-  const reportPath = await writeReport(
-    loaded,
-    outputPath(job, slot),
-    renderPlaceholderReport(job, slot, catchUp, eligibleProjects),
-  );
   return {
     jobId: slot.jobId,
     slotId: slot.slotId,
-    status: "succeeded",
-    reportPath,
-    message: catchUp ? "startup catch-up report generated" : "report generated",
-    startedAt,
-    finishedAt: new Date().toISOString(),
-  };
-}
-
-type CodeRabbitLoaders = {
-  loadPullRequests?: CodeRabbitPullRequestLoader;
-  loadThreads?: CodeRabbitThreadLoader;
-};
-
-function codeRabbitLoaders(options: AutomationRunOptions): CodeRabbitLoaders | undefined {
-  if (!options.codeRabbitPullRequestLoader && !options.codeRabbitThreadLoader) return undefined;
-  return {
-    ...(options.codeRabbitPullRequestLoader
-      ? { loadPullRequests: options.codeRabbitPullRequestLoader }
-      : {}),
-    ...(options.codeRabbitThreadLoader ? { loadThreads: options.codeRabbitThreadLoader } : {}),
-  };
-}
-
-async function runCodeRabbitRecommendationJob(
-  loaded: LoadedConfig,
-  job: AutomationJob,
-  slot: AutomationDueSlot,
-  startedAt: string,
-  eligibleProjects: readonly Project[] | undefined,
-  loaders: CodeRabbitLoaders | undefined,
-): Promise<AutomationRun> {
-  const result = await generateCodeRabbitRecommendations(loaded, eligibleProjects ?? [], {
-    now: new Date(slot.dueAt),
-    ...(loaders ?? {}),
-    reportPath: outputPath(job, slot),
-  });
-  return {
-    jobId: slot.jobId,
-    slotId: slot.slotId,
-    status: "succeeded",
-    reportPath: result.reportPath,
-    message: `created CodeRabbit review report with ${result.contexts.length} pull request context(s)`,
-    startedAt,
-    finishedAt: new Date().toISOString(),
-  };
-}
-
-async function runIssueRecommendationJob(
-  loaded: LoadedConfig,
-  job: AutomationJob,
-  slot: AutomationDueSlot,
-  startedAt: string,
-  eligibleProjects: readonly Project[] | undefined,
-  issueLoader?: IssueLoader,
-): Promise<AutomationRun> {
-  const result = await generateIssueRecommendations(loaded, eligibleProjects ?? [], {
-    labels: job.issueLabels,
-    now: new Date(slot.dueAt),
-    ...(issueLoader ? { loadIssues: issueLoader } : {}),
-    reportPath: outputPath(job, slot),
-  });
-  return {
-    jobId: slot.jobId,
-    slotId: slot.slotId,
-    status: "succeeded",
-    reportPath: result.reportPath,
-    message: `created issue recommendation report with ${result.candidates.length} candidate(s)`,
+    status: "failed",
+    message: "automation job has no prompt to hand to the harness",
     startedAt,
     finishedAt: new Date().toISOString(),
   };
@@ -309,13 +188,23 @@ function slotKeyFromDate(date: Date): string {
   return `${date.toISOString().slice(0, 16)}Z`;
 }
 
-async function runCodexJob(
+async function runHarnessJob(
   loaded: LoadedConfig,
   job: AutomationJob,
   slot: AutomationDueSlot,
   startedAt: string,
   eligibleProjects: readonly Project[] | undefined,
 ): Promise<AutomationRun> {
+  if (job.harness !== "codex") {
+    return {
+      jobId: slot.jobId,
+      slotId: slot.slotId,
+      status: "failed",
+      message: `unsupported harness: ${job.harness}`,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+    };
+  }
   const relativeOutputPath = outputPath(job, slot);
   const reportPath = resolveUnder(reportsRoot(loaded), relativeOutputPath);
   const result = await runCodexReportOnly(loaded, {
@@ -352,40 +241,6 @@ function slotIsoWeekKey(slot: AutomationDueSlot): string | undefined {
   return slot.slotId.match(/\d{4}-W\d{2}/)?.[0];
 }
 
-function renderPlaceholderReport(
-  job: AutomationJob,
-  slot: AutomationDueSlot,
-  catchUp: boolean,
-  eligibleProjects: readonly Project[] | undefined,
-): string {
-  return `${renderAutomationReportHeader(job, slot, catchUp, "report-only placeholder", eligibleProjects)}
-This report was generated by Herakles automation orchestration. Codex execution can replace this placeholder when a prompt is configured and the job is run in report-only Codex mode.
-`;
-}
-
-function renderAutomationReportHeader(
-  job: AutomationJob,
-  slot: AutomationDueSlot,
-  catchUp: boolean,
-  status: string,
-  eligibleProjects: readonly Project[] | undefined,
-): string {
-  return `# ${job.id} ${slot.slotId}
-
-Status: ${status}
-Mode: ${job.mode}
-Schedule: ${job.schedule}
-Skill: ${job.skill ?? "none"}
-Issue labels: ${job.issueLabels.length ? job.issueLabels.join(", ") : "none"}
-Repo filter: ${job.repoFilter ?? "automation eligible projects"}
-Catch-up: ${catchUp ? "yes" : "no"}
-Generated: ${new Date().toISOString()}
-
-${renderEligibleProjects(eligibleProjects)}
-
-`;
-}
-
 export async function recentRuns(loaded: LoadedConfig): Promise<AutomationRun[]> {
   return listRuns(loaded);
 }
@@ -399,7 +254,17 @@ export function eligibleProjectsForJob(
       (project) =>
         project.source === "github" && project.up && project.automationEnabled && !project.archived,
     )
+    .filter((project) => hasIncludedTag(project, job.includeTags))
+    .filter((project) => hasNoExcludedTag(project, job.excludeTags))
     .filter((project) => (job.repoFilter ? matchesProjectFilter(project, job.repoFilter) : true));
+}
+
+function hasIncludedTag(project: Project, includeTags: readonly string[]): boolean {
+  return includeTags.length === 0 || includeTags.some((tag) => project.tags.includes(tag));
+}
+
+function hasNoExcludedTag(project: Project, excludeTags: readonly string[]): boolean {
+  return excludeTags.every((tag) => !project.tags.includes(tag));
 }
 
 async function renderJobContext(
@@ -412,11 +277,13 @@ async function renderJobContext(
   return `# Herakles Automation Context
 
 Job: ${job.id}
-Mode: ${job.mode}
+Harness: ${job.harness}
 Slot: ${slot.slotId}
 Due at: ${slot.dueAt}
 Skill: ${job.skill ?? "none"}
 Issue labels: ${job.issueLabels.length ? job.issueLabels.join(", ") : "none"}
+Include tags: ${job.includeTags.length ? job.includeTags.join(", ") : "none"}
+Exclude tags: ${job.excludeTags.length ? job.excludeTags.join(", ") : "none"}
 Repo filter: ${job.repoFilter ?? "automation eligible projects"}
 
 ${renderEligibleProjects(eligibleProjects)}

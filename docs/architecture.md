@@ -34,7 +34,7 @@ The UI is launched through its own CLI/server path and can stay open while norma
 
 The Projects screen and `herakles add` are the primary project entry points. Existing GitHub repositories are the default add path when `--repo owner/name` is provided. Hosted add/import writes minimal tracked-project config and checks out the project automatically. `herakles remove` and the UI remove action stop tracking a project after confirmation; they do not delete local files or hosted repositories.
 
-GitHub bulk import opens as a dialog. It lists accessible repositories for configured users/organizations plus the authenticated GitHub user's account and organizations, then lets the user select repositories and set lifecycle, group, and tags before tracked config is written and checkout starts.
+GitHub bulk import opens as a dialog. It lists accessible repositories for configured users/organizations plus the authenticated GitHub user's account and organizations, then lets the user select repositories and set lifecycle, group, and tags before tracked config is written and workspace spin-up starts.
 
 Settings exposes project refresh, validation, doctor checks, and Config Exchange. Config Exchange is a copy-paste editor for `_herakles/herakles.toml`; it validates TOML with Bun's parser and the Herakles schema before applying.
 
@@ -46,11 +46,11 @@ The UI server exposes `/api/events` as a server-sent event stream. Events are em
 
 `herakles automate tick` is the unit of scheduling. The UI server runs in-process Bun cron ticks while it is open and runs a bounded catch-up tick on startup. OS-level Bun cron registration is available from the CLI but must be explicit. The generated worker lives under `_herakles/cache` and calls the shared Herakles automation service for the current workspace.
 
-Cron matching is timezone-aware. Four-hour schedules use UTC slots, while daily and weekly schedules use `job.<id>.slot_timezone` when present and otherwise the workspace `timezone`.
+Cron matching uses the local machine timezone of the Herakles process that runs the automation tick. Timezone is runtime context and is not stored in synced configuration.
 
-Automation eligibility uses project filters. The default automation filter is `not archived`, then automation-level excluded topics are applied. Automation jobs live in `_herakles/herakles.toml` and can declare `repo_filter`, `issue_labels`, `skill`, and inline prompts. Herakles owns scheduling, project selection, locks, GitHub lookup, and report recording; the configured AI harness owns the work performed from the prepared prompt and context.
+Automation eligibility uses project filters and tag filters. The default automation filter is `not archived`, then automation-level excluded topics are applied. Automation jobs live in `_herakles/herakles.toml` and can declare `harness`, `repo_filter`, `include_tags`, `exclude_tags`, `issue_labels`, `skill`, `output`, and inline prompts. Herakles owns scheduling, project selection, locks, GitHub lookup, and report recording; the configured AI harness owns the work performed from the prepared prompt and context.
 
-Prompt-driven report-only jobs receive a Herakles-authored context block on stdin after the configured prompt. That context includes slot metadata, eligible project evidence, detected package managers, roadmap presence, and recent generated reports. Herakles does not model harness-specific implementation branches, review resolution, or publishing.
+Prompt-driven harness jobs receive a Herakles-authored context block on stdin after the configured prompt. That context includes slot metadata, eligible project evidence, detected package managers, roadmap presence, and recent generated reports. Herakles does not model harness-specific implementation branches, review resolution, or publishing. The UI leads with human-readable schedule summaries while keeping the cron expression as the precise editable form.
 
 Automation locks are local file claims under `_herakles/state/locks` and honor their expiry before a slot can be claimed again. Run ledgers live under `_herakles/cache/runs`. Herakles does not coordinate automation through a config repository, remote sync endpoint, or branch-lock protocol.
 

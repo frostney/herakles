@@ -159,10 +159,10 @@ function shouldJson(flags: CommonFlags) {
 
 function printAddProjectResult(
   toml: string,
-  checkout: Awaited<ReturnType<typeof app.checkoutProject>> | undefined,
+  up: Awaited<ReturnType<typeof app.checkoutProject>> | undefined,
 ) {
   console.log(toml);
-  if (checkout) printCheckoutResults(checkout);
+  if (up) printCheckoutResults(up);
 }
 
 function printCheckoutResults(results: Awaited<ReturnType<typeof app.checkoutProject>>) {
@@ -179,10 +179,10 @@ function printCheckoutResults(results: Awaited<ReturnType<typeof app.checkoutPro
 
 function printImportProjectResult(
   plans: Awaited<ReturnType<typeof app.importHostedProjects>>,
-  checkout: Awaited<ReturnType<typeof app.checkoutProject>>[],
+  up: Awaited<ReturnType<typeof app.checkoutProject>>[],
 ) {
   printTable(plans.map((plan) => ({ id: plan.projectId, action: plan.action })));
-  for (const result of checkout) {
+  for (const result of up) {
     printCheckoutResults(result);
   }
 }
@@ -283,6 +283,7 @@ async function prompt(question: string): Promise<string> {
 async function promptProjectAdd(flags: {
   source?: "github" | "local";
   repo?: string;
+  name?: string;
   group?: string;
   state?: ProjectState;
   tags?: string[];
@@ -290,7 +291,8 @@ async function promptProjectAdd(flags: {
   const source = await promptProjectSource(flags);
   const repo =
     source === "github" ? (flags.repo ?? (await prompt("GitHub repo (owner/name): "))) : undefined;
-  const name = source === "local" ? await prompt("Local project name: ") : undefined;
+  const name =
+    source === "local" ? (flags.name ?? (await prompt("Local project name: "))) : undefined;
   return buildAddProjectInput({
     source,
     repo,
@@ -370,6 +372,7 @@ const addProjectCommand = buildCommand<
   CommonFlags & {
     source?: "github" | "local";
     repo?: string;
+    name?: string;
     group?: string;
     state?: ProjectState;
     tag?: string[];
@@ -392,6 +395,13 @@ const addProjectCommand = buildCommand<
         optional: true,
         brief: "Hosted repository as owner/name.",
         placeholder: "owner/name",
+      },
+      name: {
+        kind: "parsed",
+        parse: String,
+        optional: true,
+        brief: "Local project name.",
+        placeholder: "name",
       },
       group: {
         kind: "parsed",
@@ -423,13 +433,13 @@ const addProjectCommand = buildCommand<
       ...(flags.tag === undefined ? {} : { tags: flags.tag }),
     });
     const result = await app.addProject(root(flags), input);
-    const checkout =
+    const up =
       input.source === "github"
         ? await app.checkoutProject(root(flags), result.projectId)
         : undefined;
     shouldJson(flags)
-      ? printJson(checkout ? { project: result, checkout } : result)
-      : printAddProjectResult(result.toml, checkout);
+      ? printJson(up ? { project: result, up } : result)
+      : printAddProjectResult(result.toml, up);
   },
 });
 
@@ -527,36 +537,10 @@ const projectsImportCommand = buildCommand<
         ...(flags.tag === undefined ? {} : { tags: flags.tag }),
       })),
     );
-    const checkout = await Promise.all(
+    const up = await Promise.all(
       result.map((plan) => app.checkoutProject(root(flags), plan.projectId)),
     );
-    shouldJson(flags)
-      ? printJson({ projects: result, checkout })
-      : printImportProjectResult(result, checkout);
-  },
-});
-
-const projectsCheckoutCommand = buildCommand<CommonFlags & { dryRun?: boolean }, [string]>({
-  docs: { brief: "Checkout or update one hosted project." },
-  parameters: {
-    flags: {
-      ...commonFlags,
-      dryRun: {
-        kind: "boolean",
-        optional: true,
-        brief: "Preview the checkout action without running git.",
-      },
-    },
-    positional: {
-      kind: "tuple",
-      parameters: [
-        { parse: String, brief: "Project, slug, or repository name.", placeholder: "project" },
-      ],
-    },
-  },
-  async func(flags, id) {
-    const result = await app.checkoutProject(root(flags), id, { dryRun: flags.dryRun === true });
-    shouldJson(flags) ? printJson(result) : printCheckoutResults(result);
+    shouldJson(flags) ? printJson({ projects: result, up }) : printImportProjectResult(result, up);
   },
 });
 
@@ -1237,7 +1221,6 @@ export const rootRoute = buildRouteMap({
         list: repoListCommand,
         show: repoShowCommand,
         import: projectsImportCommand,
-        checkout: projectsCheckoutCommand,
         refresh: projectsRefreshCommand,
         discovery: projectsDiscoveryCommand,
         "set-state": repoSetStateCommand,

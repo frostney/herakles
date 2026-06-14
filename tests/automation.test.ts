@@ -14,7 +14,7 @@ import { appendRuns } from "../src/automation/ledger";
 import { claimLock, listLocks } from "../src/automation/locks";
 import { dueSlotForJob, dueSlotsForJobBetween, matchesCron } from "../src/automation/schedule";
 import { loadConfig } from "../src/config/load";
-import type { GitHubIssue, GitHubPullRequest, GitHubReviewThread, Project } from "../src/domain";
+import type { Project } from "../src/domain";
 import { listReports } from "../src/reports";
 import { withFakeCodex } from "./helpers/codex";
 
@@ -28,10 +28,13 @@ async function tempWorkspace() {
 owners = []
 
 [job.friday_summary]
-schedule = "00 16 * * FRI"
-mode = "summary"
+schedule = "* * * * *"
+harness = "codex"
+prompt = "Summarize the workspace."
 output = "weekly/{iso_week}.md"
 repo_filter = 'has_topic("current")'
+include_tags = ["weekly"]
+exclude_tags = ["paused"]
 issue_labels = ["ready-for-agent", "well-defined"]
 skill = "summary-skill"
 `,
@@ -53,7 +56,8 @@ catch_up_window_minutes = 1440
 
 [job.coderabbit]
 schedule = "0 */4 * * *"
-mode = "summary"
+harness = "codex"
+prompt = "Prepare recurring workspace context."
 output = "coderabbit/{slot}.md"
 `,
   );
@@ -70,50 +74,11 @@ async function tempManualGateWorkspace() {
 owners = []
 
 [job.harness_report]
-schedule = "0 12 * * *"
-slot_timezone = "UTC"
-mode = "ai-harness-report"
+schedule = "* * * * *"
+harness = "codex"
+prompt = "Create a harness report."
 output = "harness/{date}.md"
 repo_filter = 'state == "open-source"'
-`,
-  );
-  return root;
-}
-
-async function tempImplementationPlanWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-implementation-plan-"));
-  await mkdir(join(root, "_herakles"), { recursive: true });
-  await writeFile(
-    join(root, "_herakles", "herakles.toml"),
-    `version = 2
-[github]
-owners = []
-
-[job.evening_issues]
-schedule = "0 18 * * *"
-mode = "implementation-plan"
-output = "issues/{date}.md"
-repo_filter = 'has_topic("current")'
-issue_labels = ["ready-for-agent"]
-`,
-  );
-  return root;
-}
-
-async function tempCodeRabbitReviewWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-coderabbit-review-"));
-  await mkdir(join(root, "_herakles"), { recursive: true });
-  await writeFile(
-    join(root, "_herakles", "herakles.toml"),
-    `version = 2
-[github]
-owners = []
-
-[job.coderabbit]
-schedule = "0 */4 * * *"
-mode = "coderabbit-review"
-output = "coderabbit/{slot}.md"
-repo_filter = 'has_topic("current")'
 `,
   );
   return root;
@@ -134,7 +99,7 @@ sandbox = "workspace-write"
 
 [job.morning_next_work]
 schedule = "30 08 * * 1-5"
-mode = "recommendation-only"
+harness = "codex"
 prompt = "Recommend next work."
 output = "morning/{date}.md"
 repo_filter = 'has_roadmap'
@@ -162,7 +127,8 @@ enabled = false
 
 [job.friday_summary]
 schedule = "00 16 * * FRI"
-mode = "summary"
+harness = "codex"
+prompt = "Summarize the workspace."
 `,
   );
   return root;
@@ -190,6 +156,34 @@ function project(repo: string, options: Partial<Project> = {}): Project {
   };
 }
 
+function automationJob(
+  id: string,
+  schedule: string,
+  options: Partial<ReturnType<typeof configuredJobs>[number]> = {},
+) {
+  return {
+    id,
+    schedule,
+    harness: "codex",
+    includeTags: [],
+    excludeTags: [],
+    issueLabels: [],
+    enabled: true,
+    ...options,
+  };
+}
+
+const fakeCodexWritesReport = `out=""
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = "--output-last-message" ]; then
+    out="$arg"
+  fi
+  previous="$arg"
+done
+cat > "$out"
+`;
+
 describe("automation", () => {
   test("matches five-field cron schedules in UTC", () => {
     expect(matchesCron("00 16 * * FRI", new Date("2026-06-12T16:00:00Z"))).toBe(true);
@@ -210,38 +204,21 @@ describe("automation", () => {
   test("creates deterministic daily, weekly, and hourly slot ids", () => {
     expect(
       dueSlotForJob(
-        {
-          id: "coderabbit",
-          schedule: "0 */4 * * *",
-          mode: "summary",
-          issueLabels: [],
-          enabled: true,
-        },
+        automationJob("coderabbit", "0 */4 * * *"),
         new Date("2026-06-13T08:00:00Z"),
+        "UTC",
       )?.slotId,
-    ).toBe("coderabbit/2026-06-13T08:00Z");
+    ).toBe("coderabbit/UTC/2026-06-13T08:00");
     expect(
       dueSlotForJob(
-        {
-          id: "morning",
-          schedule: "30 8 * * 1-5",
-          mode: "summary",
-          issueLabels: [],
-          enabled: true,
-        },
+        automationJob("morning", "30 8 * * 1-5"),
         new Date("2026-06-12T07:30:00Z"),
         "Europe/London",
       )?.slotId,
     ).toBe("morning/Europe-London/2026-06-12");
     expect(
       dueSlotForJob(
-        {
-          id: "friday",
-          schedule: "00 16 * * FRI",
-          mode: "summary",
-          issueLabels: [],
-          enabled: true,
-        },
+        automationJob("friday", "00 16 * * FRI"),
         new Date("2026-06-12T15:00:00Z"),
         "Europe/London",
       )?.slotId,
@@ -250,27 +227,22 @@ describe("automation", () => {
 
   test("enumerates missed scheduled slots between two times", () => {
     const slots = dueSlotsForJobBetween(
-      {
-        id: "coderabbit",
-        schedule: "0 */4 * * *",
-        mode: "summary",
-        issueLabels: [],
-        enabled: true,
-      },
+      automationJob("coderabbit", "0 */4 * * *"),
       new Date("2026-06-13T08:00:00Z"),
       new Date("2026-06-13T16:00:00Z"),
+      "UTC",
     );
 
     expect(slots.map((slot) => slot.slotId)).toEqual([
-      "coderabbit/2026-06-13T12:00Z",
-      "coderabbit/2026-06-13T16:00Z",
+      "coderabbit/UTC/2026-06-13T12:00",
+      "coderabbit/UTC/2026-06-13T16:00",
     ]);
   });
 
   test("tick does nothing when no job is due", async () => {
-    const loaded = await loadConfig(await tempWorkspace());
+    const loaded = await loadConfig(await tempHourlyWorkspace());
     const runs = await automateTick(loaded, {
-      now: new Date("2026-06-13T06:00:00Z"),
+      now: new Date("2026-06-13T06:01:00Z"),
     });
     expect(runs).toEqual([]);
   });
@@ -304,11 +276,13 @@ describe("automation", () => {
     expect(source).toContain("await automate(");
   });
 
-  test("parses job repo filters, issue labels, and skill metadata", async () => {
+  test("parses job filters, tag filters, issue labels, and skill metadata", async () => {
     const loaded = await loadConfig(await tempWorkspace());
     const [job] = configuredJobs(loaded);
 
     expect(job?.repoFilter).toBe('has_topic("current")');
+    expect(job?.includeTags).toEqual(["weekly"]);
+    expect(job?.excludeTags).toEqual(["paused"]);
     expect(job?.issueLabels).toEqual(["ready-for-agent", "well-defined"]);
     expect(job?.skill).toBe("summary-skill");
   });
@@ -320,8 +294,9 @@ describe("automation", () => {
 
     const eligible = eligibleProjectsForJob(
       [
-        project("active", { topics: ["current"] }),
-        project("hidden", { topics: ["current"], automationEnabled: false }),
+        project("active", { topics: ["current"], tags: ["weekly"] }),
+        project("hidden", { topics: ["current"], tags: ["weekly"], automationEnabled: false }),
+        project("paused", { topics: ["current"], tags: ["weekly", "paused"] }),
         project("other"),
       ],
       job,
@@ -333,33 +308,36 @@ describe("automation", () => {
   test("tick writes a report and skips a duplicate successful slot", async () => {
     const loaded = await loadConfig(await tempWorkspace());
     const now = new Date("2026-06-12T15:00:00Z");
-    const first = await automateTick(loaded, {
-      catchUp: true,
-      now,
-      projects: [project("active", { topics: ["current"] })],
-    });
-    const second = await automateTick(loaded, { now });
-    const reports = await listReports(loaded);
+    await withFakeCodex(fakeCodexWritesReport, async () => {
+      const first = await automateTick(loaded, {
+        now,
+        projects: [project("active", { topics: ["current"], tags: ["weekly"] })],
+      });
+      const second = await automateTick(loaded, { now });
+      const reports = await listReports(loaded);
 
-    expect(first[0]?.status).toBe("succeeded");
-    expect(second[0]?.status).toBe("skipped");
-    expect(second[0]?.message).toContain("successful run");
-    expect(reports.length).toBe(1);
-    expect(await Bun.file(reports[0]!.path).text()).toContain("Eligible projects (1):");
+      expect(first[0]?.status).toBe("succeeded");
+      expect(second[0]?.status).toBe("skipped");
+      expect(second[0]?.message).toContain("successful run");
+      expect(reports.length).toBe(1);
+      expect(await Bun.file(reports[0]!.path).text()).toContain("Eligible projects (1):");
+    });
   });
 
   test("manual job run writes a report, lock, and duplicate skip", async () => {
     const loaded = await loadConfig(await tempWorkspace());
-    const first = await runAutomationJob(loaded, "friday_summary", { date: "2026-06-12" });
-    const second = await runAutomationJob(loaded, "friday_summary", { date: "2026-06-12" });
-    const reports = await listReports(loaded);
-    const locks = await listLocks(loaded);
+    await withFakeCodex(fakeCodexWritesReport, async () => {
+      const first = await runAutomationJob(loaded, "friday_summary", { date: "2026-06-12" });
+      const second = await runAutomationJob(loaded, "friday_summary", { date: "2026-06-12" });
+      const reports = await listReports(loaded);
+      const locks = await listLocks(loaded);
 
-    expect(first.status).toBe("succeeded");
-    expect(first.slotId).toBe("friday_summary/2026-06-12T00:00Z");
-    expect(second.status).toBe("skipped");
-    expect(reports.length).toBe(1);
-    expect(locks.length).toBe(1);
+      expect(first.status).toBe("succeeded");
+      expect(first.slotId).toBe("friday_summary/2026-06-12T00:00Z");
+      expect(second.status).toBe("skipped");
+      expect(reports.length).toBe(1);
+      expect(locks.length).toBe(1);
+    });
   });
 
   test("expired local locks can be claimed again", async () => {
@@ -414,132 +392,39 @@ describe("automation", () => {
       },
     ]);
 
-    const first = await automateTick(loaded, {
-      catchUp: true,
-      now: new Date("2026-06-13T16:00:00Z"),
-    });
-    const second = await automateTick(loaded, {
-      catchUp: true,
-      now: new Date("2026-06-13T16:00:00Z"),
-    });
-    const reports = await listReports(loaded);
+    await withFakeCodex(fakeCodexWritesReport, async () => {
+      const first = await automateTick(loaded, {
+        catchUp: true,
+        now: new Date("2026-06-13T16:00:00Z"),
+      });
+      const second = await automateTick(loaded, {
+        catchUp: true,
+        now: new Date("2026-06-13T16:00:00Z"),
+      });
+      const reports = await listReports(loaded);
 
-    expect(first.map((run) => [run.slotId, run.status])).toEqual([
-      ["coderabbit/2026-06-13T12:00Z", "succeeded"],
-      ["coderabbit/2026-06-13T16:00Z", "succeeded"],
-    ]);
-    expect(second.some((run) => run.status === "succeeded")).toBe(false);
-    expect(reports.length).toBe(2);
+      expect(first).toHaveLength(2);
+      expect(first.every((run) => run.status === "succeeded")).toBe(true);
+      expect(second.some((run) => run.status === "succeeded")).toBe(false);
+      expect(reports.length).toBe(2);
+    });
   });
 
   test("custom harness jobs generate reports without Herakles implementation workflow", async () => {
     const loaded = await loadConfig(await tempManualGateWorkspace());
-    const runs = await automateTick(loaded, {
-      now: new Date("2026-06-12T12:00:00Z"),
-      projects: [project("active"), project("experiment", { state: "experiment" })],
+    await withFakeCodex(fakeCodexWritesReport, async () => {
+      const runs = await automateTick(loaded, {
+        now: new Date("2026-06-12T12:00:00Z"),
+        projects: [project("active"), project("experiment", { state: "experiment" })],
+      });
+      const reports = await listReports(loaded);
+
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe("succeeded");
+      expect(runs[0]?.message).toContain("Codex report saved");
+      expect(reports.length).toBe(1);
+      expect(await Bun.file(reports[0]!.path).text()).toContain("Harness: codex");
     });
-    const reports = await listReports(loaded);
-
-    expect(runs).toHaveLength(1);
-    expect(runs[0]?.status).toBe("succeeded");
-    expect(runs[0]?.message).toContain("report generated");
-    expect(reports.length).toBe(1);
-    expect(await Bun.file(reports[0]!.path).text()).toContain("Mode: ai-harness-report");
-  });
-
-  test("implementation-plan jobs create issue recommendation reports", async () => {
-    const loaded = await loadConfig(await tempImplementationPlanWorkspace());
-    const seen: { repos?: string[]; labels?: readonly string[] } = {};
-    const issues: GitHubIssue[] = [
-      {
-        repo: "frostney/active",
-        number: 42,
-        title: "Add sync status affordance",
-        url: "https://github.com/frostney/active/issues/42",
-        labels: ["ready-for-agent"],
-        updatedAt: "2026-06-12T10:00:00Z",
-      },
-    ];
-
-    const run = await runAutomationJob(loaded, "evening_issues", {
-      date: "2026-06-12",
-      projects: [
-        project("active", { topics: ["current"] }),
-        project("unsynced", { topics: ["current"], up: false }),
-        project("other"),
-      ],
-      issueLoader: async (projects, labels) => {
-        seen.repos = projects.map((candidate) => candidate.repo);
-        seen.labels = labels;
-        return issues;
-      },
-    });
-    const reports = await listReports(loaded);
-
-    expect(run.status).toBe("succeeded");
-    expect(run.message).toBe("created issue recommendation report with 1 candidate(s)");
-    expect(seen.repos).toEqual(["active"]);
-    expect(seen.labels).toEqual(["ready-for-agent"]);
-    expect(reports.map((report) => report.id)).toEqual(["issues/2026-06-12.md"]);
-    expect(await Bun.file(run.reportPath!).text()).toContain("Issue Recommendations");
-  });
-
-  test("coderabbit-review jobs create review reports", async () => {
-    const loaded = await loadConfig(await tempCodeRabbitReviewWorkspace());
-    const seen: { repos?: string[]; threads?: string[] } = {};
-    const pullRequests: GitHubPullRequest[] = [
-      {
-        repo: "frostney/active",
-        number: 7,
-        title: "Tighten sync display",
-        url: "https://github.com/frostney/active/pull/7",
-        headRefName: "sync-display",
-      },
-    ];
-    const threads: GitHubReviewThread[] = [
-      {
-        repo: "frostney/active",
-        prNumber: 7,
-        id: "thread-7",
-        isResolved: false,
-        path: "src/ui.tsx",
-        line: 12,
-        comments: [
-          {
-            id: "comment-7",
-            body: "This branch should cover the empty state.",
-            author: "coderabbitai[bot]",
-          },
-        ],
-      },
-    ];
-
-    const run = await runAutomationJob(loaded, "coderabbit", {
-      date: "2026-06-12",
-      projects: [
-        project("active", { topics: ["current"] }),
-        project("unsynced", { topics: ["current"], up: false }),
-        project("other"),
-      ],
-      codeRabbitPullRequestLoader: async (projects) => {
-        seen.repos = projects.map((candidate) => candidate.repo);
-        return pullRequests;
-      },
-      codeRabbitThreadLoader: async (repo, prNumber) => {
-        seen.threads = [`${repo}#${prNumber}`];
-        return threads;
-      },
-    });
-    const reports = await listReports(loaded);
-
-    expect(run.status).toBe("succeeded");
-    expect(run.message).toBe("created CodeRabbit review report with 1 pull request context(s)");
-    expect(seen.repos).toEqual(["active"]);
-    expect(seen.threads).toEqual(["frostney/active#7"]);
-    expect(reports.map((report) => report.id)).toEqual([
-      "coderabbit/coderabbit__2026-06-12T00-00Z.md",
-    ]);
-    expect(await Bun.file(run.reportPath!).text()).toContain("CodeRabbit Review Threads");
   });
 
   test("report-only jobs pass enriched Herakles context to Codex", async () => {

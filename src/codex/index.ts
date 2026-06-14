@@ -47,8 +47,6 @@ export async function runCodexReportOnly(
       options.worktree,
       "--sandbox",
       loaded.config.codex.sandbox,
-      "--ask-for-approval",
-      "never",
       "--output-last-message",
       options.reportPath,
       "--json",

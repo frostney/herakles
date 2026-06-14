@@ -29,9 +29,8 @@ const monthNames = new Map([
 export function dueSlotForJob(
   job: AutomationJob,
   now = new Date(),
-  defaultTimezone = "UTC",
+  timezone = localTimezone(),
 ): AutomationDueSlot | undefined {
-  const timezone = scheduleTimezone(job, defaultTimezone);
   if (!matchesCron(job.schedule, now, timezone)) return undefined;
   return {
     jobId: job.id,
@@ -44,7 +43,7 @@ export function dueSlotsForJobBetween(
   job: AutomationJob,
   startExclusive: Date,
   endInclusive: Date,
-  defaultTimezone = "UTC",
+  timezone = localTimezone(),
 ): AutomationDueSlot[] {
   const slots = new Map<string, AutomationDueSlot>();
   for (
@@ -52,7 +51,7 @@ export function dueSlotsForJobBetween(
     time <= endInclusive.getTime();
     time += 60_000
   ) {
-    const slot = dueSlotForJob(job, new Date(time), defaultTimezone);
+    const slot = dueSlotForJob(job, new Date(time), timezone);
     if (slot) slots.set(slot.slotId, slot);
   }
   return [...slots.values()].sort((a, b) => a.dueAt.localeCompare(b.dueAt));
@@ -138,7 +137,7 @@ function normalizeDayOfWeek(value: number, max: number): number {
 
 function slotKey(job: AutomationJob, date: Date, timezone: string): string {
   if (isEveryNHours(job.schedule)) {
-    return `${date.toISOString().slice(0, 13)}:00Z`;
+    return `${safeTimezoneKey(timezone)}/${zonedDateKey(date, timezone)}T${zonedTimeKey(date, timezone)}`;
   }
   const prefix = safeTimezoneKey(timezone);
   if (isWeekly(job.schedule)) {
@@ -148,12 +147,6 @@ function slotKey(job: AutomationJob, date: Date, timezone: string): string {
     return `${prefix}/${zonedDateKey(date, timezone)}`;
   }
   return `${prefix}/${zonedDateKey(date, timezone)}T${zonedTimeKey(date, timezone)}`;
-}
-
-function scheduleTimezone(job: AutomationJob, defaultTimezone: string): string {
-  if (isEveryNHours(job.schedule)) return "UTC";
-  if (job.slotTimezone && job.slotTimezone !== "local") return job.slotTimezone;
-  return defaultTimezone;
 }
 
 function isEveryNHours(schedule: string): boolean {
@@ -239,4 +232,8 @@ function zonedTimeKey(date: Date, timezone: string): string {
 
 function safeTimezoneKey(timezone: string): string {
   return timezone.replaceAll("/", "-");
+}
+
+function localTimezone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }

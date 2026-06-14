@@ -6,6 +6,7 @@ import { routeApi } from "../src/api/routes";
 import { loadConfig } from "../src/config/load";
 import type { HeraklesEvent } from "../src/domain";
 import { writeReport } from "../src/reports";
+import { withFakeCodex } from "./helpers/codex";
 import { fakeGhRepositoryJson, withFakeGhScript } from "./helpers/gh";
 
 async function tempWorkspace() {
@@ -58,6 +59,17 @@ JSON
     run,
   );
 }
+
+const fakeCodexWritesReport = `out=""
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = "--output-last-message" ]; then
+    out="$arg"
+  fi
+  previous="$arg"
+done
+cat > "$out"
+`;
 
 async function postProjectConfigPlan(workspaceRoot: string, body: Record<string, unknown>) {
   const response = await routeApi(
@@ -206,7 +218,8 @@ owners = []
 
 [job.daily]
 schedule = "0 8 * * *"
-mode = "summary"
+harness = "codex"
+prompt = "Summarize the workspace."
 `,
     );
     await mkdir(join(workspaceRoot, "spike", ".git"), { recursive: true });
@@ -215,23 +228,24 @@ mode = "summary"
 
     const locals = await routeApi(new Request("http://x/api/local-projects"), { workspaceRoot });
     const project = await routeApi(new Request("http://x/api/projects/spike"), { workspaceRoot });
-    const run = await routeApi(
-      new Request("http://x/api/automation/run", {
-        method: "POST",
-        body: JSON.stringify({ jobId: "daily", date: "2026-06-12" }),
-      }),
-      { workspaceRoot },
-    );
-
     expect(locals?.status).toBe(200);
     expect(await locals?.json()).toHaveLength(1);
     expect(project?.status).toBe(200);
     const projectBody = await project?.json();
     expect(projectBody.project.slug).toBe("spike");
     expect(projectBody.reports).toEqual([]);
-    expect(run?.status).toBe(200);
-    const runBody = await run?.json();
-    expect(runBody.status).toBe("succeeded");
+    await withFakeCodex(fakeCodexWritesReport, async () => {
+      const run = await routeApi(
+        new Request("http://x/api/automation/run", {
+          method: "POST",
+          body: JSON.stringify({ jobId: "daily", date: "2026-06-12" }),
+        }),
+        { workspaceRoot },
+      );
+      expect(run?.status).toBe(200);
+      const runBody = await run?.json();
+      expect(runBody.status).toBe("succeeded");
+    });
   });
 
   test("serves enriched project detail with related reports", async () => {
@@ -490,13 +504,14 @@ group = "clients"
         body: JSON.stringify({
           jobId: "weekly-review",
           schedule: "0 9 * * 1",
-          mode: "report-only",
+          harness: "codex",
           prompt: "Review all tracked projects.\nReturn a short report.",
           output: "automation/weekly.md",
           repoFilter: "not archived",
+          includeTags: ["weekly"],
+          excludeTags: ["paused"],
           issueLabels: ["ready", "next"],
           skill: "review-pr",
-          slotTimezone: "Europe/London",
           enabled: true,
         }),
       }),
@@ -508,6 +523,9 @@ group = "clients"
     expect(response?.status).toBe(200);
     expect(body.toml).toContain('[job."weekly-review"]');
     expect(config).toContain('[job."weekly-review"]');
+    expect(config).toContain('harness = "codex"');
+    expect(config).toContain('include_tags = ["weekly"]');
+    expect(config).not.toContain("slot_timezone");
     expect(config).toContain("prompt = '''");
     expect(config).toContain("Review all tracked projects.");
     expect(config).toContain('repo_filter = "not archived"');

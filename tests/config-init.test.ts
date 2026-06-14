@@ -32,8 +32,10 @@ describe("config init", () => {
     ).json();
     expect(synced).toContain("[job.morning_next_work]");
     expect(synced).toContain("# Morning Next Work");
-    expect(synced).toContain('mode = "coderabbit-review"');
-    expect(synced).toContain('mode = "implementation-plan"');
+    expect(synced).toContain('harness = "codex"');
+    expect(synced).not.toContain("mode =");
+    expect(synced).not.toContain("slot_timezone");
+    expect(synced).not.toContain("timezone =");
     expect(gitignore).toContain("cache/");
     expect(gitignore).toContain("reports/");
     expect(gitignore).toContain("worktrees/");

@@ -36,13 +36,14 @@ const automationJobBodySchema = z
   .object({
     jobId: nonEmptyString,
     schedule: nonEmptyString,
-    mode: nonEmptyString,
+    harness: nonEmptyString,
     prompt: z.string().optional(),
     output: z.string().optional(),
     repoFilter: z.string().optional(),
+    includeTags: z.array(nonEmptyString).optional(),
+    excludeTags: z.array(nonEmptyString).optional(),
     issueLabels: z.array(nonEmptyString).optional(),
     skill: z.string().optional(),
-    slotTimezone: z.string().optional(),
     enabled: z.boolean().optional(),
   })
   .strict();
@@ -291,7 +292,7 @@ async function routeRemoveProject(context: ApiContext): Promise<Response> {
 async function routeCheckoutProject(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, checkoutProjectBodySchema);
   if (!body.ok) return body.response;
-  emitApiEvent("up-started", `project checkout started for ${body.data.projectId}`, {
+  emitApiEvent("up-started", `project up started for ${body.data.projectId}`, {
     projectId: body.data.projectId,
     dryRun: body.data.dryRun === true,
   });
@@ -305,7 +306,7 @@ async function routeCheckoutProject(context: ApiContext): Promise<Response> {
       });
     },
   });
-  emitApiEvent("up-finished", `project checkout finished for ${body.data.projectId}`, {
+  emitApiEvent("up-finished", `project up finished for ${body.data.projectId}`, {
     projectId: body.data.projectId,
     dryRun: body.data.dryRun === true,
     results: result.length,
@@ -572,13 +573,14 @@ function projectConfigChanges(body: z.infer<typeof projectConfigBodySchema>) {
 function automationJobChanges(body: z.infer<typeof automationJobBodySchema>) {
   return {
     schedule: body.schedule,
-    mode: body.mode,
+    harness: body.harness,
     ...(body.prompt === undefined ? {} : { prompt: body.prompt }),
     ...(body.output === undefined ? {} : { output: body.output }),
     ...(body.repoFilter === undefined ? {} : { repo_filter: body.repoFilter }),
+    ...(body.includeTags === undefined ? {} : { include_tags: body.includeTags }),
+    ...(body.excludeTags === undefined ? {} : { exclude_tags: body.excludeTags }),
     ...(body.issueLabels === undefined ? {} : { issue_labels: body.issueLabels }),
     ...(body.skill === undefined ? {} : { skill: body.skill }),
-    ...(body.slotTimezone === undefined ? {} : { slot_timezone: body.slotTimezone }),
     ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
   };
 }

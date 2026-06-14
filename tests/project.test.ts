@@ -366,7 +366,7 @@ async function tempTrackedWorkspace(prefix: string, projectsToml: string): Promi
   await writeFile(
     join(root, "_herakles", "herakles.toml"),
     `version = 2
-timezone = "Europe/London"
+# Project resolution fixture
 
 [github]
 owners = ["frostney"]
