@@ -42,11 +42,11 @@ _Avoid_: File sync, apply config, slay
 Spin up is a workspace-level flow, not a per-project checkout action. Add Project, Bulk Import, and explicit workspace spin-up may invoke it; normal project lists should not present checkout as an independent project operation.
 
 **Workspace Drift**:
-A Herakles Workspace state where synced configuration expects lifecycle folders or project checkouts that are missing, stale, misplaced, or blocked by conflicts on disk. Drift is surfaced as a blocking message that shows the exact mismatch and offers the right workspace recovery action or a local ignore.
+A Herakles Workspace state where synced configuration expects lifecycle folders or hosted project folders that are missing, stale, misplaced, or blocked by conflicts on disk. Drift is surfaced as a blocking message that shows the exact mismatch and offers the right workspace recovery action or a local ignore.
 _Avoid_: Sync mismatch, checkout task
 
 **Scaffold from Configuration**:
-The user-facing action that makes a fresh Herakles Workspace with synced configuration but no matching local structure create its expected lifecycle folders and project checkouts.
+The user-facing action that makes a fresh Herakles Workspace with synced configuration but no matching local structure create its expected lifecycle folders and hosted project folders.
 _Avoid_: Run Up, Apply Config
 
 **Sync Workspace**:
@@ -58,7 +58,7 @@ The user-directed act of copying Herakles configuration into or out of the UI. I
 _Avoid_: Remote sync, machine profile, file sync
 
 **Project Discovery**:
-The Herakles refresh flow that reads hosted repositories and local Git folders, then updates the resolved project model. It is user-facing as project discovery or project refresh; cached discovery data stays an implementation detail.
+The Herakles refresh flow that reads hosted repositories and local Git folders, then updates the resolved project model. It is user-facing as project discovery or project refresh; implementation details stay out of user-facing terminology.
 
 **Project Settings**:
 The user-facing place for changing a project's connection and interpretation, including lifecycle state, project group, project tags, archive evidence, up behavior, and promotion from a local experiment to a hosted repository.

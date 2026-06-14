@@ -1,10 +1,20 @@
 # Herakles v2 Architecture
 
+## Executive Summary
+
+- Herakles is a Bun-first orchestrator for a personal Herakles Workspace.
+- `_herakles/herakles.toml` is the canonical synced configuration.
+- Project paths are derived from lifecycle, optional group, and repository name.
+- CLI and UI call the same core services rather than owning separate behavior.
+- Automation schedules prompt-driven agent runtime runs; Herakles owns scheduling and reports, not implementation workflows.
+
 Herakles v2 is a Bun-first TypeScript orchestrator for a personal Herakles Workspace. The CLI and UI call the same core services for configuration, project discovery, project resolution, validation, workspace spin-up, reports, and automation ticks.
 
 The canonical configuration is `_herakles/herakles.toml`. It describes hosted repository discovery, tracked projects, lifecycle defaults, automation jobs, and agent runtime settings. Herakles does not support project-local config, machine profiles, `herakles.local.toml`, or a remote sync API.
 
 `--root` identifies the Herakles Workspace: the folder containing `_herakles` and the mandatory lifecycle folders `open-source/`, `commercial/`, `experiment/`, `candidate/`, and `archived/`. Generated Herakles state lives inside `_herakles/cache`, `_herakles/reports`, `_herakles/worktrees`, and `_herakles/state`; `_herakles/.gitignore` keeps those folders out of synced configuration.
+
+For setup commands, see [Quick Start](quick-start.md). For development commands and quality gates, see [Tooling](tooling.md). For implementation conventions, see [Code Style](code-style.md).
 
 `herakles init` creates the workspace scaffold, lifecycle folders, `.gitignore`, schemas, and default report-only automation jobs with inline prompts in `herakles.toml`. Existing config is left untouched so setup can be rerun safely.
 
@@ -12,7 +22,7 @@ The canonical configuration is `_herakles/herakles.toml`. It describes hosted re
 
 A repository is a Git or GitHub source-control unit. A project is Herakles's resolved model over a repository or local experiment, including lifecycle state, derived local path, group, tags, workspace-up eligibility, automation eligibility, reports, and validation.
 
-Tracked hosted projects identify their repository with `repo = "owner/name"`. Tracked local projects use only minimal project config such as `source = "local"`, lifecycle, group, tags, or learning evidence. Arbitrary per-project paths are not supported. A project's checkout path is derived as `<workspace>/<lifecycle>/<group?>/<repo>`.
+Tracked hosted projects identify their repository with `repo = "owner/name"`. Tracked local projects use only minimal project config such as `source = "local"`, lifecycle, group, tags, or learning evidence. Arbitrary per-project paths are not supported. A project's local path is derived as `<workspace>/<lifecycle>/<group?>/<repo>`.
 
 Public GitHub repositories suggest `open-source`. Private hosted repositories and local projects suggest `experiment`. GitHub archived repositories suggest `archived`. `candidate` and `commercial` are deliberate lifecycle settings. Project settings can change lifecycle, group, and tags through plan-first TOML writes; Herakles reports any move that would be needed but does not move repositories automatically.
 
@@ -53,7 +63,3 @@ Automation eligibility uses project filters and tag filters. The default automat
 Prompt-driven agent runtime jobs receive a Herakles-authored context block on stdin after the configured prompt. That context includes slot metadata, eligible project evidence, detected package managers, roadmap presence, and recent generated reports. Herakles does not model runtime-specific implementation branches, review resolution, or publishing. The UI leads with human-readable schedule summaries while keeping the cron expression as the precise editable form.
 
 Automation locks are local file claims under `_herakles/state/locks` and honor their expiry before a slot can be claimed again. Run ledgers live under `_herakles/cache/runs`. Herakles does not coordinate automation through a config repository, remote sync endpoint, or branch-lock protocol.
-
-## Tooling
-
-Herakles prefers Bun APIs for TOML, cron, serving, bundling, tests, subprocesses, and runtime services. Stricli powers the CLI. Biome handles formatting and linting. Fallow is reserved as a GitHub Actions pull-request quality gate.
