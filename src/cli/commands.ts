@@ -241,7 +241,7 @@ const repoShowCommand = buildCommand<CommonFlags, [string]>({
       parameters: [
         {
           parse: String,
-          brief: "Project id, slug, or repository name.",
+          brief: "Project, slug, or repository name.",
           placeholder: "project",
         },
       ],
@@ -282,7 +282,6 @@ async function prompt(question: string): Promise<string> {
 
 async function promptProjectAdd(flags: {
   source?: "github" | "local";
-  id?: string;
   repo?: string;
   group?: string;
   state?: ProjectState;
@@ -291,12 +290,11 @@ async function promptProjectAdd(flags: {
   const source = await promptProjectSource(flags);
   const repo =
     source === "github" ? (flags.repo ?? (await prompt("GitHub repo (owner/name): "))) : undefined;
-  const fallbackId = defaultProjectId(source, repo, flags.id);
-  const id = await promptProjectId(flags.id, fallbackId);
+  const name = source === "local" ? await prompt("Local project name: ") : undefined;
   return buildAddProjectInput({
-    id,
     source,
     repo,
+    name,
     group: flags.group,
     state: flags.state,
     tags: flags.tags,
@@ -304,47 +302,40 @@ async function promptProjectAdd(flags: {
 }
 
 function buildAddProjectInput(input: {
-  id: string | undefined;
   source: "github" | "local";
+  repo: string | undefined;
+  name: string | undefined;
+  group: string | undefined;
+  state: ProjectState | undefined;
+  tags: string[] | undefined;
+}) {
+  return input.source === "github"
+    ? buildGitHubAddProjectInput(input)
+    : buildLocalAddProjectInput(input);
+}
+
+function buildGitHubAddProjectInput(input: {
   repo: string | undefined;
   group: string | undefined;
   state: ProjectState | undefined;
   tags: string[] | undefined;
 }) {
-  const id = requireProjectValue(input.id, "Project id is required.");
-  return input.source === "github"
-    ? buildGitHubAddProjectInput(id, input)
-    : buildLocalAddProjectInput(id, input);
-}
-
-function buildGitHubAddProjectInput(
-  id: string,
-  input: {
-    repo: string | undefined;
-    group: string | undefined;
-    state: ProjectState | undefined;
-    tags: string[] | undefined;
-  },
-) {
   return {
-    id,
     source: "github" as const,
     repo: requireProjectValue(input.repo, "GitHub repo is required."),
     ...commonProjectOptions(input),
   };
 }
 
-function buildLocalAddProjectInput(
-  id: string,
-  input: {
-    group: string | undefined;
-    state: ProjectState | undefined;
-    tags: string[] | undefined;
-  },
-) {
+function buildLocalAddProjectInput(input: {
+  name: string | undefined;
+  group: string | undefined;
+  state: ProjectState | undefined;
+  tags: string[] | undefined;
+}) {
   return {
-    id,
     source: "local" as const,
+    name: requireProjectValue(input.name, "Local project name is required."),
     ...commonProjectOptions(input),
   };
 }
@@ -375,22 +366,9 @@ async function promptProjectSource(flags: {
   return projectSourceParser((await prompt("Source (github/local): ")) || "github");
 }
 
-async function promptProjectId(id: string | undefined, fallbackId: string | undefined) {
-  return id ?? ((await prompt(`Project id (${fallbackId ?? "project"}): `)) || fallbackId);
-}
-
-function defaultProjectId(
-  source: "github" | "local",
-  repo: string | undefined,
-  id: string | undefined,
-) {
-  return source === "github" ? repo?.replace("/", "-") : id;
-}
-
 const addProjectCommand = buildCommand<
   CommonFlags & {
     source?: "github" | "local";
-    id?: string;
     repo?: string;
     group?: string;
     state?: ProjectState;
@@ -407,13 +385,6 @@ const addProjectCommand = buildCommand<
         optional: true,
         brief: "Project source.",
         placeholder: "github|local",
-      },
-      id: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Tracked project id.",
-        placeholder: "id",
       },
       repo: {
         kind: "parsed",
@@ -453,7 +424,9 @@ const addProjectCommand = buildCommand<
     });
     const result = await app.addProject(root(flags), input);
     const checkout =
-      input.source === "github" ? await app.checkoutProject(root(flags), input.id) : undefined;
+      input.source === "github"
+        ? await app.checkoutProject(root(flags), result.projectId)
+        : undefined;
     shouldJson(flags)
       ? printJson(checkout ? { project: result, checkout } : result)
       : printAddProjectResult(result.toml, checkout);
@@ -474,7 +447,7 @@ const removeProjectCommand = buildCommand<CommonFlags & { yes?: boolean }, [stri
     positional: {
       kind: "tuple",
       parameters: [
-        { parse: String, brief: "Project id, slug, or repository name.", placeholder: "project" },
+        { parse: String, brief: "Project, slug, or repository name.", placeholder: "project" },
       ],
     },
   },
@@ -538,18 +511,16 @@ const projectsImportCommand = buildCommand<
     if (repos.length === 0) {
       const candidates = await app.hostedImportCandidates(root(flags));
       const rows = candidates.map((candidate) => ({
-        id: candidate.id,
         repo: candidate.repo,
         visibility: candidate.visibility,
         suggestedState: candidate.suggestedState,
       }));
-      shouldJson(flags) ? printJson(candidates) : printTable(rows);
+      shouldJson(flags) ? printJson(rows) : printTable(rows);
       return;
     }
     const result = await app.importHostedProjects(
       root(flags),
       repos.map((repo) => ({
-        id: repo.replace("/", "-"),
         repo,
         ...(flags.state === undefined ? {} : { state: flags.state }),
         ...(flags.group === undefined ? {} : { group: flags.group }),
@@ -579,7 +550,7 @@ const projectsCheckoutCommand = buildCommand<CommonFlags & { dryRun?: boolean },
     positional: {
       kind: "tuple",
       parameters: [
-        { parse: String, brief: "Project id, slug, or repository name.", placeholder: "project" },
+        { parse: String, brief: "Project, slug, or repository name.", placeholder: "project" },
       ],
     },
   },
@@ -611,7 +582,7 @@ const repoSetStateCommand = buildCommand<
     positional: {
       kind: "tuple",
       parameters: [
-        { parse: String, brief: "Project id, slug, or repository name.", placeholder: "project" },
+        { parse: String, brief: "Project, slug, or repository name.", placeholder: "project" },
         { parse: projectStateParser, brief: "New Herakles project state.", placeholder: "state" },
       ],
     },
@@ -647,7 +618,7 @@ const repoArchiveCommand = buildCommand<
     positional: {
       kind: "tuple",
       parameters: [
-        { parse: String, brief: "Project id, slug, or repository name.", placeholder: "project" },
+        { parse: String, brief: "Project, slug, or repository name.", placeholder: "project" },
       ],
     },
   },
@@ -676,7 +647,7 @@ const localShowCommand = buildCommand<CommonFlags, [string]>({
     positional: {
       kind: "tuple",
       parameters: [
-        { parse: String, brief: "Local project id, slug, or name.", placeholder: "project" },
+        { parse: String, brief: "Local project, slug, or name.", placeholder: "project" },
       ],
     },
   },
@@ -702,7 +673,7 @@ const localArchiveCommand = buildCommand<CommonFlags & { learning: string }, [st
     positional: {
       kind: "tuple",
       parameters: [
-        { parse: String, brief: "Local project id, slug, or name.", placeholder: "project" },
+        { parse: String, brief: "Local project, slug, or name.", placeholder: "project" },
       ],
     },
   },
@@ -760,7 +731,7 @@ const localPromoteCommand = buildCommand<
     positional: {
       kind: "tuple",
       parameters: [
-        { parse: String, brief: "Local project id, slug, or name.", placeholder: "project" },
+        { parse: String, brief: "Local project, slug, or name.", placeholder: "project" },
       ],
     },
   },
@@ -931,7 +902,7 @@ const reportNoteCommand = buildCommand<
         kind: "parsed",
         parse: String,
         optional: true,
-        brief: "Related project id, slug, or repository name.",
+        brief: "Related project, slug, or repository name.",
         placeholder: "project",
       },
     },

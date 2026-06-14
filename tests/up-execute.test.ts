@@ -34,7 +34,28 @@ function plan(path: string): UpPlan {
   };
 }
 
+function clonePlan(path: string): UpPlan {
+  return {
+    generatedAt: "2026-06-13T00:00:00.000Z",
+    items: [{ action: "clone", reason: "missing local clone", project: project(path) }],
+  };
+}
+
 describe("workspace up execution", () => {
+  test("clones hosted projects through gh repo clone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-clone-"));
+    const clone = join(root, "tool");
+    await withFakeGit({ status: "" }, async (logPath) => {
+      const result = await executeUpPlan(clonePlan(clone));
+      const log = await readFile(logPath, "utf8");
+
+      expect(result[0]?.status).toBe("done");
+      expect(result[0]?.message).toBe("cloned");
+      expect(log).toContain("gh repo clone frostney/tool");
+      expect(log).not.toContain("git clone");
+    });
+  });
+
   test("fetches dirty worktrees but skips pull", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-up-dirty-"));
     const clone = join(root, "tool");
@@ -92,7 +113,7 @@ async function withFakeGit(
   await writeFile(
     join(bin, "git"),
     `#!/bin/sh
-printf '%s\\n' "$*" >> "$HERAKLES_GIT_LOG"
+printf 'git %s\\n' "$*" >> "$HERAKLES_GIT_LOG"
 if [ "$1" = "status" ]; then
   printf '%s' "$HERAKLES_GIT_STATUS"
   exit 0
@@ -106,7 +127,18 @@ fi
 exit 0
 `,
   );
+  await writeFile(
+    join(bin, "gh"),
+    `#!/bin/sh
+printf 'gh %s\\n' "$*" >> "$HERAKLES_GIT_LOG"
+if [ "$1 $2 $3" = "repo clone frostney/tool" ]; then
+  mkdir -p "$4/.git"
+fi
+exit 0
+`,
+  );
   await chmod(join(bin, "git"), 0o755);
+  await chmod(join(bin, "gh"), 0o755);
   process.env.PATH = `${bin}:${previousPath ?? ""}`;
   process.env.HERAKLES_GIT_LOG = logPath;
   process.env.HERAKLES_GIT_STATUS = options.status;

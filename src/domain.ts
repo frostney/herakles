@@ -100,7 +100,6 @@ export type Project = {
 };
 
 export type HostedImportCandidate = {
-  id: string;
   repo: string;
   owner: string;
   name: string;

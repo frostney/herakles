@@ -157,11 +157,12 @@ export async function archiveProject(workspaceRoot: string, projectId: string, l
 
 export async function addProject(
   workspaceRoot: string,
-  input: ProjectConfigChanges & { id: string },
+  input: ProjectConfigChanges & { id?: string; name?: string },
 ) {
   validateProjectInput(input);
+  const id = inputProjectConfigId(input);
   const loaded = await loadConfig(workspaceRoot);
-  const plan = createProjectConfigPlan(loaded, input.id, input);
+  const plan = createProjectConfigPlan(loaded, id, input);
   const result = await applyProjectConfigPlan(plan);
   return result;
 }
@@ -179,7 +180,7 @@ export async function removeProject(workspaceRoot: string, projectId: string) {
 export async function importHostedProjects(
   workspaceRoot: string,
   inputs: Array<{
-    id: string;
+    id?: string;
     repo: string;
     state?: ProjectState;
     group?: string;
@@ -189,8 +190,9 @@ export async function importHostedProjects(
   const loaded = await loadConfig(workspaceRoot);
   const results = [];
   for (const input of inputs) {
+    const id = input.id ?? projectIdFromRepo(input.repo);
     const result = await applyProjectConfigPlan(
-      createProjectConfigPlan(loaded, input.id, {
+      createProjectConfigPlan(loaded, id, {
         source: "github",
         repo: input.repo,
         ...(input.state === undefined ? {} : { state: input.state }),
@@ -198,7 +200,7 @@ export async function importHostedProjects(
         ...(input.tags === undefined ? {} : { tags: input.tags }),
       }),
     );
-    loaded.config.project[input.id] = result.after as (typeof loaded.config.project)[string];
+    loaded.config.project[id] = result.after as (typeof loaded.config.project)[string];
     results.push(result);
   }
   return results;
@@ -217,10 +219,35 @@ export async function checkoutProject(
   return executeUpPlan(plan, options);
 }
 
-function validateProjectInput(input: ProjectConfigChanges & { id: string }) {
+function validateProjectInput(input: ProjectConfigChanges & { id?: string; name?: string }) {
   if (input.source === "github" && !input.repo) {
     throw new Error("GitHub projects require repo as owner/name.");
   }
+  if (input.source === "local" && !input.id && !input.name) {
+    throw new Error("Local projects require a name.");
+  }
+}
+
+function inputProjectConfigId(
+  input: ProjectConfigChanges & { id?: string; name?: string },
+): string {
+  if (input.id) return input.id;
+  if (input.source === "github") return projectIdFromRepo(input.repo);
+  return requireValue(input.name, "Local project name is required.");
+}
+
+function projectIdFromRepo(repo: string | undefined): string {
+  const value = requireValue(repo, "GitHub repo is required.");
+  const [owner, name] = value.split("/");
+  if (!owner || !name || value.split("/").length !== 2) {
+    throw new Error(`Expected hosted repository as owner/name, received: ${value}`);
+  }
+  return slug(owner, name);
+}
+
+function requireValue(value: string | undefined, message: string): string {
+  if (!value) throw new Error(message);
+  return value;
 }
 
 export async function archiveLocalProject(
@@ -304,7 +331,6 @@ export async function hostedImportCandidates(
   return hosted
     .map((repo) => {
       const candidate: HostedImportCandidate = {
-        id: slug(repo.owner, repo.name),
         repo: repo.nameWithOwner,
         owner: repo.owner,
         name: repo.name,

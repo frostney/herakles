@@ -273,7 +273,7 @@ mode = "summary"
     expect(body.local.map((repo: { name: string }) => repo.name)).toEqual(["scratch"]);
   });
 
-  test("project config plan route validates required project id", async () => {
+  test("project config plan route validates required project selector", async () => {
     const workspaceRoot = await tempWorkspace();
     const response = await routeApi(
       new Request("http://x/api/config/project-plan", {
@@ -400,7 +400,7 @@ owners = ["frostney"]
       new Request("http://x/api/projects/add", {
         method: "POST",
         body: JSON.stringify({
-          id: "scratch",
+          name: "scratch",
           source: "local",
           state: "experiment",
           tags: ["local"],
@@ -414,7 +414,6 @@ owners = ["frostney"]
         body: JSON.stringify({
           projects: [
             {
-              id: "frostney-tool",
               repo: "frostney/tool",
               state: "commercial",
               group: "clients",

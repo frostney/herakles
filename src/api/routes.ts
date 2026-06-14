@@ -58,9 +58,10 @@ const projectConfigBodySchema = z
   .strict();
 const addProjectBodySchema = z
   .object({
-    id: nonEmptyString,
+    id: nonEmptyString.optional(),
     source: z.enum(["github", "local"]),
     repo: nonEmptyString.optional(),
+    name: nonEmptyString.optional(),
     group: nonEmptyString.optional(),
     state: projectStateSchema.optional(),
     tags: z.array(nonEmptyString).optional(),
@@ -71,7 +72,7 @@ const importProjectsBodySchema = z
     projects: z.array(
       z
         .object({
-          id: nonEmptyString,
+          id: nonEmptyString.optional(),
           repo: nonEmptyString,
           state: projectStateSchema.optional(),
           group: nonEmptyString.optional(),
@@ -253,9 +254,10 @@ async function routeAddProject(context: ApiContext): Promise<Response> {
   if (!body.ok) return body.response;
   return json(
     await app.addProject(context.options.workspaceRoot, {
-      id: body.data.id,
       source: body.data.source,
+      ...(body.data.id === undefined ? {} : { id: body.data.id }),
       ...(body.data.repo === undefined ? {} : { repo: body.data.repo }),
+      ...(body.data.name === undefined ? {} : { name: body.data.name }),
       ...(body.data.group === undefined ? {} : { group: body.data.group }),
       ...(body.data.state === undefined ? {} : { state: body.data.state }),
       ...(body.data.tags === undefined ? {} : { tags: body.data.tags }),
@@ -270,8 +272,8 @@ async function routeImportProjects(context: ApiContext): Promise<Response> {
     await app.importHostedProjects(
       context.options.workspaceRoot,
       body.data.projects.map((project) => ({
-        id: project.id,
         repo: project.repo,
+        ...(project.id === undefined ? {} : { id: project.id }),
         ...(project.state === undefined ? {} : { state: project.state }),
         ...(project.group === undefined ? {} : { group: project.group }),
         ...(project.tags === undefined ? {} : { tags: project.tags }),

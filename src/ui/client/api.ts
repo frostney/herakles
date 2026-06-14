@@ -168,25 +168,26 @@ export async function postProjectsRefresh(): Promise<ProjectDiscoveryRefreshResu
 }
 
 export async function postAddProject(input: {
-  id: string;
+  id?: string;
   source: "github" | "local";
   repo?: string;
+  name?: string;
   group?: string;
   state?: ProjectState;
   tags?: string[];
-}) {
+}): Promise<ProjectConfigPlan> {
   return post("/api/projects/add", input);
 }
 
 export async function postImportProjects(
   projects: Array<{
-    id: string;
+    id?: string;
     repo: string;
     state?: ProjectState;
     group?: string;
     tags?: string[];
   }>,
-) {
+): Promise<ProjectConfigPlan[]> {
   return post("/api/projects/import", { projects });
 }
 

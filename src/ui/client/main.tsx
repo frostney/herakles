@@ -371,33 +371,33 @@ function Projects() {
 
 function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
   const [source, setSource] = useState<"github" | "local">("github");
-  const [id, setId] = useState("");
   const [repo, setRepo] = useState("");
+  const [name, setName] = useState("");
   const [group, setGroup] = useState("");
   const [tags, setTags] = useState("");
-  const [state, setState] = useState<ProjectState>("experiment");
+  const [state, setState] = useState<ProjectState | "infer">("infer");
   const [message, setMessage] = useState("");
   const add = async () => {
     setMessage("");
     try {
-      const projectId = id || defaultProjectId(repo);
       const tagList = splitTags(tags);
-      await postAddProject({
-        id: projectId,
+      const result = await postAddProject({
         source,
         ...(source === "github" ? { repo } : {}),
+        ...(source === "local" ? { name } : {}),
         ...(group.trim() ? { group: group.trim() } : {}),
         ...(tagList.length > 0 ? { tags: tagList } : {}),
-        state,
+        ...(state === "infer" ? {} : { state }),
       });
       if (source === "github") {
-        await postCheckoutProject(projectId);
+        assertCheckoutSucceeded(await postCheckoutProject(result.projectId));
       }
       setMessage(source === "github" ? "Project added and checked out." : "Project added.");
-      setId("");
       setRepo("");
+      setName("");
       setGroup("");
       setTags("");
+      setState("infer");
       onChanged();
     } catch (error) {
       setMessage(String(error));
@@ -417,10 +417,6 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
             <option value="local">Local</option>
           </select>
         </label>
-        <label>
-          <span>Project id</span>
-          <input value={id} onChange={(event) => setId(event.target.value)} placeholder="auto" />
-        </label>
         {source === "github" ? (
           <label>
             <span>Repository</span>
@@ -431,11 +427,29 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
             />
           </label>
         ) : (
-          <p className="muted">Local projects are tracked by project id inside the workspace.</p>
+          <label>
+            <span>Name</span>
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="local-spike"
+            />
+          </label>
         )}
         <label htmlFor="add-project-state">
-          <span>State</span>
-          <StateSelect id="add-project-state" value={state} onChange={setState} />
+          <span>Lifecycle</span>
+          <select
+            id="add-project-state"
+            value={state}
+            onChange={(event) => setState(event.target.value as ProjectState | "infer")}
+          >
+            <option value="infer">infer</option>
+            <option value="experiment">experiment</option>
+            <option value="candidate">candidate</option>
+            <option value="commercial">commercial</option>
+            <option value="open-source">open-source</option>
+            <option value="archived">archived</option>
+          </select>
         </label>
         <label>
           <span>Group</span>
@@ -473,7 +487,6 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
         const group = groups[candidate.repo]?.trim();
         const tagList = splitTags(tags[candidate.repo] ?? "");
         return {
-          id: candidate.id,
           repo: candidate.repo,
           state: states[candidate.repo] ?? candidate.suggestedState,
           ...(group ? { group } : {}),
@@ -485,8 +498,11 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
       return;
     }
     try {
-      await postImportProjects(projects);
-      await Promise.all(projects.map((project) => postCheckoutProject(project.id)));
+      const imported = await postImportProjects(projects);
+      const checkout = await Promise.all(
+        imported.map((project) => postCheckoutProject(project.projectId)),
+      );
+      for (const result of checkout) assertCheckoutSucceeded(result);
       setSelected({});
       setMessage(
         `Imported and checked out ${projects.length} project${projects.length === 1 ? "" : "s"}.`,
@@ -540,6 +556,12 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
       {message && <p className={message.startsWith("Imported") ? "success" : "error"}>{message}</p>}
     </section>
   );
+}
+
+function assertCheckoutSucceeded(results: UpRunResult) {
+  const failed = results.find((result) => result.status === "failed");
+  if (!failed) return;
+  throw new Error(`${failed.item.project.repo}: ${failed.message}`);
 }
 
 function ImportCandidateFilters({
@@ -686,10 +708,6 @@ function StateSelect({
       <option value="archived">archived</option>
     </select>
   );
-}
-
-function defaultProjectId(value: string): string {
-  return value.replace("/", "-").split(/[\\/]/).filter(Boolean).at(-1) ?? value;
 }
 
 function splitTags(value: string): string[] {
@@ -1409,16 +1427,17 @@ function ProjectCheckoutCell({
   project,
 }: { onCheckout: () => void; project: Project }) {
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string }>();
   const checkout = async () => {
     setBusy(true);
-    setMessage("");
+    setMessage(undefined);
     try {
       const results = await postCheckoutProject(project.id);
-      setMessage(results.map((result) => result.message).join("; "));
+      assertCheckoutSucceeded(results);
+      setMessage({ kind: "success", text: results.map((result) => result.message).join("; ") });
       onCheckout();
     } catch (error) {
-      setMessage(String(error));
+      setMessage({ kind: "error", text: String(error) });
     } finally {
       setBusy(false);
     }
@@ -1435,7 +1454,7 @@ function ProjectCheckoutCell({
       <button type="button" className="small-button" disabled={busy} onClick={checkout}>
         Checkout
       </button>
-      {message && <span>{message}</span>}
+      {message && <span className={message.kind}>{message.text}</span>}
     </td>
   );
 }
@@ -1781,8 +1800,12 @@ function ProjectStateForm({
   return (
     <div className="project-settings-controls">
       <div>
-        <strong>{project.slug}</strong>
-        <span>{project.id}</span>
+        <strong>{projectName(project)}</strong>
+        <span>
+          {project.source === "github" && project.owner
+            ? `${project.owner}/${project.repo}`
+            : project.source}
+        </span>
       </div>
       <label>
         <span>State</span>

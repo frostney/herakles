@@ -52,11 +52,11 @@ async function executeItem(item: UpPlanItem): Promise<UpExecution> {
     return { item, status: "skipped", message: item.reason };
   }
   if (item.action === "clone") {
-    if (!project.remote) {
-      return { item, status: "failed", message: "missing remote URL" };
+    if (!project.owner) {
+      return { item, status: "failed", message: "missing GitHub owner" };
     }
     await mkdir(dirname(project.path), { recursive: true });
-    await runCommand(["git", "clone", project.remote, project.path]);
+    await runCommand(["gh", "repo", "clone", `${project.owner}/${project.repo}`, project.path]);
     return { item, status: "done", message: "cloned" };
   }
   if (!existsSync(project.path)) {
