@@ -1,12 +1,6 @@
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
-import {
-  type Command,
-  type CommandContext,
-  type RouteMap,
-  buildCommand as buildStricliCommand,
-  buildRouteMap as buildStricliRouteMap,
-} from "@stricli/core";
+import { buildCommand, buildRouteMap } from "@stricli/core";
 import * as app from "../app";
 import { installOsCron } from "../automation/cron";
 import { initConfig } from "../config/init";
@@ -18,41 +12,6 @@ import { printJson, printTable } from "./output";
 type CommonFlags = {
   root?: string;
   json?: boolean;
-};
-
-type CliFlag = {
-  kind: "boolean" | "parsed";
-  parse?: (value: string) => unknown;
-  optional?: boolean;
-  variadic?: boolean;
-  brief?: string;
-  placeholder?: string;
-};
-
-type CliPositional = {
-  parse: (value: string) => unknown;
-  brief?: string;
-  placeholder?: string;
-};
-
-type CommandParameters = {
-  flags?: Record<string, CliFlag>;
-  positional?: {
-    kind: "tuple";
-    parameters: CliPositional[];
-  };
-};
-
-type CommandDefinition<Flags, Positionals extends unknown[]> = {
-  docs?: { brief?: string };
-  parameters?: CommandParameters;
-  func: (flags: Flags, ...positionals: Positionals) => Promise<void> | void;
-};
-
-type RouteDefinition = {
-  docs?: { brief?: string };
-  defaultCommand?: string;
-  routes: Record<string, Command<CommandContext> | RouteMap<CommandContext>>;
 };
 
 const commonFlags = {
@@ -83,71 +42,6 @@ const looseBooleanParser = (value: string) => {
   if (["0", "false", "no", "off"].includes(value.toLowerCase())) return false;
   throw new Error(`Expected a boolean, received: ${value}`);
 };
-
-function buildCommand<_Flags = Record<string, unknown>, _Positionals extends unknown[] = []>(
-  _definition: CommandDefinition<_Flags, _Positionals>,
-): Command<CommandContext> {
-  return buildStricliCommand({
-    docs: { brief: _definition.docs?.brief ?? "" },
-    parameters: buildParameters(_definition.parameters) as never,
-    async func(flags, ...positionals) {
-      await _definition.func(flags as _Flags, ...(positionals as unknown as _Positionals));
-    },
-  });
-}
-
-function buildRouteMap(definition: RouteDefinition): RouteMap<CommandContext> {
-  return buildStricliRouteMap({
-    docs: { brief: definition.docs?.brief ?? "" },
-    routes: definition.routes,
-    ...(definition.defaultCommand === undefined
-      ? {}
-      : { defaultCommand: definition.defaultCommand }),
-  });
-}
-
-function buildParameters(parameters: CommandParameters | undefined) {
-  const flags: Record<string, unknown> = {};
-  for (const [name, flag] of Object.entries(parameters?.flags ?? {})) {
-    flags[name] = flagToParameter(flag);
-  }
-  return {
-    ...(Object.keys(flags).length === 0 ? {} : { flags }),
-    ...(parameters?.positional === undefined
-      ? {}
-      : {
-          positional: {
-            kind: "tuple" as const,
-            parameters: parameters.positional.parameters.map(positionalToParameter),
-          },
-        }),
-  };
-}
-
-function positionalToParameter(positional: CliPositional) {
-  return {
-    parse: positional.parse,
-    brief: positional.brief ?? "",
-    ...(positional.placeholder === undefined ? {} : { placeholder: positional.placeholder }),
-  };
-}
-
-function flagToParameter(flag: CliFlag) {
-  const base = {
-    optional: flag.optional === true,
-    brief: flag.brief ?? "",
-    ...(flag.placeholder === undefined ? {} : { placeholder: flag.placeholder }),
-  };
-  if (flag.kind === "boolean") {
-    return { ...base, kind: "boolean", withNegated: false };
-  }
-  return {
-    ...base,
-    kind: "parsed",
-    parse: flag.parse ?? String,
-    ...(flag.variadic === true ? { variadic: true as const } : {}),
-  };
-}
 
 function root(flags: CommonFlags) {
   return flags.root ?? process.cwd();
