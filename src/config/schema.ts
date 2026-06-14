@@ -76,7 +76,6 @@ export const jobConfigSchema = z
     repo_filter: z.string().optional(),
     include_tags: z.array(z.string()).default([]),
     exclude_tags: z.array(z.string()).default([]),
-    issue_labels: z.array(z.string()).default([]),
     skill: z.string().optional(),
     enabled: z.boolean().default(true),
   })

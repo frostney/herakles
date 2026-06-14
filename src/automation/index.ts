@@ -24,7 +24,6 @@ export function configuredJobs(loaded: LoadedConfig): AutomationJob[] {
       id,
       schedule: String(job.schedule ?? "*/5 * * * *"),
       runtime: String(job.runtime ?? "codex"),
-      issueLabels: stringList(job.issue_labels),
       includeTags: stringList(job.include_tags),
       excludeTags: stringList(job.exclude_tags),
       enabled: job.enabled !== false,
@@ -272,7 +271,6 @@ Agent runtime: ${job.runtime}
 Slot: ${slot.slotId}
 Due at: ${slot.dueAt}
 Skill: ${job.skill ?? "none"}
-Issue labels: ${job.issueLabels.length ? job.issueLabels.join(", ") : "none"}
 Include tags: ${job.includeTags.length ? job.includeTags.join(", ") : "none"}
 Exclude tags: ${job.excludeTags.length ? job.excludeTags.join(", ") : "none"}
 Repo filter: ${job.repoFilter ?? "automation eligible projects"}

@@ -505,64 +505,12 @@ const repoArchiveCommand = buildCommand<
   },
 });
 
-const localListCommand = buildCommand<CommonFlags>({
-  docs: { brief: "List local experiment projects." },
-  parameters: { flags: commonFlags },
-  async func(flags) {
-    const result = await app.localProjects(root(flags));
-    shouldJson(flags) ? printJson(result) : printTable(result);
-  },
-});
-
-const localShowCommand = buildCommand<CommonFlags, [string]>({
-  docs: { brief: "Show one local experiment project." },
-  parameters: {
-    flags: commonFlags,
-    positional: {
-      kind: "tuple",
-      parameters: [
-        { parse: String, brief: "Local project, slug, or name.", placeholder: "project" },
-      ],
-    },
-  },
-  async func(flags, id) {
-    const result = await app.project(root(flags), id);
-    if (result.source !== "local") throw new Error(`${id} is not a local project.`);
-    shouldJson(flags) ? printJson(result) : printTable([result]);
-  },
-});
-
-const localArchiveCommand = buildCommand<CommonFlags & { learning: string }, [string]>({
-  docs: { brief: "Archive a local experiment without writing synced config." },
-  parameters: {
-    flags: {
-      ...commonFlags,
-      learning: {
-        kind: "parsed",
-        parse: String,
-        brief: "Learning file path relative to the project.",
-        placeholder: "path",
-      },
-    },
-    positional: {
-      kind: "tuple",
-      parameters: [
-        { parse: String, brief: "Local project, slug, or name.", placeholder: "project" },
-      ],
-    },
-  },
-  async func(flags, id) {
-    const result = await app.archiveLocalProject(root(flags), id, flags.learning);
-    shouldJson(flags) ? printJson(result) : printTable([result]);
-  },
-});
-
 function visibilityParser(value: string): "public" | "private" {
   if (value === "public" || value === "private") return value;
   throw new Error(`Unknown visibility: ${value}`);
 }
 
-const localPromoteCommand = buildCommand<
+const projectPromoteCommand = buildCommand<
   CommonFlags & {
     owner?: string;
     repo?: string;
@@ -658,7 +606,7 @@ const validateCommand = buildCommand<CommonFlags & { strict?: boolean }>({
 });
 
 const projectsRefreshCommand = buildCommand<CommonFlags>({
-  docs: { brief: "Refresh and cache project discovery." },
+  docs: { brief: "Refresh project discovery." },
   parameters: { flags: commonFlags },
   async func(flags) {
     const result = await app.projectDiscoveryRefresh(root(flags));
@@ -668,22 +616,6 @@ const projectsRefreshCommand = buildCommand<CommonFlags>({
           { kind: "hosted", count: result.hosted.length },
           { kind: "hosted-clones", count: result.hostedClones.length },
           { kind: "local", count: result.local.length },
-        ]);
-  },
-});
-
-const projectsDiscoveryCommand = buildCommand<CommonFlags>({
-  docs: { brief: "Show cached project discovery, refreshing when cache is missing." },
-  parameters: { flags: commonFlags },
-  async func(flags) {
-    const result = await app.projectDiscoveryShow(root(flags));
-    shouldJson(flags)
-      ? printJson(result)
-      : printTable([
-          { kind: "hosted", count: result.hosted.length },
-          { kind: "hosted-clones", count: result.hostedClones.length },
-          { kind: "local", count: result.local.length },
-          { kind: "cache", count: result.path },
         ]);
   },
 });
@@ -902,107 +834,6 @@ const codexDoctorCommand = buildCommand<CommonFlags>({
   },
 });
 
-const githubPrsCommand = buildCommand<CommonFlags>({
-  docs: { brief: "List open pull requests across workspace-up eligible projects." },
-  parameters: { flags: commonFlags },
-  async func(flags) {
-    const result = await app.pullRequests(root(flags));
-    shouldJson(flags) ? printJson(result) : printTable(result);
-  },
-});
-
-const githubIssuesCommand = buildCommand<CommonFlags & { label?: string[] }>({
-  docs: { brief: "List open issues across workspace-up eligible projects." },
-  parameters: {
-    flags: {
-      ...commonFlags,
-      label: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        variadic: true,
-        brief: "Issue labels to filter by.",
-        placeholder: "label",
-      },
-    },
-  },
-  async func(flags) {
-    const result = await app.issues(root(flags), flags.label ?? []);
-    shouldJson(flags) ? printJson(result) : printTable(result);
-  },
-});
-
-const recommendIssuesCommand = buildCommand<CommonFlags & { label?: string[]; limit?: number }>({
-  docs: { brief: "Rank open GitHub issues and write a recommendation report." },
-  parameters: {
-    flags: {
-      ...commonFlags,
-      label: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        variadic: true,
-        brief: "Issue labels to filter by.",
-        placeholder: "label",
-      },
-      limit: {
-        kind: "parsed",
-        parse: numberParser,
-        optional: true,
-        brief: "Maximum candidates to include.",
-        placeholder: "count",
-      },
-    },
-  },
-  async func(flags) {
-    const result = await app.issueRecommendations(root(flags), {
-      ...(flags.label === undefined ? {} : { labels: flags.label }),
-      ...(flags.limit === undefined ? {} : { limit: flags.limit }),
-    });
-    if (shouldJson(flags)) return printJson(result);
-    console.log(`Report: ${result.reportPath}`);
-    printTable(
-      result.candidates.map((candidate) => ({
-        score: candidate.score,
-        issue: `${candidate.repo}#${candidate.number}`,
-        project: candidate.projectId,
-        reason: candidate.reasons.join("; "),
-      })),
-    );
-  },
-});
-
-const recommendCodeRabbitCommand = buildCommand<CommonFlags & { limit?: number }>({
-  docs: { brief: "Find unresolved CodeRabbit review threads and write a report." },
-  parameters: {
-    flags: {
-      ...commonFlags,
-      limit: {
-        kind: "parsed",
-        parse: numberParser,
-        optional: true,
-        brief: "Maximum open PRs to inspect.",
-        placeholder: "count",
-      },
-    },
-  },
-  async func(flags) {
-    const result = await app.codeRabbitRecommendations(root(flags), {
-      ...(flags.limit === undefined ? {} : { limit: flags.limit }),
-    });
-    if (shouldJson(flags)) return printJson(result);
-    console.log(`Report: ${result.reportPath}`);
-    printTable(
-      result.contexts.map((context) => ({
-        pr: `${context.repo}#${context.prNumber}`,
-        threads: context.threads.length,
-        branch: context.headRefName ?? "",
-        title: context.title,
-      })),
-    );
-  },
-});
-
 const installCronCommand = buildCommand<{
   root?: string;
   script?: string;
@@ -1112,22 +943,12 @@ export const rootRoute = buildRouteMap({
         show: repoShowCommand,
         import: projectsImportCommand,
         refresh: projectsRefreshCommand,
-        discovery: projectsDiscoveryCommand,
         "set-state": repoSetStateCommand,
         archive: repoArchiveCommand,
-        promote: localPromoteCommand,
+        promote: projectPromoteCommand,
       },
     }),
     up: upCommand,
-    local: buildRouteMap({
-      docs: { brief: "Local experiment commands." },
-      routes: {
-        list: localListCommand,
-        show: localShowCommand,
-        archive: localArchiveCommand,
-        promote: localPromoteCommand,
-      },
-    }),
     doctor: doctorCommand,
     reports: buildRouteMap({
       docs: { brief: "Report commands." },
@@ -1159,20 +980,6 @@ export const rootRoute = buildRouteMap({
       docs: { brief: "Codex integration commands." },
       routes: {
         doctor: codexDoctorCommand,
-      },
-    }),
-    recommend: buildRouteMap({
-      docs: { brief: "Recommendation commands." },
-      routes: {
-        issues: recommendIssuesCommand,
-        coderabbit: recommendCodeRabbitCommand,
-      },
-    }),
-    github: buildRouteMap({
-      docs: { brief: "Read-only GitHub context commands." },
-      routes: {
-        prs: githubPrsCommand,
-        issues: githubIssuesCommand,
       },
     }),
     ui: uiCommand,

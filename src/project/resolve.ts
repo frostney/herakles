@@ -6,7 +6,6 @@ import type { HeraklesConfig } from "../config/schema";
 import type { ProjectDiscovery } from "../discovery";
 import type { GitHubRepository, LocalRepository, Project, ProjectState } from "../domain";
 import { matchesProjectFilter } from "../filters/project";
-import { readLocalProjectState } from "../local/state";
 
 const archiveDescriptionPatterns = [
   /\bmoved to\b/i,
@@ -181,9 +180,8 @@ function resolveLocalProject(
     localByName.get(configuredPath) ??
     localByName.get(projectId) ??
     syntheticLocalRepo(loaded, configuredPath);
-  const localState = readLocalProjectState(loaded, repo.name);
   const learningPath = findLearningPath(loaded, repo.path, config.learning);
-  const resolvedState = config.state ?? localState.state ?? loaded.config.defaults.state_for_local;
+  const resolvedState = config.state ?? loaded.config.defaults.state_for_local;
   const project: Project = {
     source: "local",
     id: `local:${repo.name}`,
@@ -203,12 +201,9 @@ function resolveLocalProject(
     automationEnabled: false,
   };
   if (repo.remote) project.remote = repo.remote;
-  const localLearningPath = localState.learning
-    ? findLearningPath(loaded, repo.path, localState.learning)
-    : learningPath;
-  if (localLearningPath) {
-    project.learningPath = localLearningPath;
-    project.archiveNote = `Learning file: ${localLearningPath}`;
+  if (learningPath) {
+    project.learningPath = learningPath;
+    project.archiveNote = `Learning file: ${learningPath}`;
   }
   return project;
 }

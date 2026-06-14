@@ -76,7 +76,6 @@ export type AutomationJobConfigInput = {
   repoFilter?: string;
   includeTags?: string[];
   excludeTags?: string[];
-  issueLabels?: string[];
   skill?: string;
   enabled?: boolean;
 };
@@ -105,13 +104,6 @@ export type ProjectDiscoveryRefreshResult = {
   hosted: unknown[];
   local: unknown[];
   hostedClones: unknown[];
-  generatedAt: string;
-  path: string;
-};
-
-export type LocalArchiveResult = {
-  state?: ProjectState;
-  learning?: string;
 };
 
 export async function getStatus(): Promise<StatusPayload> {
@@ -256,21 +248,14 @@ export async function postLocalPromotionPlan(
   projectId: string,
   options: { owner?: string; repo?: string; visibility?: "public" | "private" },
 ): Promise<LocalPromotionPlan> {
-  return post(`/api/local-projects/${encodeURIComponent(projectId)}/promote-plan`, options);
+  return post("/api/projects/promote-plan", { projectId, ...options });
 }
 
 export async function postLocalPromotion(
   projectId: string,
   options: { owner?: string; repo?: string; visibility?: "public" | "private" },
 ): Promise<LocalPromotionResult> {
-  return post(`/api/local-projects/${encodeURIComponent(projectId)}/promote`, options);
-}
-
-export async function postLocalArchive(
-  projectId: string,
-  learning: string,
-): Promise<LocalArchiveResult> {
-  return post(`/api/local-projects/${encodeURIComponent(projectId)}/archive`, { learning });
+  return post("/api/projects/promote", { projectId, ...options });
 }
 
 export function subscribeToEvents(onEvent: (event: HeraklesEvent) => void): () => void {

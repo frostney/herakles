@@ -48,7 +48,7 @@ The UI server exposes `/api/events` as a server-sent event stream. Events are em
 
 Cron matching uses the local machine timezone of the Herakles process that runs the automation tick. Timezone is runtime context and is not stored in synced configuration.
 
-Automation eligibility uses project filters and tag filters. The default automation filter is `not archived`, then automation-level excluded topics are applied. Automation jobs live in `_herakles/herakles.toml` and can declare `runtime`, `repo_filter`, `include_tags`, `exclude_tags`, `issue_labels`, `skill`, `output`, and inline prompts. Herakles owns scheduling, project selection, locks, GitHub lookup, and report recording; the configured agent runtime owns the work performed from the prepared prompt and context.
+Automation eligibility uses project filters and tag filters. The default automation filter is `not archived`, then automation-level excluded topics are applied. Automation jobs live in `_herakles/herakles.toml` and can declare `runtime`, `repo_filter`, `include_tags`, `exclude_tags`, `skill`, `output`, and inline prompts. Herakles owns scheduling, project selection, locks, GitHub lookup, and report recording; the configured agent runtime owns the work performed from the prepared prompt and context.
 
 Prompt-driven agent runtime jobs receive a Herakles-authored context block on stdin after the configured prompt. That context includes slot metadata, eligible project evidence, detected package managers, roadmap presence, and recent generated reports. Herakles does not model runtime-specific implementation branches, review resolution, or publishing. The UI leads with human-readable schedule summaries while keeping the cron expression as the precise editable form.
 

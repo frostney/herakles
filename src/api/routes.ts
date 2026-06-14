@@ -42,7 +42,6 @@ const automationJobBodySchema = z
     repoFilter: z.string().optional(),
     includeTags: z.array(nonEmptyString).optional(),
     excludeTags: z.array(nonEmptyString).optional(),
-    issueLabels: z.array(nonEmptyString).optional(),
     skill: z.string().optional(),
     enabled: z.boolean().optional(),
   })
@@ -88,15 +87,6 @@ const projectUpBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
   .strict();
 const configTomlBodySchema = z.object({ toml: z.string() }).strict();
-const issueRecommendationsBodySchema = z
-  .object({
-    labels: z.array(nonEmptyString).optional(),
-    limit: z.number().int().positive().optional(),
-  })
-  .strict();
-const codeRabbitRecommendationsBodySchema = z
-  .object({ limit: z.number().int().positive().optional() })
-  .strict();
 const reportNoteBodySchema = z
   .object({
     title: nonEmptyString,
@@ -112,7 +102,6 @@ const localPromotionBodySchema = z
   })
   .strict();
 type LocalPromotionBody = z.infer<typeof localPromotionBodySchema>;
-const localArchiveBodySchema = z.object({ learning: nonEmptyString }).strict();
 
 function json(value: unknown, init?: ResponseInit): Response {
   return Response.json(value, {
@@ -123,8 +112,6 @@ function json(value: unknown, init?: ResponseInit): Response {
 
 const getRoutes: Record<string, ApiHandler> = {
   "/api/status": ({ options }) => jsonAsync(app.status(options.workspaceRoot)),
-  "/api/projects/discovery": ({ options }) =>
-    jsonAsync(app.projectDiscoveryShow(options.workspaceRoot)),
   "/api/projects/import-candidates": ({ options, url }) =>
     jsonAsync(
       app.hostedImportCandidates(options.workspaceRoot, {
@@ -132,7 +119,6 @@ const getRoutes: Record<string, ApiHandler> = {
       }),
     ),
   "/api/projects": ({ options }) => jsonAsync(app.projects(options.workspaceRoot)),
-  "/api/local-projects": ({ options }) => jsonAsync(app.localProjects(options.workspaceRoot)),
   "/api/up/plan": ({ options }) => jsonAsync(app.upPlan(options.workspaceRoot)),
   "/api/validate": ({ options, url }) =>
     jsonAsync(app.validation(options.workspaceRoot, { strict: isStrict(url) })),
@@ -152,6 +138,8 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/import": (context) => routeImportProjects(context),
   "/api/projects/remove": (context) => routeRemoveProject(context),
   "/api/projects/up": (context) => routeProjectUp(context),
+  "/api/projects/promote-plan": (context) => routeProjectPromotionAction(context, false),
+  "/api/projects/promote": (context) => routeProjectPromotionAction(context, true),
   "/api/config/toml/plan": (context) =>
     routeConfigToml(context, context.options.workspaceRoot, false),
   "/api/config/toml/apply": (context) =>
@@ -167,8 +155,6 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/config/project-plan": (context) => routeProjectConfigPlan(context),
   "/api/config/apply": (context) => routeConfigApply(context),
   "/api/reports/note": (context) => routeReportNote(context),
-  "/api/recommendations/issues": (context) => routeIssueRecommendations(context),
-  "/api/recommendations/coderabbit": (context) => routeCodeRabbitRecommendations(context),
 };
 
 export async function routeApi(req: Request, options: ApiOptions): Promise<Response | undefined> {
@@ -201,10 +187,6 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
 async function routeGet(context: ApiContext): Promise<Response | undefined> {
   const handler = getRoutes[context.path];
   if (handler) return handler(context);
-  if (context.path.startsWith("/api/project-details/")) {
-    const id = decodeURIComponent(context.path.slice("/api/project-details/".length));
-    return json(await app.projectDetail(context.options.workspaceRoot, id));
-  }
   if (context.path.startsWith("/api/projects/")) {
     const id = decodeURIComponent(context.path.slice("/api/projects/".length));
     return json(await app.projectDetail(context.options.workspaceRoot, id));
@@ -218,7 +200,6 @@ async function routeGet(context: ApiContext): Promise<Response | undefined> {
 async function routePost(context: ApiContext): Promise<Response | undefined> {
   const handler = postRoutes[context.path];
   if (handler) return handler(context);
-  if (context.path.startsWith("/api/local-projects/")) return routeLocalProjectAction(context);
 }
 
 async function routeAutomationRun(context: ApiContext): Promise<Response> {
@@ -439,31 +420,6 @@ async function routeConfigApply(context: ApiContext): Promise<Response> {
   );
 }
 
-async function routeIssueRecommendations(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, issueRecommendationsBodySchema);
-  if (!body.ok) return body.response;
-  const result = await app.issueRecommendations(context.options.workspaceRoot, {
-    ...(body.data.labels === undefined ? {} : { labels: body.data.labels }),
-    ...(body.data.limit === undefined ? {} : { limit: body.data.limit }),
-  });
-  emitReportCreated(result.reportPath, "issue recommendation report created", {
-    candidates: result.candidates.length,
-  });
-  return json(result);
-}
-
-async function routeCodeRabbitRecommendations(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, codeRabbitRecommendationsBodySchema);
-  if (!body.ok) return body.response;
-  const result = await app.codeRabbitRecommendations(context.options.workspaceRoot, {
-    ...(body.data.limit === undefined ? {} : { limit: body.data.limit }),
-  });
-  emitReportCreated(result.reportPath, "CodeRabbit recommendation report created", {
-    contexts: result.contexts.length,
-  });
-  return json(result);
-}
-
 async function routeReportNote(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, reportNoteBodySchema);
   if (!body.ok) return body.response;
@@ -485,29 +441,17 @@ function emitReportCreated(
   emitApiEvent("report-created", message, { ...payload, reportPath });
 }
 
-async function routeLocalProjectAction(context: ApiContext): Promise<Response | undefined> {
-  const suffix = context.path.slice("/api/local-projects/".length);
-  const [id, action] = suffix.split("/");
-  if (!id) return undefined;
-  if (action === "promote-plan" || action === "promote") {
-    return routeLocalPromotionAction(context, decodeURIComponent(id), action);
-  }
-  if (action !== "archive") return undefined;
-  return routeLocalArchiveAction(context, decodeURIComponent(id));
-}
-
-async function routeLocalPromotionAction(
-  context: ApiContext,
-  id: string,
-  action: "promote-plan" | "promote",
-): Promise<Response> {
-  const body = await readJsonBody(context, localPromotionBodySchema);
+async function routeProjectPromotionAction(context: ApiContext, apply: boolean): Promise<Response> {
+  const body = await readJsonBody(
+    context,
+    localPromotionBodySchema.extend({ projectId: nonEmptyString }),
+  );
   if (!body.ok) return body.response;
   const options = localPromotionOptions(body.data);
   return json(
-    action === "promote"
-      ? await app.promoteLocal(context.options.workspaceRoot, id, options)
-      : await app.localPromotionPlan(context.options.workspaceRoot, id, options),
+    apply
+      ? await app.promoteLocal(context.options.workspaceRoot, body.data.projectId, options)
+      : await app.localPromotionPlan(context.options.workspaceRoot, body.data.projectId, options),
   );
 }
 
@@ -517,12 +461,6 @@ function localPromotionOptions(body: LocalPromotionBody) {
     ...(body.repo === undefined ? {} : { repo: body.repo }),
     ...(body.visibility === undefined ? {} : { visibility: body.visibility }),
   };
-}
-
-async function routeLocalArchiveAction(context: ApiContext, id: string): Promise<Response> {
-  const body = await readJsonBody(context, localArchiveBodySchema);
-  if (!body.ok) return body.response;
-  return json(await app.archiveLocalProject(context.options.workspaceRoot, id, body.data.learning));
 }
 
 async function jsonAsync(value: Promise<unknown>): Promise<Response> {
@@ -584,7 +522,6 @@ function automationJobChanges(body: z.infer<typeof automationJobBodySchema>) {
     ...(body.repoFilter === undefined ? {} : { repo_filter: body.repoFilter }),
     ...(body.includeTags === undefined ? {} : { include_tags: body.includeTags }),
     ...(body.excludeTags === undefined ? {} : { exclude_tags: body.excludeTags }),
-    ...(body.issueLabels === undefined ? {} : { issue_labels: body.issueLabels }),
     ...(body.skill === undefined ? {} : { skill: body.skill }),
     ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
   };

@@ -35,7 +35,6 @@ output = "weekly/{iso_week}.md"
 repo_filter = 'has_topic("current")'
 include_tags = ["weekly"]
 exclude_tags = ["paused"]
-issue_labels = ["ready-for-agent", "well-defined"]
 skill = "summary-skill"
 `,
   );
@@ -54,11 +53,11 @@ owners = []
 [automation]
 catch_up_window_minutes = 1440
 
-[job.coderabbit]
+[job.hourly_review]
 schedule = "0 */4 * * *"
 runtime = "codex"
 prompt = "Prepare recurring workspace context."
-output = "coderabbit/{slot}.md"
+output = "hourly/{slot}.md"
 `,
   );
   return root;
@@ -186,7 +185,6 @@ function automationJob(
     runtime: "codex",
     includeTags: [],
     excludeTags: [],
-    issueLabels: [],
     enabled: true,
     ...options,
   };
@@ -222,12 +220,9 @@ describe("automation", () => {
 
   test("creates deterministic daily, weekly, and hourly slot ids", () => {
     expect(
-      dueSlotForJob(
-        automationJob("coderabbit", "0 */4 * * *"),
-        new Date("2026-06-13T08:00:00Z"),
-        "UTC",
-      )?.slotId,
-    ).toBe("coderabbit/UTC/2026-06-13T08:00");
+      dueSlotForJob(automationJob("hourly", "0 */4 * * *"), new Date("2026-06-13T08:00:00Z"), "UTC")
+        ?.slotId,
+    ).toBe("hourly/UTC/2026-06-13T08:00");
     expect(
       dueSlotForJob(
         automationJob("morning", "30 8 * * 1-5"),
@@ -246,15 +241,15 @@ describe("automation", () => {
 
   test("enumerates missed scheduled slots between two times", () => {
     const slots = dueSlotsForJobBetween(
-      automationJob("coderabbit", "0 */4 * * *"),
+      automationJob("hourly", "0 */4 * * *"),
       new Date("2026-06-13T08:00:00Z"),
       new Date("2026-06-13T16:00:00Z"),
       "UTC",
     );
 
     expect(slots.map((slot) => slot.slotId)).toEqual([
-      "coderabbit/UTC/2026-06-13T12:00",
-      "coderabbit/UTC/2026-06-13T16:00",
+      "hourly/UTC/2026-06-13T12:00",
+      "hourly/UTC/2026-06-13T16:00",
     ]);
   });
 
@@ -295,14 +290,13 @@ describe("automation", () => {
     expect(source).toContain("await automate(");
   });
 
-  test("parses job filters, tag filters, issue labels, and skill metadata", async () => {
+  test("parses job filters, tag filters, and skill metadata", async () => {
     const loaded = await loadConfig(await tempWorkspace());
     const [job] = configuredJobs(loaded);
 
     expect(job?.repoFilter).toBe('has_topic("current")');
     expect(job?.includeTags).toEqual(["weekly"]);
     expect(job?.excludeTags).toEqual(["paused"]);
-    expect(job?.issueLabels).toEqual(["ready-for-agent", "well-defined"]);
     expect(job?.skill).toBe("summary-skill");
   });
 
@@ -402,8 +396,8 @@ describe("automation", () => {
     const loaded = await loadConfig(await tempHourlyWorkspace());
     await appendRuns(loaded, [
       {
-        jobId: "coderabbit",
-        slotId: "coderabbit/2026-06-13T08:00Z",
+        jobId: "hourly_review",
+        slotId: "hourly_review/2026-06-13T08:00Z",
         status: "succeeded",
         message: "previous run",
         startedAt: "2026-06-13T08:00:00.000Z",

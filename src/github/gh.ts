@@ -1,5 +1,5 @@
 import type { HeraklesConfig } from "../config/schema";
-import type { GitHubIssue, GitHubPullRequest, GitHubRepository } from "../domain";
+import type { GitHubRepository } from "../domain";
 import { runCommand } from "../utils/command";
 
 type Runner = typeof runCommand;
@@ -190,79 +190,4 @@ function repoListFields(): string[] {
     "pushedAt",
     "updatedAt",
   ];
-}
-
-type GhPr = {
-  number: number;
-  title: string;
-  url: string;
-  author?: { login: string };
-  headRefName?: string;
-  updatedAt?: string;
-};
-
-type GhIssue = {
-  number: number;
-  title: string;
-  url: string;
-  author?: { login: string };
-  labels?: { name: string }[];
-  updatedAt?: string;
-};
-
-export async function listOpenPullRequests(
-  repo: string,
-  runner: Runner = runCommand,
-): Promise<GitHubPullRequest[]> {
-  const result = await runner([
-    "gh",
-    "pr",
-    "list",
-    "--repo",
-    repo,
-    "--state",
-    "open",
-    "--json",
-    "number,title,url,author,headRefName,updatedAt",
-  ]);
-  return (JSON.parse(result.stdout) as GhPr[]).map((pr) => ({
-    repo,
-    number: pr.number,
-    title: pr.title,
-    url: pr.url,
-    ...(pr.author?.login ? { author: pr.author.login } : {}),
-    ...(pr.headRefName ? { headRefName: pr.headRefName } : {}),
-    ...(pr.updatedAt ? { updatedAt: pr.updatedAt } : {}),
-  }));
-}
-
-export async function listOpenIssues(
-  repo: string,
-  labels: readonly string[] = [],
-  runner: Runner = runCommand,
-): Promise<GitHubIssue[]> {
-  const args = [
-    "gh",
-    "issue",
-    "list",
-    "--repo",
-    repo,
-    "--state",
-    "open",
-    "--json",
-    "number,title,url,author,labels,updatedAt",
-  ];
-  for (const label of labels) {
-    args.push("--label", label);
-  }
-  const result = await runner(args);
-  return (JSON.parse(result.stdout) as GhIssue[]).map((issue) => ({
-    repo,
-    number: issue.number,
-    title: issue.title,
-    url: issue.url,
-    labels: issue.labels?.map((label) => label.name) ?? [],
-    ...(issue.author?.login ? { author: issue.author.login } : {}),
-    ...(issue.updatedAt ? { updatedAt: issue.updatedAt } : {}),
-  }));
 }

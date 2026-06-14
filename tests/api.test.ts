@@ -5,7 +5,7 @@ import { delimiter, join } from "node:path";
 import { routeApi } from "../src/api/routes";
 import { loadConfig } from "../src/config/load";
 import type { HeraklesEvent } from "../src/domain";
-import { writeReport } from "../src/reports";
+import { writeReportFile } from "../src/reports";
 import { withFakeCodex } from "./helpers/codex";
 import { fakeGhRepositoryJson, withFakeGhScript } from "./helpers/gh";
 
@@ -208,7 +208,7 @@ owners = ["frostney"]
     });
   });
 
-  test("serves project detail, local projects, and manual automation run", async () => {
+  test("serves project detail and manual automation run", async () => {
     const workspaceRoot = await tempWorkspace();
     await writeFile(
       join(workspaceRoot, "_herakles", "herakles.toml"),
@@ -226,10 +226,7 @@ prompt = "Summarize the workspace."
     await writeFile(join(workspaceRoot, "spike", ".git", "HEAD"), "ref: refs/heads/main\n");
     await addLocalGitProject(workspaceRoot, "spike");
 
-    const locals = await routeApi(new Request("http://x/api/local-projects"), { workspaceRoot });
     const project = await routeApi(new Request("http://x/api/projects/spike"), { workspaceRoot });
-    expect(locals?.status).toBe(200);
-    expect(await locals?.json()).toHaveLength(1);
     expect(project?.status).toBe(200);
     const projectBody = await project?.json();
     expect(projectBody.project.slug).toBe("spike");
@@ -251,7 +248,7 @@ prompt = "Summarize the workspace."
   test("serves enriched project detail with related reports", async () => {
     const workspaceRoot = await tempWorkspace();
     await addLocalGitProject(workspaceRoot, "spike");
-    await writeReport(
+    await writeReportFile(
       await loadConfig(workspaceRoot),
       "notes/spike.md",
       "Report for local:spike and project spike.\n",
@@ -266,11 +263,6 @@ prompt = "Summarize the workspace."
     expect(body.project.id).toBe("local:spike");
     expect(body.reports.map((report: { id: string }) => report.id)).toEqual(["notes/spike.md"]);
     expect(body.validationIssues).toEqual([]);
-
-    const legacy = await routeApi(new Request("http://x/api/project-details/local%3Aspike"), {
-      workspaceRoot,
-    });
-    expect(legacy?.status).toBe(200);
   });
 
   test("refreshes project discovery through the API", async () => {
@@ -539,7 +531,6 @@ group = "clients"
           repoFilter: "not archived",
           includeTags: ["weekly"],
           excludeTags: ["paused"],
-          issueLabels: ["ready", "next"],
           skill: "review-pr",
           enabled: true,
         }),
@@ -558,29 +549,21 @@ group = "clients"
     expect(config).toContain("prompt = '''");
     expect(config).toContain("Review all tracked projects.");
     expect(config).toContain('repo_filter = "not archived"');
-    expect(config).toContain('issue_labels = ["ready", "next"]');
-  });
-
-  test("issue recommendation route validates option types", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const response = await routeApi(
-      new Request("http://x/api/recommendations/issues", {
-        method: "POST",
-        body: JSON.stringify({ labels: ["ready"], limit: "3" }),
-      }),
-      { workspaceRoot },
-    );
-
-    await expectInvalidBody(response, "limit");
+    expect(config).not.toContain("issue_labels");
   });
 
   test("plans local promotion through the API", async () => {
     const workspaceRoot = await tempWorkspace();
     await addLocalGitProject(workspaceRoot, "spike");
     const response = await routeApi(
-      new Request("http://x/api/local-projects/local%3Aspike/promote-plan", {
+      new Request("http://x/api/projects/promote-plan", {
         method: "POST",
-        body: JSON.stringify({ owner: "frostney", repo: "promoted-spike", visibility: "public" }),
+        body: JSON.stringify({
+          projectId: "local:spike",
+          owner: "frostney",
+          repo: "promoted-spike",
+          visibility: "public",
+        }),
       }),
       { workspaceRoot },
     );
@@ -598,9 +581,13 @@ group = "clients"
     await addLocalGitProject(workspaceRoot, "spike");
     await withFakeGhPromotion(async (logPath) => {
       const response = await routeApi(
-        new Request("http://x/api/local-projects/local%3Aspike/promote", {
+        new Request("http://x/api/projects/promote", {
           method: "POST",
-          body: JSON.stringify({ repo: "promoted-spike", visibility: "private" }),
+          body: JSON.stringify({
+            projectId: "local:spike",
+            repo: "promoted-spike",
+            visibility: "private",
+          }),
         }),
         { workspaceRoot },
       );
@@ -617,67 +604,14 @@ group = "clients"
   test("local promotion route rejects unsupported visibility names", async () => {
     const workspaceRoot = await tempWorkspace();
     const response = await routeApi(
-      new Request("http://x/api/local-projects/local%3Aspike/promote-plan", {
+      new Request("http://x/api/projects/promote-plan", {
         method: "POST",
-        body: JSON.stringify({ visibility: "internal" }),
+        body: JSON.stringify({ projectId: "local:spike", visibility: "internal" }),
       }),
       { workspaceRoot },
     );
 
     await expectInvalidBody(response, "visibility");
-  });
-
-  test("archives a local project through the API when learning exists", async () => {
-    const workspaceRoot = await tempWorkspace();
-    await addLocalGitProject(workspaceRoot, "spike");
-    await writeFile(
-      join(workspaceRoot, "experiment", "spike", "LEARNING.md"),
-      "Useful experiment.\n",
-    );
-
-    const response = await routeApi(
-      new Request("http://x/api/local-projects/local%3Aspike/archive", {
-        method: "POST",
-        body: JSON.stringify({ learning: "LEARNING.md" }),
-      }),
-      { workspaceRoot },
-    );
-    const body = await response?.json();
-
-    expect(response?.status).toBe(200);
-    expect(body).toEqual({ state: "archived", learning: "LEARNING.md" });
-  });
-
-  test("generates an empty issue recommendation report through the API", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const response = await routeApi(
-      new Request("http://x/api/recommendations/issues", {
-        method: "POST",
-        body: JSON.stringify({ limit: 3 }),
-      }),
-      { workspaceRoot },
-    );
-    const body = await response?.json();
-
-    expect(response?.status).toBe(200);
-    expect(body.candidates).toEqual([]);
-    expect(body.reportPath).toContain("_herakles/reports");
-  });
-
-  test("generates an empty CodeRabbit report through the API", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const response = await routeApi(
-      new Request("http://x/api/recommendations/coderabbit", {
-        method: "POST",
-        body: JSON.stringify({ limit: 2 }),
-      }),
-      { workspaceRoot },
-    );
-    const body = await response?.json();
-
-    expect(response?.status).toBe(200);
-    expect(body.contexts).toEqual([]);
-    expect(body.reportPath).toContain("_herakles/reports");
   });
 });
 

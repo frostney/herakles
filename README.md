@@ -47,7 +47,7 @@ Run automation explicitly:
 ```sh
 bun run herakles automate due --root ~/Code
 bun run herakles automate tick --root ~/Code
-bun run herakles automate run coderabbit --root ~/Code --slot now
+bun run herakles automate run morning_next_work --root ~/Code --slot now
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the domain model, workspace layout, UI/API boundaries, and automation design.

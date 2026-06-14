@@ -20,19 +20,19 @@ describe("config init", () => {
     expect(existsSync(join(paths.configDir, "reports"))).toBe(true);
     expect(existsSync(join(paths.configDir, "worktrees"))).toBe(true);
     expect(existsSync(join(paths.configDir, "state"))).toBe(true);
-    expect(existsSync(join(paths.configDir, "schemas", "recommendation.schema.json"))).toBe(true);
     expect(existsSync(join(paths.configDir, "schemas", "automation-result.schema.json"))).toBe(
       true,
     );
 
     const synced = await readFile(paths.syncedConfigPath, "utf8");
     const gitignore = await readFile(join(paths.configDir, ".gitignore"), "utf8");
-    const recommendationSchema = await Bun.file(
-      join(paths.configDir, "schemas", "recommendation.schema.json"),
+    const automationSchema = await Bun.file(
+      join(paths.configDir, "schemas", "automation-result.schema.json"),
     ).json();
     expect(synced).toContain("[job.morning_next_work]");
     expect(synced).toContain("# Morning Next Work");
     expect(synced).toContain('runtime = "codex"');
+    expect(synced).not.toContain("issue_labels");
     expect(synced).not.toContain("harness =");
     expect(synced).not.toContain("mode =");
     expect(synced).not.toContain("slot_timezone");
@@ -41,8 +41,7 @@ describe("config init", () => {
     expect(gitignore).toContain("reports/");
     expect(gitignore).toContain("worktrees/");
     expect(gitignore).toContain("state/");
-    expect(recommendationSchema.oneOf[0].properties.kind.const).toBe("issue-recommendations");
-    expect(recommendationSchema.oneOf[1].properties.kind.const).toBe("coderabbit-review");
+    expect(automationSchema.properties.status.enum).toContain("succeeded");
   });
 
   test("does not overwrite existing config files", async () => {
@@ -52,10 +51,7 @@ describe("config init", () => {
     await writeFile(join(paths.configDir, ".gitignore"), "custom\n");
     await mkdir(join(paths.configDir, "prompts"), { recursive: true });
     await writeFile(join(paths.configDir, "prompts", "morning-next-work.md"), "custom prompt\n");
-    await writeFile(
-      join(paths.configDir, "schemas", "recommendation.schema.json"),
-      '{"custom":true}\n',
-    );
+    await writeFile(join(paths.configDir, "schemas", "automation-result.schema.json"), "{}\n");
 
     await initConfig(root);
 
@@ -65,7 +61,7 @@ describe("config init", () => {
       "custom prompt\n",
     );
     expect(
-      await readFile(join(paths.configDir, "schemas", "recommendation.schema.json"), "utf8"),
-    ).toBe('{"custom":true}\n');
+      await readFile(join(paths.configDir, "schemas", "automation-result.schema.json"), "utf8"),
+    ).toBe("{}\n");
   });
 });

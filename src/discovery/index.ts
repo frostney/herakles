@@ -1,7 +1,6 @@
 import type { LoadedConfig } from "../config/load";
 import type { GitHubRepository, LocalRepository } from "../domain";
 import { listGitHubRepositories } from "../github/gh";
-import { writeProjectDiscoverySnapshot } from "./cache";
 import { scanLocalRepositories } from "./local";
 
 export type ProjectDiscovery = {
@@ -28,7 +27,5 @@ export async function refreshProjectDiscovery(loaded: LoadedConfig): Promise<Pro
   );
   const local = rawLocal.filter((repo) => !githubRemotes.has(normalizeRemote(repo.remote)));
   const hostedClones = rawLocal.filter((repo) => githubRemotes.has(normalizeRemote(repo.remote)));
-  const discovery = { hosted, local, hostedClones };
-  await writeProjectDiscoverySnapshot(loaded, discovery);
-  return discovery;
+  return { hosted, local, hostedClones };
 }

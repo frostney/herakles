@@ -37,14 +37,6 @@ export async function listReports(loaded: LoadedConfig): Promise<ReportSummary[]
   return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function writeReport(
-  loaded: LoadedConfig,
-  relativePath: string,
-  content: string,
-): Promise<string> {
-  return writeReportFile(loaded, relativePath, content);
-}
-
 export async function writeReportFile(
   loaded: LoadedConfig,
   relativePath: string,
@@ -64,7 +56,7 @@ export async function createReportNote(
   const slug = slugify(input.title);
   const prefix = input.projectId ? `${slugify(input.projectId)}/` : "";
   const id = `notes/${prefix}${now.toISOString().slice(0, 10)}-${slug}.md`;
-  await writeReport(loaded, id, renderReportNote(input, now));
+  await writeReportFile(loaded, id, renderReportNote(input, now));
   return readReport(loaded, id);
 }
 

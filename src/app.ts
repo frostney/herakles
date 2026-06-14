@@ -19,7 +19,6 @@ import {
 } from "./config/projects";
 import { heraklesConfigSchema } from "./config/schema";
 import { type ProjectDiscovery, normalizeRemote, refreshProjectDiscovery } from "./discovery";
-import { readProjectDiscoverySnapshot, writeProjectDiscoverySnapshot } from "./discovery/cache";
 import { runDoctor } from "./doctor";
 import type {
   GitHubRepository,
@@ -34,7 +33,6 @@ import type {
   ValidationIssue,
   ValidationResult,
 } from "./domain";
-import { listProjectIssues, listProjectPullRequests } from "./github/context";
 import { listImportableGitHubRepositories } from "./github/gh";
 import { type HostedClonePathMismatch, validateProjects } from "./lifecycle/validate";
 import {
@@ -42,10 +40,7 @@ import {
   createLocalPromotionPlan,
   promoteLocalProject,
 } from "./local/promote";
-import { writeLocalProjectState } from "./local/state";
 import { resolveProjects } from "./project/resolve";
-import { generateCodeRabbitRecommendations } from "./recommendations/coderabbit";
-import { generateIssueRecommendations } from "./recommendations/issues";
 import {
   createReportNote,
   latestReport,
@@ -109,10 +104,6 @@ export async function projectDetail(workspaceRoot: string, id: string): Promise<
     reports: await listProjectReports(state.loaded, found),
     validationIssues: state.validation.issues.filter((issue) => issue.projectId === found.id),
   };
-}
-
-export async function localProjects(workspaceRoot: string): Promise<Project[]> {
-  return (await projects(workspaceRoot)).filter((candidate) => candidate.source === "local");
 }
 
 export async function projectConfigPlan(
@@ -263,24 +254,6 @@ function requireValue(value: string | undefined, message: string): string {
   return value;
 }
 
-export async function archiveLocalProject(
-  workspaceRoot: string,
-  projectId: string,
-  learning: string,
-) {
-  const loaded = await loadConfig(workspaceRoot);
-  const target = findProject(
-    resolveProjects(loaded, await refreshProjectDiscovery(loaded)),
-    projectId,
-  );
-  if (!target) throw new Error(`Unknown local project: ${projectId}`);
-  if (target.source !== "local") throw new Error("Local archive can only target local projects.");
-  if (!existsSync(resolveUnder(target.path, learning))) {
-    throw new Error(`Missing learning file for local archive: ${learning}`);
-  }
-  return writeLocalProjectState(loaded, target.repo, { state: "archived", learning });
-}
-
 export async function localPromotionPlan(
   workspaceRoot: string,
   projectId: string,
@@ -318,16 +291,7 @@ export async function validation(
 
 export async function projectDiscoveryRefresh(workspaceRoot: string) {
   const loaded = await loadConfig(workspaceRoot);
-  const discovery = await refreshProjectDiscovery(loaded);
-  return (
-    (await readProjectDiscoverySnapshot(loaded)) ?? writeProjectDiscoverySnapshot(loaded, discovery)
-  );
-}
-
-export async function projectDiscoveryShow(workspaceRoot: string) {
-  const loaded = await loadConfig(workspaceRoot);
-  const snapshot = await readProjectDiscoverySnapshot(loaded);
-  return snapshot ?? projectDiscoveryRefresh(workspaceRoot);
+  return refreshProjectDiscovery(loaded);
 }
 
 export async function hostedImportCandidates(
@@ -481,35 +445,6 @@ export async function applyAutomationJobConfig(
     createAutomationJobConfigPlan(loaded, jobId, changes),
   );
   return result;
-}
-
-export async function pullRequests(workspaceRoot: string) {
-  const state = await loadWorkspace(workspaceRoot);
-  return listProjectPullRequests(state.projects.filter((project) => project.up));
-}
-
-export async function issues(workspaceRoot: string, labels: readonly string[] = []) {
-  const state = await loadWorkspace(workspaceRoot);
-  return listProjectIssues(
-    state.projects.filter((project) => project.up),
-    labels,
-  );
-}
-
-export async function issueRecommendations(
-  workspaceRoot: string,
-  options: { labels?: readonly string[]; limit?: number } = {},
-) {
-  const state = await loadWorkspace(workspaceRoot);
-  return generateIssueRecommendations(state.loaded, state.projects, options);
-}
-
-export async function codeRabbitRecommendations(
-  workspaceRoot: string,
-  options: { limit?: number } = {},
-) {
-  const state = await loadWorkspace(workspaceRoot);
-  return generateCodeRabbitRecommendations(state.loaded, state.projects, options);
 }
 
 function findProject(projects: readonly Project[], id: string): Project | undefined {

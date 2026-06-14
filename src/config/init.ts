@@ -50,9 +50,8 @@ prompt = '''
 
 Use the Herakles automation context below to recommend implementation planning candidates.
 
-Focus on issues with the configured labels, explain why they are ready or risky, and return planning recommendations only. Do not write code, create branches, push commits, or mutate GitHub.
+Focus on issues that look ready for agent work, explain why they are ready or risky, and return planning recommendations only. Do not write code, create branches, push commits, or mutate GitHub.
 '''
-issue_labels = ["well-defined", "ready-for-agent"]
 output = "evening/{date}.md"
 repo_filter = '''
 not archived
@@ -96,69 +95,6 @@ state/
 `;
 
 const schemaFiles = {
-  "recommendation.schema.json": {
-    $schema: "https://json-schema.org/draft/2020-12/schema",
-    title: "Herakles recommendation sidecar",
-    oneOf: [
-      {
-        type: "object",
-        required: ["kind", "generatedAt", "labels", "candidates"],
-        properties: {
-          kind: { const: "issue-recommendations" },
-          generatedAt: { type: "string", format: "date-time" },
-          labels: { type: "array", items: { type: "string" } },
-          candidates: {
-            type: "array",
-            items: {
-              type: "object",
-              required: ["id", "repo", "number", "title", "url", "score", "reasons"],
-              properties: {
-                id: { type: "string" },
-                projectId: { type: "string" },
-                repo: { type: "string" },
-                number: { type: "number" },
-                title: { type: "string" },
-                url: { type: "string" },
-                labels: { type: "array", items: { type: "string" } },
-                score: { type: "number" },
-                reasons: { type: "array", items: { type: "string" } },
-                proposedBranch: { type: "string" },
-              },
-              additionalProperties: true,
-            },
-          },
-        },
-        additionalProperties: false,
-      },
-      {
-        type: "object",
-        required: ["kind", "generatedAt", "contexts"],
-        properties: {
-          kind: { const: "coderabbit-review" },
-          generatedAt: { type: "string", format: "date-time" },
-          contexts: {
-            type: "array",
-            items: {
-              type: "object",
-              required: ["id", "projectId", "repo", "prNumber", "title", "url", "threads"],
-              properties: {
-                id: { type: "string" },
-                projectId: { type: "string" },
-                repo: { type: "string" },
-                prNumber: { type: "number" },
-                title: { type: "string" },
-                url: { type: "string" },
-                headRefName: { type: "string" },
-                threads: { type: "array", items: { type: "object" } },
-              },
-              additionalProperties: true,
-            },
-          },
-        },
-        additionalProperties: false,
-      },
-    ],
-  },
   "automation-result.schema.json": {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     title: "Herakles automation run",

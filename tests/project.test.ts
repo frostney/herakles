@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  archiveLocalProject,
+  archiveProject,
   project as loadProject,
   upPlan as loadUpPlan,
   validation as validateWorkspace,
@@ -307,7 +307,7 @@ source = "local"
     });
   });
 
-  test("local archive writes local state without changing synced config", async () => {
+  test("local archive writes synced config", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-local-"));
     const projectPath = join(root, "experiment", "spike");
     await mkdir(join(root, "_herakles"), { recursive: true });
@@ -326,14 +326,14 @@ source = "local"
 `,
     );
 
-    await archiveLocalProject(root, "spike", "LEARNING.md");
+    await archiveProject(root, "spike", "LEARNING.md");
     const archived = await loadProject(root, "spike");
     const syncedConfig = await readFile(join(root, "_herakles", "herakles.toml"), "utf8");
 
     expect(archived.state).toBe("archived");
     expect(archived.archiveNote).toContain("LEARNING.md");
     expect(syncedConfig).toContain('[project."spike"]');
-    expect(syncedConfig).not.toContain("learning");
+    expect(syncedConfig).toContain('learning = "LEARNING.md"');
   });
 });
 

@@ -11,7 +11,6 @@ export type AutomationJobConfigChanges = {
   repo_filter?: string;
   include_tags?: string[];
   exclude_tags?: string[];
-  issue_labels?: string[];
   skill?: string;
   enabled?: boolean;
 };
@@ -74,13 +73,6 @@ function compactJobConfig(values: Record<string, unknown>): AutomationJobConfigC
           exclude_tags: values.exclude_tags.filter((tag): tag is string => typeof tag === "string"),
         }
       : {}),
-    ...(Array.isArray(values.issue_labels)
-      ? {
-          issue_labels: values.issue_labels.filter(
-            (label): label is string => typeof label === "string",
-          ),
-        }
-      : {}),
     ...(typeof values.skill === "string" ? { skill: values.skill } : {}),
     ...(typeof values.enabled === "boolean" ? { enabled: values.enabled } : {}),
   };
@@ -105,11 +97,6 @@ function renderAutomationJobConfig(jobId: string, values: AutomationJobConfigCha
   if (values.exclude_tags?.length) {
     lines.push(
       `exclude_tags = [${values.exclude_tags.map((tag) => JSON.stringify(tag)).join(", ")}]`,
-    );
-  }
-  if (values.issue_labels?.length) {
-    lines.push(
-      `issue_labels = [${values.issue_labels.map((label) => JSON.stringify(label)).join(", ")}]`,
     );
   }
   if (values.skill) lines.push(`skill = ${JSON.stringify(values.skill)}`);

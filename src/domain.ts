@@ -25,46 +25,6 @@ export type GitHubRepository = {
   updatedAt?: string;
 };
 
-export type GitHubPullRequest = {
-  repo: string;
-  number: number;
-  title: string;
-  url: string;
-  author?: string;
-  headRefName?: string;
-  updatedAt?: string;
-};
-
-export type GitHubReviewComment = {
-  id: string;
-  body: string;
-  author?: string;
-  path?: string;
-  line?: number;
-  url?: string;
-  createdAt?: string;
-};
-
-export type GitHubReviewThread = {
-  repo: string;
-  prNumber: number;
-  id: string;
-  isResolved: boolean;
-  path?: string;
-  line?: number;
-  comments: GitHubReviewComment[];
-};
-
-export type GitHubIssue = {
-  repo: string;
-  number: number;
-  title: string;
-  url: string;
-  labels: string[];
-  author?: string;
-  updatedAt?: string;
-};
-
 export type LocalRepository = {
   name: string;
   path: string;
@@ -186,7 +146,6 @@ export type AutomationJob = {
   repoFilter?: string;
   includeTags: string[];
   excludeTags: string[];
-  issueLabels: string[];
   skill?: string;
   enabled: boolean;
 };
@@ -214,52 +173,6 @@ export type AutomationLock = {
   startedAt: string;
   expiresAt: string;
   backend: "local-file";
-};
-
-export type IssueRecommendation = {
-  id: string;
-  projectId: string;
-  repo: string;
-  number: number;
-  title: string;
-  url: string;
-  proposedBranch: string;
-  labels: string[];
-  score: number;
-  reasons: string[];
-  updatedAt?: string;
-};
-
-export type IssueRecommendationRun = {
-  generatedAt: string;
-  reportPath: string;
-  structuredPath: string;
-  candidates: IssueRecommendation[];
-};
-
-export type CodeRabbitPullRequestContext = {
-  id: string;
-  projectId: string;
-  repo: string;
-  prNumber: number;
-  title: string;
-  url: string;
-  headRefName?: string;
-  updatedAt?: string;
-  threads: GitHubReviewThread[];
-};
-
-export type CodeRabbitRecommendationRun = {
-  generatedAt: string;
-  reportPath: string;
-  structuredPath: string;
-  contexts: CodeRabbitPullRequestContext[];
-};
-
-export type TestCommand = {
-  id: string;
-  label: string;
-  argv: string[];
 };
 
 export type LocalPromotionPlan = {

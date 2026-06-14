@@ -37,7 +37,6 @@ import {
   type AutomationJobConfigPlan,
   type AutomationPayload,
   type HeraklesEvent,
-  type LocalArchiveResult,
   type LocalPromotionResult,
   type ProjectConfigPlan,
   type ProjectConfigValues,
@@ -61,7 +60,6 @@ import {
   postAutomationTick,
   postConfigToml,
   postImportProjects,
-  postLocalArchive,
   postLocalPromotion,
   postLocalPromotionPlan,
   postProjectConfigApply,
@@ -1268,7 +1266,6 @@ function ProjectDiscoveryResultPanel({ result }: { result: ProjectDiscoveryRefre
           <strong>{result.local.length}</strong>
         </div>
       </div>
-      <p className="mono">{result.path}</p>
     </section>
   );
 }
@@ -1707,10 +1704,7 @@ function ProjectSettingsPanel({
       <h2>Project Settings</h2>
       <ProjectStateControls key={`state-${project.id}`} project={project} onApplied={onApplied} />
       {project.source === "local" && (
-        <>
-          <LocalArchivePanel projects={[project]} onArchived={onApplied} />
-          <LocalPromotionPanel projects={[project]} onPromoted={onApplied} />
-        </>
+        <LocalPromotionPanel project={project} onPromoted={onApplied} />
       )}
     </section>
   );
@@ -1720,6 +1714,7 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
   const [state, setState] = useState(project.state);
   const [group, setGroup] = useState(project.group ?? "");
   const [tags, setTags] = useState(project.tags.join(", "));
+  const [learning, setLearning] = useState("");
   const [force, setForce] = useState(false);
   const [plan, setPlan] = useState<ProjectConfigPlan | undefined>();
   const [previewKey, setPreviewKey] = useState("");
@@ -1733,10 +1728,11 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
     setState(project.state);
     setGroup(project.group ?? "");
     setTags(project.tags.join(", "));
+    setLearning("");
     setForce(false);
   }, [project.state, project.group, project.tags]);
 
-  const currentKey = projectConfigPreviewKey(project.id, state, group, tags, force);
+  const currentKey = projectConfigPreviewKey(project.id, state, group, tags, learning, force);
   const canApply = plan !== undefined && previewKey === currentKey;
 
   const run = async (apply: boolean) => {
@@ -1747,6 +1743,7 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
         state,
         group: group.trim(),
         tags: splitTags(tags),
+        ...(learning.trim() ? { learning: learning.trim() } : {}),
       };
       const nextPlan = apply
         ? await postProjectConfigApply(project.id, changes, { force })
@@ -1770,6 +1767,7 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
         canApply={canApply}
         force={force}
         group={group}
+        learning={learning}
         project={project}
         state={state}
         tags={tags}
@@ -1780,6 +1778,10 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
         }}
         onGroupChange={(nextGroup) => {
           setGroup(nextGroup);
+          setPreviewKey("");
+        }}
+        onLearningChange={(nextLearning) => {
+          setLearning(nextLearning);
           setPreviewKey("");
         }}
         onPreview={() => run(false)}
@@ -1803,9 +1805,10 @@ function projectConfigPreviewKey(
   state: Project["state"],
   group: string,
   tags: string,
+  learning: string,
   force: boolean,
 ) {
-  return `${projectId}:${state}:${group}:${tags}:${force ? "force" : "normal"}`;
+  return `${projectId}:${state}:${group}:${tags}:${learning}:${force ? "force" : "normal"}`;
 }
 
 function ProjectStateForm({
@@ -1813,12 +1816,14 @@ function ProjectStateForm({
   canApply,
   force,
   group,
+  learning,
   project,
   state,
   tags,
   onApply,
   onForceChange,
   onGroupChange,
+  onLearningChange,
   onPreview,
   onStateChange,
   onTagsChange,
@@ -1827,12 +1832,14 @@ function ProjectStateForm({
   canApply: boolean;
   force: boolean;
   group: string;
+  learning: string;
   project: Project;
   state: Project["state"];
   tags: string;
   onApply: () => void;
   onForceChange: (force: boolean) => void;
   onGroupChange: (group: string) => void;
+  onLearningChange: (learning: string) => void;
   onPreview: () => void;
   onStateChange: (state: Project["state"]) => void;
   onTagsChange: (tags: string) => void;
@@ -1867,6 +1874,10 @@ function ProjectStateForm({
       <label>
         <span>Tags</span>
         <input value={tags} onChange={(event) => onTagsChange(event.target.value)} />
+      </label>
+      <label>
+        <span>Learning file</span>
+        <input value={learning} onChange={(event) => onLearningChange(event.target.value)} />
       </label>
       <label className="checkbox-label">
         <input
@@ -1908,12 +1919,11 @@ function ProjectConfigPlanPreview({ plan }: { plan: ProjectConfigPlan | undefine
 }
 
 function LocalPromotionPanel({
-  projects,
+  project,
   onPromoted,
-}: { projects: Project[]; onPromoted: () => void }) {
-  const [selectedId, setSelectedId] = useState(projects[0]?.id ?? "");
+}: { project: Project; onPromoted: () => void }) {
   const [owner, setOwner] = useState("");
-  const [repo, setRepo] = useState(projects[0]?.repo ?? "");
+  const [repo, setRepo] = useState(project.repo);
   const [visibility, setVisibility] = useState<"public" | "private">("private");
   const [plan, setPlan] = useState("");
   const [result, setResult] = useState<LocalPromotionResult>();
@@ -1921,14 +1931,11 @@ function LocalPromotionPanel({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setSelectedId(projects[0]?.id ?? "");
-    setRepo(projects[0]?.repo ?? "");
+    setRepo(project.repo);
     setPlan("");
     setResult(undefined);
     setMessage({ kind: "success", text: "" });
-  }, [projects]);
-
-  if (projects.length === 0) return null;
+  }, [project]);
 
   const options = () => ({
     ...(owner ? { owner } : {}),
@@ -1942,7 +1949,7 @@ function LocalPromotionPanel({
     setResult(undefined);
     try {
       if (apply) {
-        const nextResult = await postLocalPromotion(selectedId, options());
+        const nextResult = await postLocalPromotion(project.id, options());
         setResult(nextResult);
         setPlan(nextResult.plan.command.join(" "));
         setMessage({
@@ -1952,7 +1959,7 @@ function LocalPromotionPanel({
         if (nextResult.status === "promoted") onPromoted();
         return;
       }
-      const nextPlan = await postLocalPromotionPlan(selectedId, options());
+      const nextPlan = await postLocalPromotionPlan(project.id, options());
       setPlan(nextPlan.command.join(" "));
     } catch (error) {
       setMessage({ kind: "error", text: String(error) });
@@ -1967,18 +1974,12 @@ function LocalPromotionPanel({
       <LocalPromotionControls
         busy={busy}
         owner={owner}
-        projects={projects}
         repo={repo}
-        selectedId={selectedId}
         visibility={visibility}
         onOwnerChange={setOwner}
         onPreview={() => run(false)}
         onPromote={() => run(true)}
         onRepoChange={setRepo}
-        onSelect={(id, project) => {
-          setSelectedId(id);
-          setRepo(project?.repo ?? "");
-        }}
         onVisibilityChange={setVisibility}
       />
       <LocalPromotionOutput message={message} plan={plan} result={result} />
@@ -1989,33 +1990,26 @@ function LocalPromotionPanel({
 function LocalPromotionControls({
   busy,
   owner,
-  projects,
   repo,
-  selectedId,
   visibility,
   onOwnerChange,
   onPreview,
   onPromote,
   onRepoChange,
-  onSelect,
   onVisibilityChange,
 }: {
   busy: boolean;
   owner: string;
-  projects: Project[];
   repo: string;
-  selectedId: string;
   visibility: "public" | "private";
   onOwnerChange: (owner: string) => void;
   onPreview: () => void;
   onPromote: () => void;
   onRepoChange: (repo: string) => void;
-  onSelect: (id: string, project: Project | undefined) => void;
   onVisibilityChange: (visibility: "public" | "private") => void;
 }) {
   return (
     <div className="promotion-controls">
-      <LocalProjectSelect projects={projects} selectedId={selectedId} onSelect={onSelect} />
       <label>
         <span>Owner</span>
         <input value={owner} onChange={(event) => onOwnerChange(event.target.value)} />
@@ -2034,10 +2028,10 @@ function LocalPromotionControls({
           <option value="public">public</option>
         </select>
       </label>
-      <button type="button" onClick={onPreview} disabled={busy || !selectedId}>
+      <button type="button" onClick={onPreview} disabled={busy}>
         Preview
       </button>
-      <button type="button" onClick={onPromote} disabled={busy || !selectedId}>
+      <button type="button" onClick={onPromote} disabled={busy}>
         Promote
       </button>
     </div>
@@ -2063,99 +2057,6 @@ function LocalPromotionOutput({
 }
 
 type PromotionMessage = { kind: "success" | "error"; text: string };
-
-function LocalProjectSelect({
-  projects,
-  selectedId,
-  onSelect,
-}: {
-  projects: Project[];
-  selectedId: string;
-  onSelect: (id: string, project: Project | undefined) => void;
-}) {
-  return (
-    <label>
-      <span>Project</span>
-      <select
-        value={selectedId}
-        onChange={(event) => {
-          const nextId = event.target.value;
-          onSelect(
-            nextId,
-            projects.find((project) => project.id === nextId),
-          );
-        }}
-      >
-        {projects.map((project) => (
-          <option key={project.id} value={project.id}>
-            {project.slug}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function LocalArchivePanel({
-  projects,
-  onArchived,
-}: { projects: Project[]; onArchived: () => void }) {
-  const [selectedId, setSelectedId] = useState(projects[0]?.id ?? "");
-  const [learning, setLearning] = useState("LEARNING.md");
-  const [result, setResult] = useState<LocalArchiveResult>();
-  const [message, setMessage] = useState("");
-  const [messageKind, setMessageKind] = useState<"success" | "error">("success");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    setSelectedId(projects[0]?.id ?? "");
-    setLearning("LEARNING.md");
-    setResult(undefined);
-    setMessage("");
-  }, [projects]);
-
-  if (projects.length === 0) return null;
-
-  const archive = async () => {
-    setBusy(true);
-    setMessage("");
-    setResult(undefined);
-    try {
-      const next = await postLocalArchive(selectedId, learning);
-      setResult(next);
-      setMessageKind("success");
-      setMessage("Local project archived.");
-      onArchived();
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="panel project-settings-panel">
-      <h2>Local Archive</h2>
-      <div className="local-archive-controls">
-        <LocalProjectSelect
-          projects={projects}
-          selectedId={selectedId}
-          onSelect={(id) => setSelectedId(id)}
-        />
-        <label>
-          <span>Learning file</span>
-          <input value={learning} onChange={(event) => setLearning(event.target.value)} />
-        </label>
-        <button type="button" onClick={archive} disabled={busy || !selectedId || !learning}>
-          Archive
-        </button>
-      </div>
-      {result && <pre className="toml-preview">{JSON.stringify(result, null, 2)}</pre>}
-      {message && <p className={messageKind}>{message}</p>}
-    </section>
-  );
-}
 
 function AutomationPanel({
   data,
@@ -2415,13 +2316,6 @@ function AutomationJobFields({
         />
       </label>
       <label>
-        <span>Issue labels</span>
-        <input
-          value={(form.issueLabels ?? []).join(", ")}
-          onChange={(event) => onUpdate({ issueLabels: splitCsv(event.target.value) })}
-        />
-      </label>
-      <label>
         <span>Skill</span>
         <input
           value={form.skill ?? ""}
@@ -2497,7 +2391,6 @@ function automationJobInput(job: AutomationJob | undefined): AutomationJobConfig
       repoFilter: "not archived",
       includeTags: [],
       excludeTags: [],
-      issueLabels: [],
       enabled: true,
     };
   }
@@ -2510,7 +2403,6 @@ function automationJobInput(job: AutomationJob | undefined): AutomationJobConfig
     repoFilter: job.repoFilter ?? "",
     includeTags: job.includeTags,
     excludeTags: job.excludeTags,
-    issueLabels: job.issueLabels,
     skill: job.skill ?? "",
     enabled: job.enabled,
   };
@@ -2526,7 +2418,6 @@ function normalizeAutomationJobInput(input: AutomationJobConfigInput): Automatio
     ...optionalText("repoFilter", input.repoFilter),
     ...optionalList("includeTags", input.includeTags),
     ...optionalList("excludeTags", input.excludeTags),
-    ...optionalList("issueLabels", input.issueLabels),
     ...optionalText("skill", input.skill),
     enabled: input.enabled !== false,
   };
@@ -2559,7 +2450,6 @@ function automationJobDescription(job: AutomationPayload["jobs"][number]) {
   if (job.skill) parts.push(`skill ${job.skill}`);
   if (job.includeTags.length) parts.push(`include tags ${job.includeTags.join(", ")}`);
   if (job.excludeTags.length) parts.push(`exclude tags ${job.excludeTags.join(", ")}`);
-  if (job.issueLabels.length) parts.push(`labels ${job.issueLabels.join(", ")}`);
   if (job.repoFilter) parts.push(`filter ${job.repoFilter.replace(/\s+/g, " ").trim()}`);
   return parts.join(" / ");
 }
