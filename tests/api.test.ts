@@ -82,9 +82,9 @@ async function postProjectConfigPlan(workspaceRoot: string, body: Record<string,
   return { response, body: await response?.json() };
 }
 
-async function checkoutProjectDryRun(workspaceRoot: string, projectId: string) {
+async function projectUpDryRun(workspaceRoot: string, projectId: string) {
   const response = await routeApi(
-    new Request("http://x/api/projects/checkout", {
+    new Request("http://x/api/projects/up", {
       method: "POST",
       body: JSON.stringify({ projectId, dryRun: true }),
     }),
@@ -166,7 +166,7 @@ describe("api routes", () => {
         method: "POST",
         body: JSON.stringify({
           title: "Investigate workspace up",
-          body: "Check dry-run output before checkout.",
+          body: "Check dry-run output before workspace up.",
           projectId: "github:frostney/public-tool",
         }),
       }),
@@ -298,6 +298,35 @@ prompt = "Summarize the workspace."
     );
 
     expect(response?.status).toBe(400);
+  });
+
+  test("config mutation routes reject unsafe path-shaped values", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
+    await withFakeGhRepo({ name: "public-tool" }, async () => {
+      const projectResponse = await routeApi(
+        new Request("http://x/api/config/project-plan", {
+          method: "POST",
+          body: JSON.stringify({ projectId: "public-tool", group: ".." }),
+        }),
+        { workspaceRoot },
+      );
+      const automationResponse = await routeApi(
+        new Request("http://x/api/automation/job-plan", {
+          method: "POST",
+          body: JSON.stringify({
+            jobId: "weekly-review",
+            schedule: "0 9 * * *",
+            runtime: "codex",
+            output: "../outside.md",
+          }),
+        }),
+        { workspaceRoot },
+      );
+
+      expect(projectResponse?.status).toBe(400);
+      expect(automationResponse?.status).toBe(400);
+    });
   });
 
   test("project config plan route blocks unusual lifecycle transitions unless forced", async () => {
@@ -456,10 +485,10 @@ owners = ["frostney"]
     expect(config).not.toContain('[project."scratch"]');
   });
 
-  test("checks out a tracked hosted project through the API dry-run path", async () => {
+  test("plans a tracked hosted project through the API dry-run path", async () => {
     const workspaceRoot = await tempWorkspace();
     await withTrackedPublicTool(workspaceRoot, async () => {
-      const { response, body } = await checkoutProjectDryRun(workspaceRoot, "public-tool");
+      const { response, body } = await projectUpDryRun(workspaceRoot, "public-tool");
 
       expect(response?.status).toBe(200);
       expect(body).toHaveLength(1);
@@ -470,7 +499,7 @@ owners = ["frostney"]
     });
   });
 
-  test("checks out hosted projects under lifecycle and group folders", async () => {
+  test("places hosted projects under lifecycle and group folders", async () => {
     const workspaceRoot = await tempWorkspace();
     await writeFile(
       join(workspaceRoot, "_herakles", "herakles.toml"),
@@ -487,7 +516,7 @@ group = "clients"
 `,
     );
     await withFakeGhRepo({ name: "public-tool" }, async () => {
-      const { response, body } = await checkoutProjectDryRun(workspaceRoot, "public-tool");
+      const { response, body } = await projectUpDryRun(workspaceRoot, "public-tool");
 
       expect(response?.status).toBe(200);
       expect(body[0].item.project.path).toBe(

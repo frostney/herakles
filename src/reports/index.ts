@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import type { LoadedConfig } from "../config/load";
+import { resolveInside } from "../config/paths";
 import type { Project, ReportDetail, ReportSummary } from "../domain";
 import { walkFiles } from "../utils/walk";
 
@@ -13,7 +14,7 @@ export type ReportNoteInput = {
 };
 
 export function reportsRoot(loaded: LoadedConfig): string {
-  return join(loaded.paths.configDir, loaded.config.layout.reports_path);
+  return loaded.paths.reportsDir;
 }
 
 export async function listReports(loaded: LoadedConfig): Promise<ReportSummary[]> {
@@ -49,7 +50,7 @@ export async function writeReportFile(
   relativePath: string,
   content: string,
 ): Promise<string> {
-  const path = join(reportsRoot(loaded), relativePath);
+  const path = resolveInside(reportsRoot(loaded), relativePath);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content);
   return path;

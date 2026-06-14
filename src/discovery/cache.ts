@@ -10,7 +10,7 @@ export type ProjectDiscoverySnapshot = ProjectDiscovery & {
 };
 
 function projectDiscoveryCachePath(loaded: LoadedConfig): string {
-  return join(loaded.paths.configDir, loaded.config.layout.cache_path, "project-discovery.json");
+  return join(loaded.paths.cacheDir, "project-discovery.json");
 }
 
 export async function writeProjectDiscoverySnapshot(

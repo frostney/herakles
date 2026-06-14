@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export const lifecycleFolders = [
   "experiment",
@@ -46,4 +46,17 @@ export function resolveWorkspacePaths(workspaceRoot: string): WorkspacePaths {
 export function resolveUnder(base: string, path: string): string {
   const expanded = expandHome(path);
   return isAbsolute(expanded) ? expanded : resolve(base, expanded);
+}
+
+export function resolveInside(base: string, relativePath: string): string {
+  if (isAbsolute(relativePath) || relativePath.startsWith("~")) {
+    throw new Error(`Path must be relative: ${relativePath}`);
+  }
+  const root = resolve(base);
+  const target = resolve(root, relativePath);
+  const offset = relative(root, target);
+  if (offset === ".." || offset.startsWith(`..${sep}`) || isAbsolute(offset)) {
+    throw new Error(`Path escapes ${root}: ${relativePath}`);
+  }
+  return target;
 }

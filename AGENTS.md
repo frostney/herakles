@@ -4,7 +4,7 @@
 
 - Use Bun for package management, scripts, tests, TOML parsing, serving, bundling, cron integration, and subprocess-oriented runtime code.
 - Do not introduce npm, pnpm, yarn, Vite, project-local Herakles config, synced machine profiles, or a generic remote shell/API endpoint.
-- Keep `_herakles/herakles.toml` as the canonical synced configuration. `herakles.local.toml` is limited to UI host, port, browser opening, and token location.
+- Keep `_herakles/herakles.toml` as the canonical configuration. Do not introduce `herakles.local.toml` or any project-local Herakles config.
 - Keep local experiments, reports, caches, run ledgers, and fallback lock files out of synced configuration.
 - Treat the CLI and UI as control surfaces over the same core services; do not duplicate project resolution, sync planning, validation, scheduling, or config mutation logic in the UI.
 
@@ -40,5 +40,5 @@ Use `bun run herakles -- <command>` for CLI smoke checks and `bun run ui -- --ro
 
 - Never silently move, delete, prune, push, or publish repositories. Use explicit typed plan/apply paths.
 - Remote sync clients are read/sync-only and token-protected; automations may be mirrored remotely but are not run by remote callers.
-- Automation is a scheduled handoff to the configured AI harness. Herakles owns scheduling, locks, GitHub lookup, project selection, and reports; the AI harness owns implementation-specific workflows.
+- Automation is a scheduled handoff to the configured agent runtime. Herakles owns scheduling, locks, GitHub lookup, project selection, and reports; the agent runtime owns implementation-specific workflows.
 - Preserve user or generated changes. Do not revert unrelated files or use destructive Git commands unless explicitly requested.

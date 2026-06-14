@@ -59,7 +59,6 @@ import {
   postAutomationJobPlan,
   postAutomationRun,
   postAutomationTick,
-  postCheckoutProject,
   postConfigToml,
   postImportProjects,
   postLocalArchive,
@@ -67,6 +66,7 @@ import {
   postLocalPromotionPlan,
   postProjectConfigApply,
   postProjectConfigPlan,
+  postProjectUp,
   postProjectsRefresh,
   postRemoveProject,
   postReportNote,
@@ -402,7 +402,7 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
         ...(tagList.length > 0 ? { tags: tagList } : {}),
       });
       if (source === "github") {
-        assertCheckoutSucceeded(await postCheckoutProject(result.projectId));
+        assertProjectUpSucceeded(await postProjectUp(result.projectId));
       }
       setMessage(source === "github" ? "Project added and workspace updated." : "Project added.");
       setRepo("");
@@ -571,10 +571,8 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
     }
     try {
       const imported = await postImportProjects(projects);
-      const up = await Promise.all(
-        imported.map((project) => postCheckoutProject(project.projectId)),
-      );
-      for (const result of up) assertCheckoutSucceeded(result);
+      const up = await Promise.all(imported.map((project) => postProjectUp(project.projectId)));
+      for (const result of up) assertProjectUpSucceeded(result);
       setSelected({});
       setMessage(
         `Imported and updated ${projects.length} project${projects.length === 1 ? "" : "s"}.`,
@@ -630,7 +628,7 @@ function GitHubImportPanel({ onChanged }: { onChanged: () => void }) {
   );
 }
 
-function assertCheckoutSucceeded(results: UpRunResult) {
+function assertProjectUpSucceeded(results: UpRunResult) {
   const failed = results.find((result) => result.status === "failed");
   if (!failed) return;
   throw new Error(`${failed.item.project.repo}: ${failed.message}`);

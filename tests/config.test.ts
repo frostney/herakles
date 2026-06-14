@@ -61,4 +61,67 @@ prompt = "Summarize."
 
     await expect(loadConfig(root)).rejects.toThrow("harness");
   });
+
+  test("rejects obsolete layout path configuration", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[layout]
+reports_path = "../reports"
+`,
+    );
+
+    await expect(loadConfig(root)).rejects.toThrow("layout");
+  });
+
+  test("rejects project groups that would escape lifecycle folders", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[project.bad]
+source = "github"
+repo = "frostney/tool"
+group = ".."
+`,
+    );
+
+    await expect(loadConfig(root)).rejects.toThrow("Project group");
+  });
+
+  test("rejects automation job keys and outputs that would escape local state", async () => {
+    const badKeyRoot = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[job."../bad"]
+schedule = "0 9 * * *"
+runtime = "codex"
+prompt = "Summarize."
+`,
+    );
+    const badOutputRoot = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[job.bad_output]
+schedule = "0 9 * * *"
+runtime = "codex"
+prompt = "Summarize."
+output = "../outside.md"
+`,
+    );
+
+    await expect(loadConfig(badKeyRoot)).rejects.toThrow("Config keys");
+    await expect(loadConfig(badOutputRoot)).rejects.toThrow("traversal");
+  });
 });

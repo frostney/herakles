@@ -162,9 +162,22 @@ export async function addProject(
   validateProjectInput(input);
   const id = inputProjectConfigId(input);
   const loaded = await loadConfig(workspaceRoot);
-  const plan = createProjectConfigPlan(loaded, id, input);
+  const plan = createProjectConfigPlan(loaded, id, projectConfigChangesFromInput(input));
   const result = await applyProjectConfigPlan(plan);
   return result;
+}
+
+function projectConfigChangesFromInput(
+  input: ProjectConfigChanges & { id?: string; name?: string },
+): ProjectConfigChanges {
+  return {
+    ...(input.source === undefined ? {} : { source: input.source }),
+    ...(input.repo === undefined ? {} : { repo: input.repo }),
+    ...(input.group === undefined ? {} : { group: input.group }),
+    ...(input.state === undefined ? {} : { state: input.state }),
+    ...(input.tags === undefined ? {} : { tags: input.tags }),
+    ...(input.learning === undefined ? {} : { learning: input.learning }),
+  };
 }
 
 export async function removeProject(workspaceRoot: string, projectId: string) {
@@ -206,7 +219,7 @@ export async function importHostedProjects(
   return results;
 }
 
-export async function checkoutProject(
+export async function upProject(
   workspaceRoot: string,
   projectId: string,
   options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},

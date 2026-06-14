@@ -159,13 +159,13 @@ function shouldJson(flags: CommonFlags) {
 
 function printAddProjectResult(
   toml: string,
-  up: Awaited<ReturnType<typeof app.checkoutProject>> | undefined,
+  up: Awaited<ReturnType<typeof app.upProject>> | undefined,
 ) {
   console.log(toml);
-  if (up) printCheckoutResults(up);
+  if (up) printProjectUpResults(up);
 }
 
-function printCheckoutResults(results: Awaited<ReturnType<typeof app.checkoutProject>>) {
+function printProjectUpResults(results: Awaited<ReturnType<typeof app.upProject>>) {
   printTable(
     results.map((result) => ({
       project: result.item.project.repo,
@@ -179,11 +179,11 @@ function printCheckoutResults(results: Awaited<ReturnType<typeof app.checkoutPro
 
 function printImportProjectResult(
   plans: Awaited<ReturnType<typeof app.importHostedProjects>>,
-  up: Awaited<ReturnType<typeof app.checkoutProject>>[],
+  up: Awaited<ReturnType<typeof app.upProject>>[],
 ) {
   printTable(plans.map((plan) => ({ id: plan.projectId, action: plan.action })));
   for (const result of up) {
-    printCheckoutResults(result);
+    printProjectUpResults(result);
   }
 }
 
@@ -434,9 +434,7 @@ const addProjectCommand = buildCommand<
     });
     const result = await app.addProject(root(flags), input);
     const up =
-      input.source === "github"
-        ? await app.checkoutProject(root(flags), result.projectId)
-        : undefined;
+      input.source === "github" ? await app.upProject(root(flags), result.projectId) : undefined;
     shouldJson(flags)
       ? printJson(up ? { project: result, up } : result)
       : printAddProjectResult(result.toml, up);
@@ -537,9 +535,7 @@ const projectsImportCommand = buildCommand<
         ...(flags.tag === undefined ? {} : { tags: flags.tag }),
       })),
     );
-    const up = await Promise.all(
-      result.map((plan) => app.checkoutProject(root(flags), plan.projectId)),
-    );
+    const up = await Promise.all(result.map((plan) => app.upProject(root(flags), plan.projectId)));
     shouldJson(flags) ? printJson({ projects: result, up }) : printImportProjectResult(result, up);
   },
 });

@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import type { Project, ProjectSource, ProjectState, ValidationResult } from "../domain";
 import { type ProjectStateTransition, planProjectStateTransition } from "../lifecycle/transitions";
 import type { LoadedConfig } from "./load";
+import { configKeySchema, projectConfigSchema } from "./schema";
 import { renderTomlDiff, renderTomlRemovalDiff, replaceTomlBlock } from "./toml-block";
 
 export type ProjectConfigChanges = {
@@ -42,9 +43,11 @@ export function createProjectConfigPlan(
   current?: Project,
   options: { force?: boolean } = {},
 ): ProjectConfigPlan {
+  configKeySchema.parse(projectId);
   const before = loaded.config.project[projectId];
+  const base = before ?? (current ? projectConfigFromProject(current) : {});
   const beforeConfig = before === undefined ? undefined : compactProjectConfig(before);
-  const after = compactProjectConfig({ ...(before ?? {}), ...changes });
+  const after = compactProjectConfig(projectConfigSchema.parse({ ...base, ...changes }));
   const transition =
     current && changes.state
       ? planProjectStateTransition(current.state, changes.state, options)
@@ -65,10 +68,23 @@ export function createProjectConfigPlan(
   };
 }
 
+function projectConfigFromProject(project: Project): ProjectConfigChanges {
+  return {
+    source: project.source,
+    ...(project.source === "github" && project.owner
+      ? { repo: `${project.owner}/${project.repo}` }
+      : {}),
+    ...(project.group === undefined ? {} : { group: project.group }),
+    state: project.state,
+    ...(project.tags.length === 0 ? {} : { tags: project.tags }),
+  };
+}
+
 export function createRemoveProjectConfigPlan(
   loaded: LoadedConfig,
   projectId: string,
 ): ProjectConfigPlan {
+  configKeySchema.parse(projectId);
   const before = loaded.config.project[projectId];
   if (!before) throw new Error(`Project is not tracked in config: ${projectId}`);
   const beforeConfig = compactProjectConfig(before);

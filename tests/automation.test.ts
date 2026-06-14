@@ -211,7 +211,7 @@ describe("automation", () => {
     expect(matchesCron("0 */4 * * *", new Date("2026-06-13T09:00:00Z"))).toBe(false);
   });
 
-  test("matches cron schedules in a configured timezone", () => {
+  test("matches cron schedules in the process timezone", () => {
     expect(matchesCron("30 8 * * 1-5", new Date("2026-06-12T07:30:00Z"), "Europe/London")).toBe(
       true,
     );

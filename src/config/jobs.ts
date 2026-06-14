@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import type { LoadedConfig } from "./load";
+import { configKeySchema, jobConfigSchema } from "./schema";
 import { renderTomlDiff, replaceTomlBlock } from "./toml-block";
 
 export type AutomationJobConfigChanges = {
@@ -30,9 +31,10 @@ export function createAutomationJobConfigPlan(
   jobId: string,
   changes: AutomationJobConfigChanges,
 ): AutomationJobConfigPlan {
+  configKeySchema.parse(jobId);
   const before = loaded.config.job[jobId];
   const beforeConfig = before === undefined ? undefined : compactJobConfig(before);
-  const after = compactJobConfig({ ...(before ?? {}), ...changes });
+  const after = compactJobConfig(jobConfigSchema.parse({ ...(before ?? {}), ...changes }));
   return {
     configPath: loaded.paths.syncedConfigPath,
     jobId,

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { runAgentRuntime } from "../agent-runtime";
 import type { LoadedConfig } from "../config/load";
-import { resolveUnder } from "../config/paths";
+import { resolveInside } from "../config/paths";
 import type { AutomationDueSlot, AutomationJob, AutomationRun, Project } from "../domain";
 import { matchesProjectFilter } from "../filters/project";
 import { listReports, reportsRoot } from "../reports";
@@ -196,7 +196,7 @@ async function runAgentRuntimeJob(
   eligibleProjects: readonly Project[] | undefined,
 ): Promise<AutomationRun> {
   const relativeOutputPath = outputPath(job, slot);
-  const reportPath = resolveUnder(reportsRoot(loaded), relativeOutputPath);
+  const reportPath = resolveInside(reportsRoot(loaded), relativeOutputPath);
   const result = await runAgentRuntime(loaded, {
     runtime: job.runtime,
     prompt: job.prompt!,

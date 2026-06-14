@@ -84,7 +84,7 @@ const importProjectsBodySchema = z
   })
   .strict();
 const removeProjectBodySchema = z.object({ projectId: nonEmptyString }).strict();
-const checkoutProjectBodySchema = z
+const projectUpBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
   .strict();
 const configTomlBodySchema = z.object({ toml: z.string() }).strict();
@@ -151,7 +151,7 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/add": (context) => routeAddProject(context),
   "/api/projects/import": (context) => routeImportProjects(context),
   "/api/projects/remove": (context) => routeRemoveProject(context),
-  "/api/projects/checkout": (context) => routeCheckoutProject(context),
+  "/api/projects/up": (context) => routeProjectUp(context),
   "/api/config/toml/plan": (context) =>
     routeConfigToml(context, context.options.workspaceRoot, false),
   "/api/config/toml/apply": (context) =>
@@ -184,6 +184,18 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
   } catch (error) {
     if (error instanceof InvalidProjectStateTransitionError) {
       return json({ error: error.message, transition: error.transition }, { status: 400 });
+    }
+    if (error instanceof z.ZodError) {
+      return json(
+        {
+          error: "invalid request body",
+          issues: error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        { status: 400 },
+      );
     }
     return json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
@@ -289,14 +301,14 @@ async function routeRemoveProject(context: ApiContext): Promise<Response> {
   return json(await app.removeProject(context.options.workspaceRoot, body.data.projectId));
 }
 
-async function routeCheckoutProject(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, checkoutProjectBodySchema);
+async function routeProjectUp(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, projectUpBodySchema);
   if (!body.ok) return body.response;
   emitApiEvent("up-started", `project up started for ${body.data.projectId}`, {
     projectId: body.data.projectId,
     dryRun: body.data.dryRun === true,
   });
-  const result = await app.checkoutProject(context.options.workspaceRoot, body.data.projectId, {
+  const result = await app.upProject(context.options.workspaceRoot, body.data.projectId, {
     dryRun: body.data.dryRun === true,
     onProgress(progress) {
       emitApiEvent("up-progress", `${progress.item.project.repo}: ${progress.message}`, {

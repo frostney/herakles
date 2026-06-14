@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
-import { createReportNote, listReports } from "../src/reports";
+import { createReportNote, listReports, writeReportFile } from "../src/reports";
 
 async function tempWorkspace() {
   const root = await mkdtemp(join(tmpdir(), "herakles-reports-"));
@@ -23,7 +23,7 @@ describe("report notes", () => {
     const loaded = await loadConfig(await tempWorkspace());
     const note = await createReportNote(loaded, {
       title: "Review workspace up",
-      body: "Follow up on the checkout wording.",
+      body: "Follow up on the workspace up wording.",
       projectId: "github:frostney/herakles",
       now: new Date("2026-06-13T10:00:00Z"),
     });
@@ -35,5 +35,14 @@ describe("report notes", () => {
     expect(content).toContain("# Review workspace up");
     expect(content).toContain("Project: github:frostney/herakles");
     expect(reports.map((report) => report.id)).toContain(note.id);
+  });
+
+  test("rejects report paths outside the reports directory", async () => {
+    const loaded = await loadConfig(await tempWorkspace());
+
+    await expect(writeReportFile(loaded, "../outside.md", "nope")).rejects.toThrow("Path escapes");
+    await expect(writeReportFile(loaded, "/tmp/outside.md", "nope")).rejects.toThrow(
+      "Path must be relative",
+    );
   });
 });

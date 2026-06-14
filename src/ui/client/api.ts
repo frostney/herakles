@@ -201,11 +201,11 @@ export async function postRemoveProject(projectId: string) {
   return post("/api/projects/remove", { projectId });
 }
 
-export async function postCheckoutProject(
+export async function postProjectUp(
   projectId: string,
   options: { dryRun?: boolean } = {},
 ): Promise<UpRunResult> {
-  return post("/api/projects/checkout", { projectId, dryRun: options.dryRun === true });
+  return post("/api/projects/up", { projectId, dryRun: options.dryRun === true });
 }
 
 export async function postValidate(options: { strict?: boolean } = {}): Promise<ValidationResult> {
