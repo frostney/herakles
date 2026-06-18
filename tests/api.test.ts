@@ -431,52 +431,62 @@ owners = ["frostney"]
 
   test("adds, imports, and removes tracked projects through the API", async () => {
     const workspaceRoot = await tempWorkspace();
-    const add = await routeApi(
-      new Request("http://x/api/projects/add", {
-        method: "POST",
-        body: JSON.stringify({
-          name: "scratch",
-          source: "local",
-          state: "experiment",
-          tags: ["local"],
-        }),
-      }),
-      { workspaceRoot },
-    );
-    const imported = await routeApi(
-      new Request("http://x/api/projects/import", {
-        method: "POST",
-        body: JSON.stringify({
-          projects: [
-            {
-              repo: "frostney/tool",
-              state: "commercial",
-              group: "clients",
-              tags: ["paid"],
-            },
-          ],
-        }),
-      }),
-      { workspaceRoot },
-    );
-    const remove = await routeApi(
-      new Request("http://x/api/projects/remove", {
-        method: "POST",
-        body: JSON.stringify({ projectId: "scratch" }),
-      }),
-      { workspaceRoot },
-    );
-    const config = await readFile(join(workspaceRoot, "_herakles", "herakles.toml"), "utf8");
+    const [fakeRepo] = JSON.parse(fakeGhRepositoryJson({ name: "tool" }));
+    await withFakeGhScript(
+      "herakles-gh-api-projects-",
+      `#!/bin/sh
+cat <<'JSON'
+${JSON.stringify(fakeRepo)}
+JSON
+`,
+      async () => {
+        const add = await routeApi(
+          new Request("http://x/api/projects/add", {
+            method: "POST",
+            body: JSON.stringify({
+              name: "scratch",
+              source: "local",
+              state: "experiment",
+              tags: ["local"],
+            }),
+          }),
+          { workspaceRoot },
+        );
+        const imported = await routeApi(
+          new Request("http://x/api/projects/import", {
+            method: "POST",
+            body: JSON.stringify({
+              projects: [
+                {
+                  repo: "frostney/tool",
+                  state: "commercial",
+                  group: "clients",
+                  tags: ["paid"],
+                },
+              ],
+            }),
+          }),
+          { workspaceRoot },
+        );
+        const remove = await routeApi(
+          new Request("http://x/api/projects/remove", {
+            method: "POST",
+            body: JSON.stringify({ projectId: "scratch" }),
+          }),
+          { workspaceRoot },
+        );
+        const config = await readFile(join(workspaceRoot, "_herakles", "herakles.toml"), "utf8");
 
-    expect(add?.status).toBe(200);
-    expect(imported?.status).toBe(200);
-    expect(remove?.status).toBe(200);
-    expect(config).toContain('[project."frostney-tool"]');
-    expect(config).toContain('group = "clients"');
-    expect(config).toContain('tags = ["paid"]');
-    expect(config).not.toContain('[project."scratch"]');
+        expect(add?.status).toBe(200);
+        expect(imported?.status).toBe(200);
+        expect(remove?.status).toBe(200);
+        expect(config).toContain('[project."frostney-tool"]');
+        expect(config).toContain('group = "clients"');
+        expect(config).toContain('tags = ["paid"]');
+        expect(config).not.toContain('[project."scratch"]');
+      },
+    );
   });
-
   test("import candidates tolerate one failing authenticated GitHub owner", async () => {
     const workspaceRoot = await tempWorkspace();
     await withFakeGhScript(
