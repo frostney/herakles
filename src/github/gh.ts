@@ -71,27 +71,29 @@ export async function listGitHubRepositories(config: HeraklesConfig): Promise<Gi
 export async function listImportableGitHubRepositories(
   config: HeraklesConfig,
 ): Promise<GitHubRepository[]> {
-  return listGitHubRepositoriesWithRunner(config, runCommand, { includeAuthenticatedOwners: true });
+  return listGitHubRepositoriesWithRunner(config, runCommand, {
+    includeAuthenticatedOwners: true,
+    tolerateOwnerFailures: true,
+  });
 }
 
 export async function listGitHubRepositoriesWithRunner(
   config: HeraklesConfig,
   runner: Runner,
-  options: { includeAuthenticatedOwners?: boolean } = {},
+  options: { includeAuthenticatedOwners?: boolean; tolerateOwnerFailures?: boolean } = {},
 ): Promise<GitHubRepository[]> {
   const repos = new Map<string, GitHubRepository>();
   const listedOwners = new Set<string>();
+  const ownerFailures: string[] = [];
   for (const owner of config.github.owners) {
     listedOwners.add(owner);
-    const result = await runner(repoListArgs(config, owner));
-    addRepositoryResults(repos, config, result.stdout);
+    await addOwnerRepositories(repos, config, owner, runner, options, ownerFailures);
   }
   if (options.includeAuthenticatedOwners) {
     for (const owner of await discoverAuthenticatedOwners(runner)) {
       if (listedOwners.has(owner)) continue;
       listedOwners.add(owner);
-      const result = await runner(repoListArgs(config, owner));
-      addRepositoryResults(repos, config, result.stdout);
+      await addOwnerRepositories(repos, config, owner, runner, options, ownerFailures);
     }
   }
   for (const repo of trackedHostedRepos(config)) {
@@ -99,7 +101,31 @@ export async function listGitHubRepositoriesWithRunner(
     const result = await readRepository(repo, config, runner);
     if (result) repos.set(result.nameWithOwner, result);
   }
-  return [...repos.values()].sort((a, b) => a.nameWithOwner.localeCompare(b.nameWithOwner));
+  const result = [...repos.values()].sort((a, b) => a.nameWithOwner.localeCompare(b.nameWithOwner));
+  if (result.length === 0 && ownerFailures.length > 0) {
+    throw new Error(ownerFailures.join("\n"));
+  }
+  return result;
+}
+
+async function addOwnerRepositories(
+  repos: Map<string, GitHubRepository>,
+  config: HeraklesConfig,
+  owner: string,
+  runner: Runner,
+  options: { tolerateOwnerFailures?: boolean },
+  ownerFailures: string[],
+) {
+  try {
+    const result = await runner(repoListArgs(config, owner));
+    addRepositoryResults(repos, config, result.stdout);
+  } catch (error) {
+    if (options.tolerateOwnerFailures) {
+      ownerFailures.push(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    throw error;
+  }
 }
 
 function addRepositoryResults(

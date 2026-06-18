@@ -477,6 +477,41 @@ owners = ["frostney"]
     expect(config).not.toContain('[project."scratch"]');
   });
 
+  test("import candidates tolerate one failing authenticated GitHub owner", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await withFakeGhScript(
+      "herakles-gh-partial-import-",
+      `#!/bin/sh
+if [ "$1 $2" = "api user" ]; then
+  echo frostney
+  exit 0
+fi
+if [ "$1 $2" = "org list" ]; then
+  echo BinaryThumb
+  exit 0
+fi
+if [ "$1 $2 $3" = "repo list frostney" ]; then
+  echo "HTTP 502: 502 Bad Gateway" >&2
+  exit 1
+fi
+cat <<'JSON'
+${fakeGhRepositoryJson({ name: "tool", owner: "BinaryThumb" })}
+JSON
+`,
+      async () => {
+        const response = await routeApi(new Request("http://x/api/projects/import-candidates"), {
+          workspaceRoot,
+        });
+        const body = await response?.json();
+
+        expect(response?.status).toBe(200);
+        expect(body.map((candidate: { repo: string }) => candidate.repo)).toEqual([
+          "BinaryThumb/tool",
+        ]);
+      },
+    );
+  });
+
   test("plans a tracked hosted project through the API dry-run path", async () => {
     const workspaceRoot = await tempWorkspace();
     await withTrackedPublicTool(workspaceRoot, async () => {
