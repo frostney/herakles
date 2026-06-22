@@ -2876,7 +2876,7 @@ function UpResultList({ result }: { result: UpRunResult }) {
             <strong className={ui.listTitle}>{item.item.project.repo}</strong>
             <span className={ui.muted}>{item.message}</span>
           </div>
-          <Badge tone={item.status === "succeeded" ? "success" : "danger"}>{item.status}</Badge>
+          <Badge tone={upExecutionTone(item.status)}>{item.status}</Badge>
         </article>
       ))}
     </div>
@@ -3067,13 +3067,15 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
+type BadgeTone = "neutral" | "primary" | "success" | "danger" | "info" | "warning";
+
 function Badge({
   children,
   tone = "neutral",
   dot = false,
 }: {
   children: React.ReactNode;
-  tone?: "neutral" | "primary" | "success" | "danger" | "info" | "warning";
+  tone?: BadgeTone;
   dot?: boolean;
 }) {
   const toneClass = {
@@ -4190,9 +4192,14 @@ function latestRunForJob(runs: AutomationRun[], jobId: string) {
     .toSorted((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))[0];
 }
 
-function automationRunTone(
-  status: AutomationRun["status"],
-): "neutral" | "primary" | "success" | "danger" | "info" | "warning" {
+function upExecutionTone(status: UpRunResult[number]["status"]): BadgeTone {
+  if (status === "done") return "success";
+  if (status === "failed") return "danger";
+  if (status === "planned") return "primary";
+  return "neutral";
+}
+
+function automationRunTone(status: AutomationRun["status"]): BadgeTone {
   if (status === "succeeded") return "success";
   if (status === "failed") return "danger";
   if (status === "claimed") return "info";
