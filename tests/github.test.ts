@@ -116,6 +116,7 @@ describe("github context wrappers", () => {
   });
 
   test("reports owner failures even when tracked repositories can be read", async () => {
+    const calls: string[][] = [];
     const config = heraklesConfigSchema.parse({
       github: { owners: ["broken-owner"] },
       project: {
@@ -127,6 +128,7 @@ describe("github context wrappers", () => {
       listGitHubRepositoriesWithRunner(
         config,
         async (argv) => {
+          calls.push([...argv]);
           if (argv.slice(0, 4).join(" ") === "gh repo list broken-owner") {
             throw new Error("broken-owner unavailable");
           }
@@ -147,5 +149,11 @@ describe("github context wrappers", () => {
         { tolerateOwnerFailures: true },
       ),
     ).rejects.toThrow("broken-owner unavailable");
+    expect(calls.map((call) => call.slice(0, 4))).toContainEqual([
+      "gh",
+      "repo",
+      "view",
+      "frostney/tool",
+    ]);
   });
 });
