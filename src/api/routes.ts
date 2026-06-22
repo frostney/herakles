@@ -1,6 +1,15 @@
 import { z } from "zod";
 import * as app from "../app";
 import { InvalidProjectStateTransitionError } from "../lifecycle/transitions";
+import {
+  automationJobBodySchema,
+  automationJobConfigChangesFromPayload,
+  automationRunBodySchema,
+  nonEmptyStringSchema,
+  projectConfigBodySchema,
+  projectConfigChangesFromPayload,
+  projectStateSchema,
+} from "./contracts";
 import { createEventStream, emitApiEvent } from "./events";
 
 export type ApiOptions = {
@@ -17,45 +26,7 @@ type ApiContext = {
 type ApiHandler = (context: ApiContext) => Promise<Response>;
 type ParsedBody<T> = { ok: true; data: T } | { ok: false; response: Response };
 
-const nonEmptyString = z.string().min(1);
-const projectStateSchema = z.enum([
-  "experiment",
-  "candidate",
-  "commercial",
-  "open-source",
-  "archived",
-]);
-const automationRunBodySchema = z
-  .object({
-    jobId: nonEmptyString,
-    slot: nonEmptyString.optional(),
-    date: nonEmptyString.optional(),
-  })
-  .strict();
-const automationJobBodySchema = z
-  .object({
-    jobId: nonEmptyString,
-    schedule: nonEmptyString,
-    runtime: nonEmptyString,
-    prompt: z.string().optional(),
-    output: z.string().optional(),
-    repoFilter: z.string().optional(),
-    includeTags: z.array(nonEmptyString).optional(),
-    excludeTags: z.array(nonEmptyString).optional(),
-    skill: z.string().optional(),
-    enabled: z.boolean().optional(),
-  })
-  .strict();
-const projectConfigBodySchema = z
-  .object({
-    projectId: nonEmptyString,
-    state: projectStateSchema.optional(),
-    group: z.string().optional(),
-    tags: z.array(nonEmptyString).optional(),
-    learning: nonEmptyString.optional(),
-    force: z.boolean().optional(),
-  })
-  .strict();
+const nonEmptyString = nonEmptyStringSchema;
 const addProjectBodySchema = z
   .object({
     id: nonEmptyString.optional(),
@@ -375,7 +346,7 @@ async function routeAutomationJobPlan(context: ApiContext): Promise<Response> {
     await app.automationJobConfigPlan(
       context.options.workspaceRoot,
       body.data.jobId,
-      automationJobChanges(body.data),
+      automationJobConfigChangesFromPayload(body.data),
     ),
   );
 }
@@ -386,7 +357,7 @@ async function routeAutomationJobApply(context: ApiContext): Promise<Response> {
   const result = await app.applyAutomationJobConfig(
     context.options.workspaceRoot,
     body.data.jobId,
-    automationJobChanges(body.data),
+    automationJobConfigChangesFromPayload(body.data),
   );
   emitApiEvent("automation-log", `automation job ${body.data.jobId} saved`, {
     jobId: body.data.jobId,
@@ -401,7 +372,7 @@ async function routeProjectConfigPlan(context: ApiContext): Promise<Response> {
     await app.projectConfigPlan(
       context.options.workspaceRoot,
       body.data.projectId,
-      projectConfigChanges(body.data),
+      projectConfigChangesFromPayload(body.data),
       { force: body.data.force === true },
     ),
   );
@@ -414,7 +385,7 @@ async function routeConfigApply(context: ApiContext): Promise<Response> {
     await app.applyProjectConfig(
       context.options.workspaceRoot,
       body.data.projectId,
-      projectConfigChanges(body.data),
+      projectConfigChangesFromPayload(body.data),
       { force: body.data.force === true },
     ),
   );
@@ -502,27 +473,4 @@ function zodErrorResponse(error: z.ZodError): Response {
     },
     { status: 400 },
   );
-}
-
-function projectConfigChanges(body: z.infer<typeof projectConfigBodySchema>) {
-  return {
-    ...(body.state === undefined ? {} : { state: body.state }),
-    ...(body.group === undefined ? {} : { group: body.group }),
-    ...(body.tags === undefined ? {} : { tags: body.tags }),
-    ...(body.learning === undefined ? {} : { learning: body.learning }),
-  };
-}
-
-function automationJobChanges(body: z.infer<typeof automationJobBodySchema>) {
-  return {
-    schedule: body.schedule,
-    runtime: body.runtime,
-    ...(body.prompt === undefined ? {} : { prompt: body.prompt }),
-    ...(body.output === undefined ? {} : { output: body.output }),
-    ...(body.repoFilter === undefined ? {} : { repo_filter: body.repoFilter }),
-    ...(body.includeTags === undefined ? {} : { include_tags: body.includeTags }),
-    ...(body.excludeTags === undefined ? {} : { exclude_tags: body.excludeTags }),
-    ...(body.skill === undefined ? {} : { skill: body.skill }),
-    ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
-  };
 }

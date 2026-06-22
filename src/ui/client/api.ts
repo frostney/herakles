@@ -1,7 +1,4 @@
 import type {
-  AutomationDueSlot,
-  AutomationJob,
-  AutomationLock,
   AutomationRun,
   DoctorResult,
   HeraklesEvent,
@@ -16,95 +13,28 @@ import type {
   UpPlan,
   ValidationResult,
 } from "../../domain";
-
-export type StatusPayload = {
-  generatedAt: string;
-  config: {
-    syncedConfigPath: string;
-  };
-  root: string;
-  projectCount: number;
-  hostedCount: number;
-  localExperimentCount: number;
-  hostedCloneCount: number;
-  counts: Record<string, number>;
-  validation: ValidationResult;
-};
-
-export type AutomationPayload = {
-  jobs: AutomationJob[];
-  due: AutomationDueSlot[];
-  runs: AutomationRun[];
-  locks: AutomationLock[];
-};
+import type {
+  AutomationJobConfigInput,
+  AutomationJobConfigPlan,
+  AutomationPayload,
+  ProjectConfigPlan,
+  ProjectConfigValues,
+  ProjectDiscoveryRefreshResult,
+  StatusPayload,
+  UpRunResult,
+} from "../../api/contracts";
 
 export type { HeraklesEvent, LocalPromotionResult };
-
-export type ProjectConfigPlan = {
-  configPath: string;
-  projectId: string;
-  changes: ProjectConfigValues;
-  before?: ProjectConfigValues;
-  after: ProjectConfigValues;
-  transition?: {
-    from: ProjectState;
-    to: ProjectState;
-    allowed: boolean;
-    forced: boolean;
-  };
-  validation?: ValidationResult;
-  toml: string;
-  diff: string;
-  action: "append" | "replace" | "remove";
-};
-
-export type ProjectConfigValues = {
-  source?: "github" | "local";
-  repo?: string;
-  group?: string;
-  state?: ProjectState;
-  tags?: string[];
-  learning?: string;
-};
-
-export type AutomationJobConfigInput = {
-  jobId: string;
-  schedule: string;
-  runtime: string;
-  prompt?: string;
-  output?: string;
-  repoFilter?: string;
-  includeTags?: string[];
-  excludeTags?: string[];
-  skill?: string;
-  enabled?: boolean;
-};
-
-export type AutomationJobConfigPlan = {
-  configPath: string;
-  jobId: string;
-  before?: Record<string, unknown>;
-  after: Record<string, unknown>;
-  toml: string;
-  diff: string;
-  action: "append" | "replace";
-};
-
-export type UpRunResult = Array<{
-  item: {
-    action: string;
-    reason: string;
-    project: Project;
-  };
-  status: string;
-  message: string;
-}>;
-
-export type ProjectDiscoveryRefreshResult = {
-  hosted: unknown[];
-  local: unknown[];
-  hostedClones: unknown[];
-};
+export type {
+  AutomationJobConfigInput,
+  AutomationJobConfigPlan,
+  AutomationPayload,
+  ProjectConfigPlan,
+  ProjectConfigValues,
+  ProjectDiscoveryRefreshResult,
+  StatusPayload,
+  UpRunResult,
+} from "../../api/contracts";
 
 export async function getStatus(): Promise<StatusPayload> {
   return get("/api/status");
