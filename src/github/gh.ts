@@ -85,15 +85,20 @@ export async function listGitHubRepositoriesWithRunner(
   const repos = new Map<string, GitHubRepository>();
   const listedOwners = new Set<string>();
   const ownerFailures: string[] = [];
+  let successfulOwnerFetches = 0;
   for (const owner of config.github.owners) {
     listedOwners.add(owner);
-    await addOwnerRepositories(repos, config, owner, runner, options, ownerFailures);
+    if (await addOwnerRepositories(repos, config, owner, runner, options, ownerFailures)) {
+      successfulOwnerFetches++;
+    }
   }
   if (options.includeAuthenticatedOwners) {
     for (const owner of await discoverAuthenticatedOwners(runner)) {
       if (listedOwners.has(owner)) continue;
       listedOwners.add(owner);
-      await addOwnerRepositories(repos, config, owner, runner, options, ownerFailures);
+      if (await addOwnerRepositories(repos, config, owner, runner, options, ownerFailures)) {
+        successfulOwnerFetches++;
+      }
     }
   }
   for (const repo of trackedHostedRepos(config)) {
@@ -102,7 +107,7 @@ export async function listGitHubRepositoriesWithRunner(
     if (result) repos.set(result.nameWithOwner, result);
   }
   const result = [...repos.values()].sort((a, b) => a.nameWithOwner.localeCompare(b.nameWithOwner));
-  if (result.length === 0 && ownerFailures.length > 0) {
+  if (successfulOwnerFetches === 0 && ownerFailures.length > 0) {
     throw new Error(ownerFailures.join("\n"));
   }
   return result;
@@ -115,14 +120,15 @@ async function addOwnerRepositories(
   runner: Runner,
   options: { tolerateOwnerFailures?: boolean },
   ownerFailures: string[],
-) {
+): Promise<boolean> {
   try {
     const result = await runner(repoListArgs(config, owner));
     addRepositoryResults(repos, config, result.stdout);
+    return true;
   } catch (error) {
     if (options.tolerateOwnerFailures) {
       ownerFailures.push(error instanceof Error ? error.message : String(error));
-      return;
+      return false;
     }
     throw error;
   }
