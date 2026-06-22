@@ -1,4 +1,14 @@
 import type {
+  AutomationJobConfigInput,
+  AutomationJobConfigPlan,
+  AutomationPayload,
+  ProjectConfigPlan,
+  ProjectConfigValues,
+  ProjectDiscoveryRefreshResult,
+  StatusPayload,
+  UpRunResult,
+} from "../../api/contracts";
+import type {
   AutomationRun,
   DoctorResult,
   HeraklesEvent,
@@ -13,16 +23,6 @@ import type {
   UpPlan,
   ValidationResult,
 } from "../../domain";
-import type {
-  AutomationJobConfigInput,
-  AutomationJobConfigPlan,
-  AutomationPayload,
-  ProjectConfigPlan,
-  ProjectConfigValues,
-  ProjectDiscoveryRefreshResult,
-  StatusPayload,
-  UpRunResult,
-} from "../../api/contracts";
 
 export type { HeraklesEvent, LocalPromotionResult };
 export type {

@@ -4,8 +4,8 @@ import type {
   AutomationJobConfigPlan as CoreAutomationJobConfigPlan,
 } from "../config/jobs";
 import type {
-  ProjectConfigChanges,
   ProjectConfigPlan as CoreProjectConfigPlan,
+  ProjectConfigChanges,
 } from "../config/projects";
 import type {
   AutomationDueSlot,
@@ -60,7 +60,6 @@ export const projectConfigBodySchema = z
   })
   .strict();
 
-export type AutomationRunPayload = z.infer<typeof automationRunBodySchema>;
 export type AutomationJobConfigInput = z.infer<typeof automationJobBodySchema>;
 export type ProjectConfigPayload = z.infer<typeof projectConfigBodySchema>;
 export type ProjectConfigValues = ProjectConfigChanges;
@@ -104,9 +103,7 @@ export type ProjectDiscoveryRefreshResult = {
   hostedClones: unknown[];
 };
 
-export function projectConfigChangesFromPayload(
-  body: ProjectConfigPayload,
-): ProjectConfigChanges {
+export function projectConfigChangesFromPayload(body: ProjectConfigPayload): ProjectConfigChanges {
   return {
     ...(body.state === undefined ? {} : { state: body.state }),
     ...(body.group === undefined ? {} : { group: body.group }),
