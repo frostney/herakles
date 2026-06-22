@@ -431,50 +431,95 @@ owners = ["frostney"]
 
   test("adds, imports, and removes tracked projects through the API", async () => {
     const workspaceRoot = await tempWorkspace();
-    const add = await routeApi(
-      new Request("http://x/api/projects/add", {
-        method: "POST",
-        body: JSON.stringify({
-          name: "scratch",
-          source: "local",
-          state: "experiment",
-          tags: ["local"],
-        }),
-      }),
-      { workspaceRoot },
-    );
-    const imported = await routeApi(
-      new Request("http://x/api/projects/import", {
-        method: "POST",
-        body: JSON.stringify({
-          projects: [
-            {
-              repo: "frostney/tool",
-              state: "commercial",
-              group: "clients",
-              tags: ["paid"],
-            },
-          ],
-        }),
-      }),
-      { workspaceRoot },
-    );
-    const remove = await routeApi(
-      new Request("http://x/api/projects/remove", {
-        method: "POST",
-        body: JSON.stringify({ projectId: "scratch" }),
-      }),
-      { workspaceRoot },
-    );
-    const config = await readFile(join(workspaceRoot, "_herakles", "herakles.toml"), "utf8");
+    const [fakeRepo] = JSON.parse(fakeGhRepositoryJson({ name: "tool" }));
+    await withFakeGhScript(
+      "herakles-gh-api-projects-",
+      `#!/bin/sh
+cat <<'JSON'
+${JSON.stringify(fakeRepo)}
+JSON
+`,
+      async () => {
+        const add = await routeApi(
+          new Request("http://x/api/projects/add", {
+            method: "POST",
+            body: JSON.stringify({
+              name: "scratch",
+              source: "local",
+              state: "experiment",
+              tags: ["local"],
+            }),
+          }),
+          { workspaceRoot },
+        );
+        const imported = await routeApi(
+          new Request("http://x/api/projects/import", {
+            method: "POST",
+            body: JSON.stringify({
+              projects: [
+                {
+                  repo: "frostney/tool",
+                  state: "commercial",
+                  group: "clients",
+                  tags: ["paid"],
+                },
+              ],
+            }),
+          }),
+          { workspaceRoot },
+        );
+        const remove = await routeApi(
+          new Request("http://x/api/projects/remove", {
+            method: "POST",
+            body: JSON.stringify({ projectId: "scratch" }),
+          }),
+          { workspaceRoot },
+        );
+        const config = await readFile(join(workspaceRoot, "_herakles", "herakles.toml"), "utf8");
 
-    expect(add?.status).toBe(200);
-    expect(imported?.status).toBe(200);
-    expect(remove?.status).toBe(200);
-    expect(config).toContain('[project."frostney-tool"]');
-    expect(config).toContain('group = "clients"');
-    expect(config).toContain('tags = ["paid"]');
-    expect(config).not.toContain('[project."scratch"]');
+        expect(add?.status).toBe(200);
+        expect(imported?.status).toBe(200);
+        expect(remove?.status).toBe(200);
+        expect(config).toContain('[project."frostney-tool"]');
+        expect(config).toContain('group = "clients"');
+        expect(config).toContain('tags = ["paid"]');
+        expect(config).not.toContain('[project."scratch"]');
+      },
+    );
+  });
+  test("import candidates tolerate one failing authenticated GitHub owner", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await withFakeGhScript(
+      "herakles-gh-partial-import-",
+      `#!/bin/sh
+if [ "$1 $2" = "api user" ]; then
+  echo frostney
+  exit 0
+fi
+if [ "$1 $2" = "org list" ]; then
+  echo BinaryThumb
+  exit 0
+fi
+if [ "$1 $2 $3" = "repo list frostney" ]; then
+  echo "HTTP 502: 502 Bad Gateway" >&2
+  exit 1
+fi
+cat <<'JSON'
+${fakeGhRepositoryJson({ name: "tool", owner: "BinaryThumb" })}
+JSON
+`,
+      async () => {
+        const response = await routeApi(new Request("http://x/api/projects/import-candidates"), {
+          workspaceRoot,
+        });
+        const body = await response?.json();
+
+        expect(response?.status).toBe(200);
+        expect(body.map((candidate: { repo: string }) => candidate.repo)).toEqual([
+          "BinaryThumb/tool",
+        ]);
+      },
+    );
   });
 
   test("plans a tracked hosted project through the API dry-run path", async () => {

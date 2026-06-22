@@ -114,4 +114,46 @@ describe("github context wrappers", () => {
       visibility: "PUBLIC",
     });
   });
+
+  test("reports owner failures even when tracked repositories can be read", async () => {
+    const calls: string[][] = [];
+    const config = heraklesConfigSchema.parse({
+      github: { owners: ["broken-owner"] },
+      project: {
+        "frostney-tool": { source: "github", repo: "frostney/tool" },
+      },
+    });
+
+    await expect(
+      listGitHubRepositoriesWithRunner(
+        config,
+        async (argv) => {
+          calls.push([...argv]);
+          if (argv.slice(0, 4).join(" ") === "gh repo list broken-owner") {
+            throw new Error("broken-owner unavailable");
+          }
+          return {
+            exitCode: 0,
+            stderr: "",
+            stdout: JSON.stringify({
+              name: "tool",
+              nameWithOwner: "frostney/tool",
+              owner: { login: "frostney" },
+              visibility: "PUBLIC",
+              isArchived: false,
+              repositoryTopics: [],
+              languages: [],
+            }),
+          };
+        },
+        { tolerateOwnerFailures: true },
+      ),
+    ).rejects.toThrow("broken-owner unavailable");
+    expect(calls.map((call) => call.slice(0, 4))).toContainEqual([
+      "gh",
+      "repo",
+      "view",
+      "frostney/tool",
+    ]);
+  });
 });

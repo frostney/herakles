@@ -20,7 +20,8 @@ export async function startUiServer(options: UiServerOptions) {
   const server = Bun.serve({
     hostname: host,
     port,
-    development: true,
+    development: process.env.NODE_ENV !== "production",
+    idleTimeout: 120,
     routes: {
       "/": index,
       "/projects": index,
@@ -28,6 +29,7 @@ export async function startUiServer(options: UiServerOptions) {
       "/reports": index,
       "/reports/*": index,
       "/automation": index,
+      "/workspace": index,
       "/settings": index,
       "/favicon.ico": () => new Response(null, { status: 204 }),
       "/api/*": (req) => routeApi(req, { workspaceRoot: loaded.paths.workspaceRoot }),

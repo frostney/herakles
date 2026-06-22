@@ -1,3 +1,5 @@
+ignoreDependencies = ["bun-plugin-tailwind"]
+
 [health]
 maxCyclomatic = 20
 maxCognitive = 20

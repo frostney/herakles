@@ -60,6 +60,10 @@ _Avoid_: Remote sync, machine profile, file sync
 **Project Discovery**:
 The Herakles refresh flow that reads hosted repositories and local Git folders, then updates the resolved project model. It is user-facing as project discovery or project refresh; implementation details stay out of user-facing terminology.
 
+**Herakles Workbench**:
+The local graphical surface for inspecting and operating a Herakles Workspace, including projects, reports, automation, settings, and workspace recovery flows.
+_Avoid_: Console, Dashboard as the whole-app name, terminal console
+
 **Project Settings**:
 The user-facing place for changing a project's connection and interpretation, including lifecycle state, project group, project tags, archive evidence, up behavior, and promotion from a local experiment to a hosted repository.
 _Avoid_: Separate promotion workflow
