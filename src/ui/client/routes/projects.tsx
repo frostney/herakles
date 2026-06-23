@@ -910,6 +910,8 @@ const importInputClass =
   "h-[var(--control-md)] w-full rounded-[var(--radius-md)] border-[1.5px] border-[var(--border-default)] bg-[var(--surface-inset)] px-[var(--space-3)] font-sans text-[var(--text-base)] text-[var(--text-strong)] shadow-[inset_0_2px_4px_rgb(0_0_0_/_0.18)] transition-colors placeholder:text-[var(--text-faint)] hover:border-[var(--border-strong)] focus:border-[var(--border-focus)] focus:outline-none focus:shadow-[0_0_0_3px_var(--primary-soft)]";
 const compactAvatarClass =
   "inline-flex h-6 w-6 flex-none select-none items-center justify-center overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-card)] font-sans text-[var(--text-xs)] font-semibold text-[var(--text-body)]";
+const projectLogoClass =
+  "inline-flex h-9 w-9 flex-none select-none items-center justify-center overflow-hidden bg-transparent";
 
 function ImportCandidateFilters({
   query,
@@ -1401,7 +1403,7 @@ function ProjectCard({
         }}
       />
       <div className="mb-0 flex items-start gap-[var(--space-3)]">
-        <ProjectAvatar project={project} />
+        <ProjectAvatar project={project} size="card" />
         <div className="min-w-0 flex-1">
           <strong className="block overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[0.875rem] font-semibold text-[var(--text-strong)]">
             <Link
@@ -1646,7 +1648,10 @@ const githubLanguageColors: Record<string, string> = {
   TypeScript: "#3178c6",
 };
 
-function ProjectAvatar({ project }: { project: Project }) {
+function ProjectAvatar({
+  project,
+  size = "compact",
+}: { project: Project; size?: "compact" | "card" }) {
   const [failed, setFailed] = useState(false);
   const initials = repoInitials(projectName(project));
   if (failed) {
@@ -1656,8 +1661,9 @@ function ProjectAvatar({ project }: { project: Project }) {
       </span>
     );
   }
+  const frameClass = size === "card" ? projectLogoClass : compactAvatarClass;
   return (
-    <span className={compactAvatarClass} aria-hidden>
+    <span className={frameClass} aria-hidden>
       <img
         className="h-full w-full object-contain"
         src={projectIconUrl(project.id)}
