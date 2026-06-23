@@ -157,7 +157,7 @@ export function Modal({
             ) : null}
             <h2
               id={titleId}
-              className="m-0 font-display text-[var(--text-2xl)] font-bold text-[var(--text-strong)]"
+              className="m-0 font-display text-[var(--text-4xl)] leading-none font-bold text-[var(--text-strong)]"
             >
               {title}
             </h2>
@@ -203,7 +203,10 @@ export function Modal({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-[var(--space-3)]">
-          <h2 id={titleId} className={ui.panelTitle}>
+          <h2
+            id={titleId}
+            className="m-0 font-display text-[var(--text-4xl)] leading-none font-bold text-[var(--text-strong)]"
+          >
             {title}
           </h2>
           <IconButton label={`Close ${title}`} icon={<X size={17} />} onClick={onClose} />
