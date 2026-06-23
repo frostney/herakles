@@ -54,6 +54,7 @@ import {
   VisualBanner,
   splitTags,
 } from "../shared/components";
+import { displayPath, displayTextWithHomePaths } from "../shared/displayPath";
 import { type Loadable, useRefreshOnEvents, useResource } from "../shared/hooks";
 import { assets, classNames, feedbackClass, feedbackToneClass, ui } from "../shared/styles";
 import { shouldScaffoldFromConfiguration, workspaceDriftItems } from "../upPlanPresentation";
@@ -411,7 +412,11 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
 
   const resolveCanonicalPath = async (item: UpPlan["items"][number]) => {
     if (
-      !confirm(`Move ${item.project.repo} to the canonical checkout path?\n\n${item.project.path}`)
+      !confirm(
+        `Move ${item.project.repo} to the canonical checkout path?\n\n${displayPath(
+          item.project.path,
+        )}`,
+      )
     ) {
       return;
     }
@@ -485,8 +490,8 @@ function PlanItemList({
         <article className={ui.listRow} key={`${title}-${item.project.id}-${item.action}`}>
           <div className={ui.listRowMain}>
             <strong>{item.project.repo}</strong>
-            <span className={ui.muted}>{item.reason}</span>
-            <span className={ui.mono}>{item.project.path}</span>
+            <span className={ui.muted}>{displayTextWithHomePaths(item.reason)}</span>
+            <span className={ui.mono}>{displayPath(item.project.path)}</span>
           </div>
           <div className={ui.actions}>
             {onResolveCanonicalPath && isHostedClonePathMismatch(item) ? (
@@ -1422,7 +1427,7 @@ function ProjectCard({
         </span>
       </div>
       <p className="m-0 mb-[var(--space-3)] overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[var(--text-xs)] text-[var(--text-faint)]">
-        {project.path}
+        {displayPath(project.path)}
       </p>
       <div className={ui.actions}>
         <button
@@ -1569,12 +1574,12 @@ function projectDetailItems(project: Project): DetailItemModel[] {
     { label: "Visibility", value: project.visibility ?? "local" },
     { label: "Workspace up", value: project.up ? "yes" : "no" },
     { label: "Automation", value: project.automationEnabled ? "yes" : "no" },
-    { label: "Path", value: project.path, mono: true },
+    { label: "Path", value: displayPath(project.path), mono: true },
   ];
   addDetailItem(items, "Remote", project.remote, true);
   addDetailItem(items, "Default branch", project.defaultBranchRef);
   addDetailItem(items, "Primary language", project.primaryLanguage);
-  addDetailItem(items, "Learning", project.learningPath, true);
+  addDetailItem(items, "Learning", project.learningPath && displayPath(project.learningPath), true);
   addDetailItem(items, "Archive note", project.archiveNote);
   return items;
 }

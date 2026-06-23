@@ -7,6 +7,7 @@ import type { ReportDetail, ReportSummary } from "../../../domain";
 import { getReport, getReports, postReportNote } from "../api";
 import { reportIdFromPath } from "../reportPaths";
 import { Badge, DetailItem, EmptyState, IconButton, LoadState, Screen } from "../shared/components";
+import { displayPath } from "../shared/displayPath";
 import { useRefreshOnEvents, useResource } from "../shared/hooks";
 import { assets, classNames, feedbackClass, ui } from "../shared/styles";
 
@@ -133,7 +134,9 @@ function ReportList({
                         {report.kind}
                       </Badge>
                     </td>
-                    <td className="font-mono text-[var(--text-faint)]">{report.path}</td>
+                    <td className="font-mono text-[var(--text-faint)]">
+                      {displayPath(report.path)}
+                    </td>
                     <td className="text-right font-mono tabular-nums text-[var(--text-body)]">
                       <time>{new Date(report.updatedAt).toLocaleString()}</time>
                     </td>
@@ -267,7 +270,7 @@ function ReportDetailPanel({ report }: { report: ReportDetail }) {
           <div className={ui.detailGrid}>
             <DetailItem label="Kind" value={report.kind} />
             <DetailItem label="Updated" value={new Date(report.updatedAt).toLocaleString()} />
-            <DetailItem label="Path" value={report.path} mono />
+            <DetailItem label="Path" value={displayPath(report.path)} mono />
             <DetailItem label="ID" value={report.id} mono />
           </div>
         </div>

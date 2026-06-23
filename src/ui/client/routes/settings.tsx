@@ -20,6 +20,7 @@ import {
   ValidationResultPanel,
   WorkspacePanel,
 } from "../shared/components";
+import { displayPath } from "../shared/displayPath";
 import { useRefreshOnEvents, useResource } from "../shared/hooks";
 import { feedbackClass, feedbackToneClass, ui } from "../shared/styles";
 
@@ -195,7 +196,7 @@ function ConfigExchangePanel({ onApplied }: { onApplied: () => void }) {
       <h2>Config Exchange</h2>
       {loaded.status === "ready" ? (
         <>
-          <p className={ui.mono}>{loaded.data.path}</p>
+          <p className={ui.mono}>{displayPath(loaded.data.path)}</p>
           <textarea
             className={ui.textarea}
             value={toml}

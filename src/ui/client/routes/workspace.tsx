@@ -21,6 +21,7 @@ import {
   ValidationResultPanel,
   VisualBanner,
 } from "../shared/components";
+import { displayTextWithHomePaths } from "../shared/displayPath";
 import { useRefreshOnEvents, useResource } from "../shared/hooks";
 import { assets, feedbackToneClass, ui } from "../shared/styles";
 import { shouldScaffoldFromConfiguration, workspaceDriftItems } from "../upPlanPresentation";
@@ -186,7 +187,7 @@ function UpPlanTable({ result }: { result: UpPlan }) {
           <td className="font-mono text-[var(--text-xs)] text-[var(--text-faint)]">
             {item.project.repo}
           </td>
-          <td>{item.reason}</td>
+          <td>{displayTextWithHomePaths(item.reason)}</td>
         </tr>
       ))}
     </DataTable>
