@@ -38,6 +38,11 @@ export function SettingsScreen() {
     "up-finished",
     "validation-updated",
   ]);
+  useRefreshOnEvents(refreshDoctor, [
+    "projects-refresh-finished",
+    "up-finished",
+    "validation-updated",
+  ]);
   const refreshProjects = async () => {
     setBusy(true);
     setMessage("");
@@ -158,6 +163,7 @@ function ConfigExchangePanel({ onApplied }: { onApplied: () => void }) {
   const [toml, setToml] = useState("");
   const [validation, setValidation] = useState<ValidationResult>();
   const [message, setMessage] = useState("");
+  const [messageKind, setMessageKind] = useState<"success" | "error">("success");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -170,12 +176,14 @@ function ConfigExchangePanel({ onApplied }: { onApplied: () => void }) {
     try {
       const result = await postConfigToml(toml, { apply });
       setValidation(result.validation);
+      setMessageKind("success");
       setMessage(result.applied ? "Configuration applied." : "Configuration parsed.");
       if (result.applied) {
         refresh();
         onApplied();
       }
     } catch (error) {
+      setMessageKind("error");
       setMessage(String(error));
     } finally {
       setBusy(false);
@@ -216,11 +224,7 @@ function ConfigExchangePanel({ onApplied }: { onApplied: () => void }) {
         <LoadState state={loaded} />
       )}
       {validation && <ValidationResultPanel result={validation} title="Config Parse" />}
-      {message && (
-        <p className={message.includes("applied") ? feedbackClass.success : feedbackClass.error}>
-          {message}
-        </p>
-      )}
+      {message && <p className={feedbackToneClass(messageKind)}>{message}</p>}
     </section>
   );
 }

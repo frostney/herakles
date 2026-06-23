@@ -13,11 +13,19 @@ type ThemePreference = "dark" | "light";
 
 export function useResource<T>(loader: () => Promise<T>): [Loadable<T>, () => void] {
   const [state, setState] = useState<Loadable<T>>({ status: "loading" });
+  const requestIdRef = useRef(0);
   const refresh = () => {
+    const requestId = ++requestIdRef.current;
     setState({ status: "loading" });
     loader()
-      .then((data) => setState({ status: "ready", data }))
-      .catch((error) => setState({ status: "error", error: String(error) }));
+      .then((data) => {
+        if (requestId === requestIdRef.current) setState({ status: "ready", data });
+      })
+      .catch((error) => {
+        if (requestId === requestIdRef.current) {
+          setState({ status: "error", error: String(error) });
+        }
+      });
   };
   useEffect(refresh, []);
   return [state, refresh];

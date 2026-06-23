@@ -43,6 +43,11 @@ export function WorkspaceScreen() {
     "up-finished",
     "validation-updated",
   ]);
+  useRefreshOnEvents(refreshDoctor, [
+    "projects-refresh-finished",
+    "up-finished",
+    "validation-updated",
+  ]);
   const runUp = async (dryRun: boolean) => {
     setBusy(true);
     setMessage("");

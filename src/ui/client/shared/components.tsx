@@ -554,6 +554,7 @@ export function DoctorPanel({ data, title = "Doctor" }: { data: DoctorResult; ti
 
 export function LoadState<T>({ state }: { state: Loadable<T> }) {
   if (state.status === "error") return <p className={feedbackClass.error}>{state.error}</p>;
+  if (state.status === "ready") return null;
   return <p className={ui.emptyText}>Loading...</p>;
 }
 

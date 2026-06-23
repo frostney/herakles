@@ -44,7 +44,6 @@ import {
   EmptyState,
   IconButton,
   LoadState,
-  Metric,
   Modal,
   Screen,
   StateSelect,
@@ -209,26 +208,6 @@ export function Projects() {
   );
 }
 
-function ProjectOverview({ projects }: { projects: Project[] }) {
-  return (
-    <div className={ui.metrics}>
-      <Metric label="All projects" value={projects.length} />
-      <Metric
-        label="Open source"
-        value={projects.filter((project) => project.state === "open-source").length}
-      />
-      <Metric
-        label="Experiments"
-        value={projects.filter((project) => project.state === "experiment").length}
-      />
-      <Metric
-        label="Archived"
-        value={projects.filter((project) => project.state === "archived").length}
-      />
-    </div>
-  );
-}
-
 function ProjectFilters({
   projects,
   query,
@@ -303,8 +282,11 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
   const [group, setGroup] = useState("");
   const [tags, setTags] = useState("");
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
   const add = async () => {
+    if (busy) return;
     setMessage("");
+    setBusy(true);
     try {
       const tagList = splitTags(tags);
       const result = await postAddProject({
@@ -325,6 +307,8 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
       onChanged();
     } catch (error) {
       setMessage(String(error));
+    } finally {
+      setBusy(false);
     }
   };
   return (
@@ -380,7 +364,7 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
           />
         </label>
       </div>
-      <button type="button" className={ui.buttonPrimary} onClick={add}>
+      <button type="button" className={ui.buttonPrimary} onClick={add} disabled={busy}>
         <Plus size={16} aria-hidden /> Add Project
       </button>
       {message && (
@@ -737,7 +721,10 @@ function clearImportedGitHubImportDraft(
 function loadCachedGitHubImportCandidates(): Loadable<HostedImportCandidate[]> {
   const parsed = readStoredJson(githubImportCandidatesStorageKey);
   if (!isRecord(parsed) || !Array.isArray(parsed.candidates)) return { status: "loading" };
-  return { status: "ready", data: parsed.candidates as HostedImportCandidate[] };
+  const candidates = parsed.candidates.filter(isHostedImportCandidate);
+  return candidates.length === parsed.candidates.length
+    ? { status: "ready", data: candidates }
+    : { status: "loading" };
 }
 
 function saveCachedGitHubImportCandidates(candidates: HostedImportCandidate[]) {
@@ -769,6 +756,32 @@ function writeStoredJson(key: string, value: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isHostedImportCandidate(value: unknown): value is HostedImportCandidate {
+  if (!isRecord(value)) return false;
+  const visibility = value.visibility;
+  return (
+    hasStringFields(value, ["repo", "owner", "name"]) &&
+    (visibility === "public" || visibility === "private") &&
+    typeof value.archived === "boolean" &&
+    isProjectState(value.suggestedState) &&
+    isStringList(value.topics) &&
+    hasOptionalStringFields(value, ["description", "updatedAt"]) &&
+    typeof value.alreadyTracked === "boolean"
+  );
+}
+
+function hasStringFields(value: Record<string, unknown>, fields: string[]) {
+  return fields.every((field) => typeof value[field] === "string");
+}
+
+function hasOptionalStringFields(value: Record<string, unknown>, fields: string[]) {
+  return fields.every((field) => value[field] === undefined || typeof value[field] === "string");
+}
+
+function isStringList(value: unknown) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 function stringRecord(value: unknown): Record<string, string> {
@@ -1420,40 +1433,30 @@ function LifecycleBadge({ state }: { state: ProjectState }) {
   );
 }
 
-function ProjectSettingsCell({
-  onSelectProject,
-  project,
-  selectedProjectId,
-}: {
-  onSelectProject: (id: string) => void;
-  project: Project;
-  selectedProjectId: string | undefined;
-}) {
-  const selected = selectedProjectId === project.id;
-  return (
-    <td>
-      <button
-        type="button"
-        className={ui.buttonGhost}
-        aria-pressed={selected}
-        onClick={() => onSelectProject(selected ? "" : project.id)}
-      >
-        {selected ? "Selected" : "Plan"}
-      </button>
-    </td>
-  );
-}
-
 function ProjectRemoveButton({ onRemove, project }: { onRemove: () => void; project: Project }) {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const remove = async () => {
+    if (busy) return;
     if (!confirmStopTracking(project)) return;
-    await postRemoveProject(project.slug);
-    onRemove();
+    setBusy(true);
+    setError("");
+    try {
+      await postRemoveProject(project.slug);
+      onRemove();
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setBusy(false);
+    }
   };
   return (
-    <button type="button" className={ui.buttonDanger} onClick={remove}>
-      Remove
-    </button>
+    <>
+      <button type="button" className={ui.buttonDanger} onClick={remove} disabled={busy}>
+        Remove
+      </button>
+      {error && <span className={feedbackClass.error}>{error}</span>}
+    </>
   );
 }
 

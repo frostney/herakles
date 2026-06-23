@@ -38,6 +38,12 @@ function Dashboard() {
   const [projects, refreshProjects] = useResource(getProjects);
   const [automation, refreshAutomation] = useResource(getAutomations);
   const [doctor, refreshDoctor] = useResource(getDoctor);
+  const refreshAll = () => {
+    refresh();
+    refreshProjects();
+    refreshAutomation();
+    refreshDoctor();
+  };
   useRefreshOnEvents(refresh, [
     "projects-refresh-finished",
     "up-finished",
@@ -56,7 +62,7 @@ function Dashboard() {
   return (
     <Screen
       title="Dashboard"
-      actions={<IconButton label="Refresh" onClick={refresh} icon={<RefreshCcw size={16} />} />}
+      actions={<IconButton label="Refresh" onClick={refreshAll} icon={<RefreshCcw size={16} />} />}
     >
       <div className={ui.metrics}>
         <Metric label="Projects" value={status.data.projectCount} />
@@ -581,30 +587,44 @@ function useAutomationJobEditor(selected: AutomationJob | undefined, onSaved: ()
     setPlan(undefined);
   };
 
-  const preview = () =>
-    runAutomationJobConfigAction(form, setBusy, setMessage, setPlan, onSaved, false);
-  const save = () =>
-    runAutomationJobConfigAction(form, setBusy, setMessage, setPlan, onSaved, true);
+  const preview = () => runAutomationJobPlanAction(form, setBusy, setMessage, setPlan);
+  const save = () => runAutomationJobApplyAction(form, setBusy, setMessage, setPlan, onSaved);
   return { form, plan, message, busy, update, preview, save };
 }
 
-async function runAutomationJobConfigAction(
+async function runAutomationJobPlanAction(
   form: AutomationJobConfigInput,
   setBusy: (busy: boolean) => void,
   setMessage: (message: string) => void,
   setPlan: (plan: AutomationJobConfigPlan) => void,
-  onSaved: () => void,
-  apply: boolean,
 ) {
   setBusy(true);
   setMessage("");
   try {
     const payload = normalizeAutomationJobInput(form);
-    const nextPlan = apply
-      ? await postAutomationJobApply(payload)
-      : await postAutomationJobPlan(payload);
+    const nextPlan = await postAutomationJobPlan(payload);
     setPlan(nextPlan);
-    if (apply) onSaved();
+  } catch (error) {
+    setMessage(String(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function runAutomationJobApplyAction(
+  form: AutomationJobConfigInput,
+  setBusy: (busy: boolean) => void,
+  setMessage: (message: string) => void,
+  setPlan: (plan: AutomationJobConfigPlan) => void,
+  onSaved: () => void,
+) {
+  setBusy(true);
+  setMessage("");
+  try {
+    const payload = normalizeAutomationJobInput(form);
+    const nextPlan = await postAutomationJobApply(payload);
+    setPlan(nextPlan);
+    onSaved();
   } catch (error) {
     setMessage(String(error));
   } finally {
