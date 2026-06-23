@@ -1524,11 +1524,7 @@ function ProjectCard({
               {projectName(project)}
             </Link>
           </strong>
-          <span className="font-mono text-[var(--text-xs)] text-[var(--text-faint)]">
-            {project.source === "github" && project.owner
-              ? `${project.owner}/${project.repo}`
-              : (project.visibility ?? project.source)}
-          </span>
+          <ProjectRepositoryLink project={project} />
         </div>
         <ProjectStarButton project={project} onPinnedChange={onPinnedChange} />
         <LifecycleBadge state={project.state} />
@@ -1566,6 +1562,50 @@ function ProjectCard({
         <ProjectOpenActions project={project} />
       </div>
     </article>
+  );
+}
+
+function ProjectRepositoryLink({ project }: { project: Project }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const label =
+    project.source === "github" && project.owner
+      ? `${project.owner}/${project.repo}`
+      : (project.visibility ?? project.source);
+
+  if (!project.url) {
+    return (
+      <span className="font-mono text-[var(--text-xs)] text-[var(--text-faint)]">{label}</span>
+    );
+  }
+
+  const openGitHub = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await openProjectTarget(project, "github");
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <span className="flex min-w-0 items-center gap-[var(--space-1)]">
+      <button
+        type="button"
+        className="min-w-0 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap border-0 bg-transparent p-0 text-left font-mono text-[var(--text-xs)] text-[var(--text-faint)] underline-offset-2 hover:text-[var(--primary)] hover:underline disabled:cursor-wait disabled:opacity-70"
+        title={`Open ${label} in GitHub`}
+        aria-label={`Open ${label} in GitHub`}
+        disabled={busy}
+        onClick={openGitHub}
+      >
+        {label}
+      </button>
+      {error ? <span className={feedbackClass.error}>{error}</span> : null}
+    </span>
   );
 }
 
@@ -1923,12 +1963,10 @@ function ProjectOpenActions({ project }: { project: Project }) {
   const [error, setError] = useState("");
   const openTarget = async (target: ProjectOpenTarget) => {
     if (busyTarget) return;
-    const destination = target === "github" ? project.url : project.path;
-    if (!destination) return;
     setBusyTarget(target);
     setError("");
     try {
-      await postOpenProject(project.id, target, destination);
+      await openProjectTarget(project, target);
     } catch (error) {
       setError(String(error));
     } finally {
@@ -1961,6 +1999,12 @@ function ProjectOpenActions({ project }: { project: Project }) {
       {error ? <span className={feedbackClass.error}>{error}</span> : null}
     </div>
   );
+}
+
+async function openProjectTarget(project: Project, target: ProjectOpenTarget) {
+  const destination = target === "github" ? project.url : project.path;
+  if (!destination) return;
+  await postOpenProject(project.id, target, destination);
 }
 
 function ProjectOpenButton({
