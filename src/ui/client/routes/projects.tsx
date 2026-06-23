@@ -432,23 +432,35 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
           </button>
         </div>
       </div>
-      {reviewing && (
-        <div className={ui.list}>
-          {driftItems.map((item) => (
-            <article className={ui.listRow} key={`${item.project.id}-${item.action}`}>
-              <div>
-                <strong>{item.project.repo}</strong>
-                <span>{item.reason}</span>
-                <span className={ui.mono}>{item.project.path}</span>
-              </div>
-              <Badge tone="primary">{item.action}</Badge>
-            </article>
-          ))}
-        </div>
-      )}
+      <PlanItemList items={driftItems} />
+      {reviewing && <PlanItemList items={result.items} title="Dry Run Items" />}
       {upResult && <UpResultList result={upResult} />}
       {message && <p className={feedbackToneClass(messageKind)}>{message}</p>}
     </Modal>
+  );
+}
+
+function PlanItemList({
+  items,
+  title = "Drifted Items",
+}: {
+  items: UpPlan["items"];
+  title?: string;
+}) {
+  return (
+    <div className={classNames(ui.list, "mb-[var(--space-4)]")}>
+      <div className={ui.labelText}>{title}</div>
+      {items.map((item) => (
+        <article className={ui.listRow} key={`${title}-${item.project.id}-${item.action}`}>
+          <div className={ui.listRowMain}>
+            <strong>{item.project.repo}</strong>
+            <span className={ui.muted}>{item.reason}</span>
+            <span className={ui.mono}>{item.project.path}</span>
+          </div>
+          <Badge tone="primary">{item.action}</Badge>
+        </article>
+      ))}
+    </div>
   );
 }
 
