@@ -55,6 +55,9 @@ const importProjectsBodySchema = z
   .strict();
 const removeProjectBodySchema = z.object({ projectId: nonEmptyString }).strict();
 const resolveCanonicalPathBodySchema = z.object({ projectId: nonEmptyString }).strict();
+const openProjectBodySchema = z
+  .object({ projectId: nonEmptyString, target: z.enum(["filesystem", "github", "codex"]) })
+  .strict();
 const projectUpBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
   .strict();
@@ -110,6 +113,7 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/import": (context) => routeImportProjects(context),
   "/api/projects/remove": (context) => routeRemoveProject(context),
   "/api/projects/resolve-canonical-path": (context) => routeResolveCanonicalPath(context),
+  "/api/projects/open": (context) => routeOpenProject(context),
   "/api/projects/up": (context) => routeProjectUp(context),
   "/api/projects/promote-plan": (context) => routeProjectPromotionAction(context, false),
   "/api/projects/promote": (context) => routeProjectPromotionAction(context, true),
@@ -270,6 +274,17 @@ async function routeResolveCanonicalPath(context: ApiContext): Promise<Response>
     from: result.from,
     to: result.to,
   });
+  return json(result);
+}
+
+async function routeOpenProject(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, openProjectBodySchema);
+  if (!body.ok) return body.response;
+  const result = await app.openProject(
+    context.options.workspaceRoot,
+    body.data.projectId,
+    body.data.target,
+  );
   return json(result);
 }
 

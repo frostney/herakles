@@ -17,6 +17,7 @@ import type {
   LocalPromotionResult,
   Project,
   ProjectDetail,
+  ProjectOpenTarget,
   ProjectState,
   ReportDetail,
   ReportSummary,
@@ -131,6 +132,10 @@ export async function postResolveProjectCanonicalPath(
   projectId: string,
 ): Promise<{ projectId: string; from: string; to: string; moved: true }> {
   return post("/api/projects/resolve-canonical-path", { projectId });
+}
+
+export async function postOpenProject(projectId: string, target: ProjectOpenTarget) {
+  return post("/api/projects/open", { projectId, target });
 }
 
 export async function postProjectUp(

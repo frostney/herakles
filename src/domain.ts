@@ -16,6 +16,8 @@ export type ProjectLineCounts = {
   sloc: number;
 };
 
+export type ProjectOpenTarget = "filesystem" | "github" | "codex";
+
 export type GitHubRepository = {
   name: string;
   nameWithOwner: string;

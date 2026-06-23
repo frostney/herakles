@@ -26,6 +26,7 @@ import type {
   LocalRepository,
   Project,
   ProjectDetail,
+  ProjectOpenTarget,
   ProjectState,
   ReportDetail,
   UpPlan,
@@ -50,6 +51,7 @@ import {
 } from "./reports";
 import { type UpExecution, executeUpPlan } from "./up/execute";
 import { createUpPlan } from "./up/plan";
+import { runCommand } from "./utils/command";
 
 type WorkspaceState = {
   loaded: LoadedConfig;
@@ -107,6 +109,14 @@ export async function project(workspaceRoot: string, id: string): Promise<Projec
   return found;
 }
 
+export async function openProject(workspaceRoot: string, id: string, target: ProjectOpenTarget) {
+  const found = await project(workspaceRoot, id);
+  const destination = projectOpenDestination(found, target);
+  const command = projectOpenCommand(target, destination);
+  await runCommand(command);
+  return { projectId: found.id, target, destination, opened: true };
+}
+
 export async function projectDetail(workspaceRoot: string, id: string): Promise<ProjectDetail> {
   const state = await loadWorkspace(workspaceRoot);
   const found = findProject(state.projects, id);
@@ -116,6 +126,25 @@ export async function projectDetail(workspaceRoot: string, id: string): Promise<
     reports: await listProjectReports(state.loaded, found),
     validationIssues: state.validation.issues.filter((issue) => issue.projectId === found.id),
   };
+}
+
+function projectOpenDestination(project: Project, target: ProjectOpenTarget): string {
+  if (target === "github") {
+    if (!project.url) throw new Error(`Project ${project.id} does not have a GitHub URL.`);
+    return project.url;
+  }
+  return project.path;
+}
+
+function projectOpenCommand(target: ProjectOpenTarget, destination: string): string[] {
+  if (target === "codex") return ["codex", "app", destination];
+  if (process.platform === "darwin") return ["open", destination];
+  if (process.platform === "win32") {
+    return target === "filesystem"
+      ? ["explorer", destination]
+      : ["cmd", "/c", "start", "", destination];
+  }
+  return ["xdg-open", destination];
 }
 
 const projectIconCandidates = [

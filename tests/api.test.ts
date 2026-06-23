@@ -329,6 +329,72 @@ prompt = "Summarize the workspace."
     expect(response?.status).toBe(404);
   });
 
+  test("opens local project targets through explicit app launch routes", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await addLocalGitProject(workspaceRoot, "scratch");
+    const projectPath = join(workspaceRoot, "experiment", "scratch");
+
+    await withFakeProjectLaunchers(async (logPath) => {
+      const filesystem = await routeApi(
+        new Request("http://x/api/projects/open", {
+          method: "POST",
+          body: JSON.stringify({ projectId: "local:scratch", target: "filesystem" }),
+        }),
+        { workspaceRoot },
+      );
+      const codex = await routeApi(
+        new Request("http://x/api/projects/open", {
+          method: "POST",
+          body: JSON.stringify({ projectId: "local:scratch", target: "codex" }),
+        }),
+        { workspaceRoot },
+      );
+
+      expect(filesystem?.status).toBe(200);
+      expect(codex?.status).toBe(200);
+      expect(await filesystem?.json()).toMatchObject({
+        projectId: "local:scratch",
+        target: "filesystem",
+        destination: projectPath,
+        opened: true,
+      });
+      expect(await codex?.json()).toMatchObject({
+        projectId: "local:scratch",
+        target: "codex",
+        destination: projectPath,
+        opened: true,
+      });
+      const log = await readFile(logPath, "utf8");
+      expect(log).toContain(`${platformOpenCommand()} ${projectPath}`);
+      expect(log).toContain(`codex app ${projectPath}`);
+    });
+  });
+
+  test("opens hosted project GitHub URLs through explicit app launch routes", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await withTrackedPublicTool(workspaceRoot, async () => {
+      await withFakeProjectLaunchers(async (logPath) => {
+        const response = await routeApi(
+          new Request("http://x/api/projects/open", {
+            method: "POST",
+            body: JSON.stringify({ projectId: "github:frostney/public-tool", target: "github" }),
+          }),
+          { workspaceRoot },
+        );
+
+        expect(response?.status).toBe(200);
+        expect(await response?.json()).toMatchObject({
+          projectId: "github:frostney/public-tool",
+          target: "github",
+          destination: "https://github.com/frostney/public-tool",
+          opened: true,
+        });
+        const log = await readFile(logPath, "utf8");
+        expect(log).toContain(platformUrlOpenLog("https://github.com/frostney/public-tool"));
+      });
+    });
+  });
+
   test("refreshes project discovery through the API", async () => {
     const workspaceRoot = await tempWorkspace();
     await addLocalGitProject(workspaceRoot, "scratch");
@@ -816,6 +882,36 @@ echo "created"
   } finally {
     process.env.PATH = previousPath;
   }
+}
+
+async function withFakeProjectLaunchers(run: (logPath: string) => Promise<void>) {
+  const bin = await mkdtemp(join(tmpdir(), "herakles-project-open-"));
+  const logPath = join(bin, "open.log");
+  const script = `#!/bin/sh
+echo "$(basename "$0") $*" >> ${JSON.stringify(logPath)}
+`;
+  for (const command of ["open", "xdg-open", "explorer", "cmd", "codex"]) {
+    await writeFile(join(bin, command), script);
+    await chmod(join(bin, command), 0o755);
+  }
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    await run(logPath);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+}
+
+function platformOpenCommand() {
+  if (process.platform === "darwin") return "open";
+  if (process.platform === "win32") return "explorer";
+  return "xdg-open";
+}
+
+function platformUrlOpenLog(url: string) {
+  if (process.platform === "win32") return `cmd /c start  ${url}`;
+  return `${platformOpenCommand()} ${url}`;
 }
 
 async function readSseEvents(

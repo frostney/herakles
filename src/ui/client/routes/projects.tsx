@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import {
   CheckCircle2,
   CircleDot,
+  FolderOpen,
   GitPullRequest,
   Github,
   History,
@@ -10,6 +11,7 @@ import {
   RefreshCcw,
   Search,
   Server,
+  SquareTerminal,
   Workflow,
   X,
 } from "lucide-react";
@@ -19,6 +21,7 @@ import type {
   LocalPromotionResult,
   Project,
   ProjectDetail,
+  ProjectOpenTarget,
   ProjectState,
   ReportSummary,
   UpPlan,
@@ -35,6 +38,7 @@ import {
   postImportProjects,
   postLocalPromotion,
   postLocalPromotionPlan,
+  postOpenProject,
   postProjectConfigApply,
   postProjectConfigPlan,
   postProjectUp,
@@ -1443,16 +1447,19 @@ function ProjectCard({
       <p className="m-0 mb-[var(--space-3)] overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[var(--text-xs)] text-[var(--text-faint)]">
         {displayPath(project.path)}
       </p>
-      <div className={ui.actions}>
-        <button
-          type="button"
-          className={ui.buttonGhost}
-          aria-pressed={selected}
-          onClick={() => onSelectProject(selected ? "" : project.id)}
-        >
-          {selected ? "Selected" : "Plan Settings"}
-        </button>
-        <ProjectRemoveButton onRemove={onRemove} project={project} />
+      <div className="flex flex-wrap items-center justify-between gap-[var(--space-2)]">
+        <div className={ui.actions}>
+          <button
+            type="button"
+            className={ui.buttonGhost}
+            aria-pressed={selected}
+            onClick={() => onSelectProject(selected ? "" : project.id)}
+          >
+            {selected ? "Selected" : "Plan Settings"}
+          </button>
+          <ProjectRemoveButton onRemove={onRemove} project={project} />
+        </div>
+        <ProjectOpenActions project={project} />
       </div>
     </article>
   );
@@ -1754,6 +1761,76 @@ function LifecycleBadge({ state }: { state: ProjectState }) {
       <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
       {state}
     </span>
+  );
+}
+
+function ProjectOpenActions({ project }: { project: Project }) {
+  const [busyTarget, setBusyTarget] = useState<ProjectOpenTarget | "">("");
+  const [error, setError] = useState("");
+  const openTarget = async (target: ProjectOpenTarget) => {
+    if (busyTarget) return;
+    setBusyTarget(target);
+    setError("");
+    try {
+      await postOpenProject(project.id, target);
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setBusyTarget("");
+    }
+  };
+  return (
+    <div className="flex min-w-0 items-center justify-end gap-1">
+      <ProjectOpenButton
+        label="Open in Finder / Explorer"
+        busy={busyTarget === "filesystem"}
+        disabled={Boolean(busyTarget)}
+        onClick={() => openTarget("filesystem")}
+        icon={<FolderOpen size={16} aria-hidden />}
+      />
+      <ProjectOpenButton
+        label="Open in GitHub"
+        busy={busyTarget === "github"}
+        disabled={Boolean(busyTarget) || !project.url}
+        onClick={() => openTarget("github")}
+        icon={<Github size={16} aria-hidden />}
+      />
+      <ProjectOpenButton
+        label="Open in Codex"
+        busy={busyTarget === "codex"}
+        disabled={Boolean(busyTarget)}
+        onClick={() => openTarget("codex")}
+        icon={<SquareTerminal size={16} aria-hidden />}
+      />
+      {error ? <span className={feedbackClass.error}>{error}</span> : null}
+    </div>
+  );
+}
+
+function ProjectOpenButton({
+  busy,
+  disabled,
+  icon,
+  label,
+  onClick,
+}: {
+  busy: boolean;
+  disabled: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={ui.iconButton}
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {busy ? <LoaderCircle size={16} className="animate-spin" aria-hidden /> : icon}
+    </button>
   );
 }
 
