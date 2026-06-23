@@ -504,22 +504,14 @@ function PlanItemList({
           </div>
           <div className={ui.actions}>
             {onResolveCanonicalPath && isHostedClonePathMismatch(item) ? (
-              <div className="grid min-w-0 justify-items-start gap-1 sm:justify-items-end">
-                <button
-                  type="button"
-                  className={ui.buttonGhost}
-                  onClick={() => onResolveCanonicalPath(item)}
-                  disabled={resolvingProjectId === item.project.id}
-                >
-                  {resolvingProjectId === item.project.id ? "Resolving..." : "Use Canonical Path"}
-                </button>
-                <span
-                  className={classNames(ui.mono, "max-w-[16rem] truncate")}
-                  title={displayPath(item.project.path)}
-                >
-                  {displayPath(item.project.path)}
-                </span>
-              </div>
+              <button
+                type="button"
+                className={ui.buttonGhost}
+                onClick={() => onResolveCanonicalPath(item)}
+                disabled={resolvingProjectId === item.project.id}
+              >
+                {resolvingProjectId === item.project.id ? "Resolving..." : "Use Canonical Path"}
+              </button>
             ) : null}
             <Badge tone="primary">{item.action}</Badge>
           </div>
