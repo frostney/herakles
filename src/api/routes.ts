@@ -58,7 +58,7 @@ const resolveCanonicalPathBodySchema = z.object({ projectId: nonEmptyString }).s
 const openProjectBodySchema = z
   .object({
     projectId: nonEmptyString,
-    target: z.enum(["filesystem", "github", "codex"]),
+    target: z.enum(["filesystem", "github", "codex", "terminal"]),
     destination: nonEmptyString,
   })
   .strict();

@@ -15,6 +15,7 @@ import {
   Server,
   SquareTerminal,
   Star,
+  Terminal,
   Workflow,
   X,
 } from "lucide-react";
@@ -1995,6 +1996,13 @@ function ProjectOpenActions({ project }: { project: Project }) {
         disabled={Boolean(busyTarget) || !project.url}
         onClick={() => openTarget("github")}
         icon={<Github size={16} aria-hidden />}
+      />
+      <ProjectOpenButton
+        label="Open in Terminal"
+        busy={busyTarget === "terminal"}
+        disabled={Boolean(busyTarget)}
+        onClick={() => openTarget("terminal")}
+        icon={<Terminal size={16} aria-hidden />}
       />
       <ProjectOpenButton
         label="Open in Codex"

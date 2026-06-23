@@ -140,6 +140,7 @@ export async function projectDetail(workspaceRoot: string, id: string): Promise<
 
 function projectOpenCommand(target: ProjectOpenTarget, destination: string): string[] {
   if (target === "codex") return ["codex", "app", destination];
+  if (target === "terminal") return projectTerminalOpenCommand(destination);
   if (process.platform === "darwin") return ["open", destination];
   if (process.platform === "win32") {
     return target === "filesystem"
@@ -147,6 +148,14 @@ function projectOpenCommand(target: ProjectOpenTarget, destination: string): str
       : ["cmd", "/c", "start", "", destination];
   }
   return ["xdg-open", destination];
+}
+
+function projectTerminalOpenCommand(destination: string): string[] {
+  if (process.platform === "darwin") return ["open", "-a", "Terminal", destination];
+  if (process.platform === "win32") {
+    return ["cmd", "/c", "start", "", "cmd", "/k", "cd", "/d", destination];
+  }
+  return ["x-terminal-emulator", "--working-directory", destination];
 }
 
 function validateProjectOpenDestination(

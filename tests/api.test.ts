@@ -357,9 +357,21 @@ prompt = "Summarize the workspace."
         }),
         { workspaceRoot },
       );
+      const terminal = await routeApi(
+        new Request("http://x/api/projects/open", {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: "local:scratch",
+            target: "terminal",
+            destination: projectPath,
+          }),
+        }),
+        { workspaceRoot },
+      );
 
       expect(filesystem?.status).toBe(200);
       expect(codex?.status).toBe(200);
+      expect(terminal?.status).toBe(200);
       expect(await filesystem?.json()).toMatchObject({
         projectId: "local:scratch",
         target: "filesystem",
@@ -372,9 +384,20 @@ prompt = "Summarize the workspace."
         destination: projectPath,
         opened: true,
       });
-      const log = await waitForLogContains(logPath, `codex app ${projectPath}`);
+      expect(await terminal?.json()).toMatchObject({
+        projectId: "local:scratch",
+        target: "terminal",
+        destination: projectPath,
+        opened: true,
+      });
+      const log = await waitForLogContainsAll(logPath, [
+        `${platformOpenCommand()} ${projectPath}`,
+        `codex app ${projectPath}`,
+        platformTerminalOpenLog(projectPath),
+      ]);
       expect(log).toContain(`${platformOpenCommand()} ${projectPath}`);
       expect(log).toContain(`codex app ${projectPath}`);
+      expect(log).toContain(platformTerminalOpenLog(projectPath));
     });
   });
 
@@ -946,7 +969,7 @@ async function withFakeProjectLaunchers(run: (logPath: string) => Promise<void>)
   const script = `#!/bin/sh
 echo "$(basename "$0") $*" >> ${JSON.stringify(logPath)}
 `;
-  for (const command of ["open", "xdg-open", "explorer", "cmd", "codex"]) {
+  for (const command of ["open", "xdg-open", "x-terminal-emulator", "explorer", "cmd", "codex"]) {
     await writeFile(join(bin, command), script);
     await chmod(join(bin, command), 0o755);
   }
@@ -960,18 +983,22 @@ echo "$(basename "$0") $*" >> ${JSON.stringify(logPath)}
 }
 
 async function waitForLogContains(logPath: string, text: string) {
+  return waitForLogContainsAll(logPath, [text]);
+}
+
+async function waitForLogContainsAll(logPath: string, texts: string[]) {
   const deadline = Date.now() + 2000;
   let last = "";
   while (Date.now() < deadline) {
     try {
       last = await readFile(logPath, "utf8");
-      if (last.includes(text)) return last;
+      if (texts.every((text) => last.includes(text))) return last;
     } catch {
       // The launcher process may not have created the log yet.
     }
     await Bun.sleep(25);
   }
-  throw new Error(`Expected launcher log to contain ${text}, saw: ${last}`);
+  throw new Error(`Expected launcher log to contain ${texts.join(", ")}, saw: ${last}`);
 }
 
 function platformOpenCommand() {
@@ -983,6 +1010,12 @@ function platformOpenCommand() {
 function platformUrlOpenLog(url: string) {
   if (process.platform === "win32") return `cmd /c start  ${url}`;
   return `${platformOpenCommand()} ${url}`;
+}
+
+function platformTerminalOpenLog(path: string) {
+  if (process.platform === "darwin") return `open -a Terminal ${path}`;
+  if (process.platform === "win32") return `cmd /c start  cmd /k cd /d ${path}`;
+  return `x-terminal-emulator --working-directory ${path}`;
 }
 
 async function readSseEvents(
