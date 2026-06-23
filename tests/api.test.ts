@@ -220,7 +220,7 @@ describe("api routes", () => {
     expect(content).toContain("Check dry-run output");
   });
 
-  test("serves strict validation for remote archive evidence checks", async () => {
+  test("serves strict validation with hosted archive evidence from GitHub archives", async () => {
     const workspaceRoot = await tempWorkspace();
     await writeFile(
       join(workspaceRoot, "_herakles", "herakles.toml"),
@@ -241,9 +241,9 @@ owners = ["frostney"]
       expect(relaxed?.status).toBe(200);
       expect(strict?.status).toBe(200);
       expect(relaxedBody.valid).toBe(true);
-      expect(relaxedBody.issues[0].severity).toBe("warning");
-      expect(strictBody.valid).toBe(false);
-      expect(strictBody.issues[0].severity).toBe("error");
+      expect(relaxedBody.issues).toEqual([]);
+      expect(strictBody.valid).toBe(true);
+      expect(strictBody.issues).toEqual([]);
     });
   });
 

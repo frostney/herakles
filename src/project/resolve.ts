@@ -59,6 +59,9 @@ function archiveNoteFromHostedMetadata(repo: GitHubRepository): string | undefin
   if (homepage && repo.isArchived) {
     return `Moved or superseded: ${homepage}`;
   }
+  if (repo.isArchived) {
+    return "GitHub archive notice: repository is archived.";
+  }
   return undefined;
 }
 

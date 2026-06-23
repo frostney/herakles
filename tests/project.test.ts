@@ -305,6 +305,35 @@ repo = "alt/tool"
 [project."silent-archive"]
 source = "github"
 repo = "frostney/silent-archive"
+state = "archived"
+`,
+    );
+    const loaded = await loadConfig(root);
+    const projects = resolveProjects(loaded, {
+      hosted: [
+        repo({
+          name: "silent-archive",
+          nameWithOwner: "frostney/silent-archive",
+          owner: "frostney",
+          description: "Small CLI experiment.",
+        }),
+      ],
+      local: [],
+      hostedClones: [],
+    });
+
+    const validation = validateProjects(projects, { strict: true });
+    expect(validation.valid).toBe(false);
+    expect(validation.issues[0]?.code).toBe("missing-archive-note");
+  });
+
+  test("github archived repositories use the hosted archive notice as archive evidence", async () => {
+    const root = await tempTrackedWorkspace(
+      "herakles-hosted-archive-note-",
+      `
+[project."silent-archive"]
+source = "github"
+repo = "frostney/silent-archive"
 `,
     );
     const loaded = await loadConfig(root);
@@ -322,9 +351,12 @@ repo = "frostney/silent-archive"
       hostedClones: [],
     });
 
+    const archive = projects.find((project) => project.repo === "silent-archive");
     const validation = validateProjects(projects, { strict: true });
-    expect(validation.valid).toBe(false);
-    expect(validation.issues[0]?.code).toBe("missing-archive-note");
+
+    expect(archive?.state).toBe("archived");
+    expect(archive?.archiveNote).toBe("GitHub archive notice: repository is archived.");
+    expect(validation.valid).toBe(true);
   });
 
   test("missing archive learning evidence is a validation-only up item", async () => {
@@ -334,10 +366,11 @@ repo = "frostney/silent-archive"
 [project."silent-archive"]
 source = "github"
 repo = "frostney/silent-archive"
+state = "archived"
 `,
     );
 
-    await withFakeArchivedGhRepo(async () => {
+    await withFakeGhRepo(async () => {
       const plan = await loadUpPlan(root);
 
       expect(plan.items).toHaveLength(1);
@@ -449,6 +482,22 @@ cat <<'JSON'
 ${fakeGhRepositoryJson({
   name: "silent-archive",
   isArchived: true,
+  description: "Small CLI experiment.",
+})}
+JSON
+`,
+    run,
+  );
+}
+
+async function withFakeGhRepo(run: () => Promise<void>) {
+  await withFakeGhScript(
+    "herakles-gh-active-",
+    `#!/bin/sh
+cat <<'JSON'
+${fakeGhRepositoryJson({
+  name: "silent-archive",
+  isArchived: false,
   description: "Small CLI experiment.",
 })}
 JSON
