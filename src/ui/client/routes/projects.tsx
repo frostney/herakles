@@ -103,6 +103,38 @@ type GitHubImportProgress = {
   repo?: string;
 };
 
+function applyPinnedOverrides(
+  projects: readonly Project[],
+  overrides: Record<string, boolean>,
+): Project[] {
+  if (Object.keys(overrides).length === 0) return [...projects];
+  return projects.map((project) => {
+    const pinned = overrides[project.id];
+    return pinned === undefined ? project : { ...project, pinned };
+  });
+}
+
+function compactPinnedOverrides(
+  projects: readonly Project[],
+  overrides: Record<string, boolean>,
+): Record<string, boolean> {
+  const projectPinnedById = new Map(projects.map((project) => [project.id, project.pinned]));
+  let changed = false;
+  const compacted: Record<string, boolean> = {};
+  for (const [projectId, pinned] of Object.entries(overrides)) {
+    if (projectPinnedById.get(projectId) === pinned) {
+      changed = true;
+      continue;
+    }
+    if (!projectPinnedById.has(projectId)) {
+      changed = true;
+      continue;
+    }
+    compacted[projectId] = pinned;
+  }
+  return changed ? compacted : overrides;
+}
+
 export function Projects() {
   const [projects, refresh] = useResource(getProjects);
   const [upPlan, refreshUpPlan] = useResource(getUpPlan);
@@ -110,6 +142,7 @@ export function Projects() {
   const [stateFilter, setStateFilter] = useState<ProjectState | "all">("all");
   const [sortKey, setSortKey] = useState<ProjectSortKey>("starred");
   const [sortDirection, setSortDirection] = useState<ProjectSortDirection>("desc");
+  const [pinnedOverrides, setPinnedOverrides] = useState<Record<string, boolean>>({});
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -123,10 +156,18 @@ export function Projects() {
     "up-finished",
     "validation-updated",
   ]);
+  const effectiveProjects = useMemo(() => {
+    if (projects.status !== "ready") return [];
+    return applyPinnedOverrides(projects.data, pinnedOverrides);
+  }, [pinnedOverrides, projects]);
+  useEffect(() => {
+    if (projects.status !== "ready") return;
+    setPinnedOverrides((current) => compactPinnedOverrides(projects.data, current));
+  }, [projects]);
   const filtered = useMemo(() => {
     if (projects.status !== "ready") return [];
     const needle = query.toLowerCase();
-    const filteredProjects = projects.data.filter((project) => {
+    const filteredProjects = effectiveProjects.filter((project) => {
       const stateMatches = stateFilter === "all" || project.state === stateFilter;
       const queryMatches = [
         project.slug,
@@ -139,7 +180,7 @@ export function Projects() {
       return stateMatches && queryMatches;
     });
     return sortProjects(filteredProjects, sortKey, sortDirection);
-  }, [projects, query, sortDirection, sortKey, stateFilter]);
+  }, [effectiveProjects, projects.status, query, sortDirection, sortKey, stateFilter]);
   return (
     <Screen
       title="Projects"
@@ -203,7 +244,7 @@ export function Projects() {
         {projects.status === "ready" ? (
           <>
             <ProjectFilters
-              projects={projects.data}
+              projects={effectiveProjects}
               query={query}
               sortDirection={sortDirection}
               sortKey={sortKey}
@@ -219,11 +260,14 @@ export function Projects() {
             <ProjectTable
               projects={filtered}
               selectedProjectId={selectedProjectId}
+              onPinnedChange={(projectId, pinned) =>
+                setPinnedOverrides((current) => ({ ...current, [projectId]: pinned }))
+              }
               onSelectProject={setSelectedProjectId}
               onRemove={refreshProjects}
             />
             <ProjectSettingsPanel
-              projects={projects.data}
+              projects={effectiveProjects}
               selectedProjectId={selectedProjectId}
               onApplied={() => {
                 refreshProjects();
@@ -1346,6 +1390,7 @@ type ProjectTableProps =
   | {
       projects: Project[];
       compact?: false;
+      onPinnedChange: (projectId: string, pinned: boolean) => void;
       selectedProjectId: string;
       onSelectProject: (id: string) => void;
       onRemove: () => void;
@@ -1395,11 +1440,13 @@ function CompactProjectRow({ project }: { project: Project }) {
 }
 
 function ProjectCardGrid({
+  onPinnedChange,
   projects,
   selectedProjectId,
   onSelectProject,
   onRemove,
 }: {
+  onPinnedChange: (projectId: string, pinned: boolean) => void;
   projects: Project[];
   selectedProjectId: string;
   onSelectProject: (id: string) => void;
@@ -1410,6 +1457,7 @@ function ProjectCardGrid({
       {projects.map((project) => (
         <ProjectCard
           key={project.id}
+          onPinnedChange={onPinnedChange}
           onRemove={onRemove}
           onSelectProject={onSelectProject}
           project={project}
@@ -1438,11 +1486,13 @@ function ProjectTableShell({
 }
 
 function ProjectCard({
+  onPinnedChange,
   onRemove,
   onSelectProject,
   project,
   selectedProjectId,
 }: {
+  onPinnedChange: (projectId: string, pinned: boolean) => void;
   onRemove: () => void;
   onSelectProject: (id: string) => void;
   project: Project;
@@ -1480,7 +1530,7 @@ function ProjectCard({
               : (project.visibility ?? project.source)}
           </span>
         </div>
-        <ProjectStarButton project={project} onChanged={onRemove} />
+        <ProjectStarButton project={project} onPinnedChange={onPinnedChange} />
         <LifecycleBadge state={project.state} />
       </div>
       {project.description && (
@@ -1818,17 +1868,26 @@ function LifecycleBadge({ state }: { state: ProjectState }) {
   );
 }
 
-function ProjectStarButton({ onChanged, project }: { onChanged: () => void; project: Project }) {
+function ProjectStarButton({
+  onPinnedChange,
+  project,
+}: {
+  onPinnedChange: (projectId: string, pinned: boolean) => void;
+  project: Project;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const toggle = async () => {
     if (busy) return;
+    const previousPinned = project.pinned;
+    const nextPinned = !previousPinned;
     setBusy(true);
     setError("");
+    onPinnedChange(project.id, nextPinned);
     try {
-      await postProjectConfigApply(project.id, { pinned: !project.pinned });
-      onChanged();
+      await postProjectConfigApply(project.id, { pinned: nextPinned });
     } catch (error) {
+      onPinnedChange(project.id, previousPinned);
       setError(String(error));
     } finally {
       setBusy(false);
