@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { TOML } from "bun";
@@ -116,6 +116,47 @@ export async function projectDetail(workspaceRoot: string, id: string): Promise<
     reports: await listProjectReports(state.loaded, found),
     validationIssues: state.validation.issues.filter((issue) => issue.projectId === found.id),
   };
+}
+
+const projectIconCandidates = [
+  "favicon.svg",
+  "favicon.png",
+  "favicon.ico",
+  "public/favicon.svg",
+  "public/favicon.png",
+  "public/favicon.ico",
+  "public/apple-touch-icon.png",
+  "icon.svg",
+  "icon.png",
+  "public/icon.svg",
+  "public/icon.png",
+  "logo.svg",
+  "logo.png",
+  "public/logo.svg",
+  "public/logo.png",
+] as const;
+
+const projectIconContentTypes: Record<string, string> = {
+  ".ico": "image/x-icon",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+};
+
+export async function projectIcon(workspaceRoot: string, id: string) {
+  const found = await project(workspaceRoot, id);
+  if (!pathIsInside(workspaceRoot, found.path)) {
+    throw new Error(`Refusing to read project icon outside workspace: ${found.path}`);
+  }
+  for (const candidate of projectIconCandidates) {
+    const path = join(found.path, candidate);
+    if (!existsSync(path)) continue;
+    if (!statSync(path).isFile()) continue;
+    const extension = path.slice(path.lastIndexOf("."));
+    return {
+      path,
+      contentType: projectIconContentTypes[extension] ?? "application/octet-stream",
+    };
+  }
 }
 
 export async function projectConfigPlan(

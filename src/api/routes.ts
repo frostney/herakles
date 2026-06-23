@@ -160,6 +160,17 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
 async function routeGet(context: ApiContext): Promise<Response | undefined> {
   const handler = getRoutes[context.path];
   if (handler) return handler(context);
+  if (context.path.startsWith("/api/project-icons/")) {
+    const id = decodeURIComponent(context.path.slice("/api/project-icons/".length));
+    const icon = await app.projectIcon(context.options.workspaceRoot, id);
+    if (!icon) return new Response(null, { status: 404 });
+    return new Response(Bun.file(icon.path), {
+      headers: {
+        "cache-control": "no-store",
+        "content-type": icon.contentType,
+      },
+    });
+  }
   if (context.path.startsWith("/api/projects/")) {
     const id = decodeURIComponent(context.path.slice("/api/projects/".length));
     return json(await app.projectDetail(context.options.workspaceRoot, id));

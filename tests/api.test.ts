@@ -304,6 +304,31 @@ prompt = "Summarize the workspace."
     expect(body.validationIssues).toEqual([]);
   });
 
+  test("serves project icons from common project asset paths", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await addLocalGitProject(workspaceRoot, "scratch");
+    await writeFile(join(workspaceRoot, "experiment", "scratch", "logo.svg"), "<svg></svg>");
+
+    const response = await routeApi(new Request("http://x/api/project-icons/local%3Ascratch"), {
+      workspaceRoot,
+    });
+
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("content-type")).toBe("image/svg+xml");
+    expect(await response?.text()).toBe("<svg></svg>");
+  });
+
+  test("returns not found for projects without icons", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await addLocalGitProject(workspaceRoot, "scratch");
+
+    const response = await routeApi(new Request("http://x/api/project-icons/local%3Ascratch"), {
+      workspaceRoot,
+    });
+
+    expect(response?.status).toBe(404);
+  });
+
   test("refreshes project discovery through the API", async () => {
     const workspaceRoot = await tempWorkspace();
     await addLocalGitProject(workspaceRoot, "scratch");

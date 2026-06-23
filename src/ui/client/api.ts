@@ -48,6 +48,10 @@ export async function getProjectDetail(id: string): Promise<ProjectDetail> {
   return get(`/api/projects/${encodeURIComponent(id)}`);
 }
 
+export function projectIconUrl(id: string): string {
+  return `/api/project-icons/${encodeURIComponent(id)}`;
+}
+
 export async function getReports(): Promise<ReportSummary[]> {
   return get("/api/reports");
 }

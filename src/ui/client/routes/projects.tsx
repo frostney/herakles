@@ -38,6 +38,7 @@ import {
   postRemoveProject,
   postResolveProjectCanonicalPath,
   postUp,
+  projectIconUrl,
 } from "../api";
 import {
   Badge,
@@ -1392,9 +1393,7 @@ function ProjectCard({
         }}
       />
       <div className="mb-0 flex items-start gap-[var(--space-3)]">
-        <span className={compactAvatarClass} aria-hidden>
-          {repoInitials(projectName(project))}
-        </span>
+        <ProjectAvatar project={project} />
         <div className="min-w-0 flex-1">
           <strong className="block overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[0.875rem] font-semibold text-[var(--text-strong)]">
             <Link
@@ -1447,15 +1446,42 @@ function ProjectCard({
   );
 }
 
+function ProjectAvatar({ project }: { project: Project }) {
+  const [failed, setFailed] = useState(false);
+  const initials = repoInitials(projectName(project));
+  if (failed) {
+    return (
+      <span className={compactAvatarClass} aria-hidden>
+        {initials}
+      </span>
+    );
+  }
+  return (
+    <span className={compactAvatarClass} aria-hidden>
+      <img
+        className="h-full w-full object-contain"
+        src={projectIconUrl(project.id)}
+        alt=""
+        onError={() => setFailed(true)}
+      />
+    </span>
+  );
+}
+
 function ProjectIdentityCell({ project }: { project: Project }) {
   return (
     <td>
-      <strong>
-        <Link to="/projects/$projectId" params={{ projectId: project.id }} className={ui.link}>
-          {projectName(project)}
-        </Link>
-      </strong>
-      <span>{project.visibility ?? "local"}</span>
+      <div className="flex items-start gap-[var(--space-2)]">
+        <ProjectAvatar project={project} />
+        <div className="min-w-0">
+          <strong>
+            <Link to="/projects/$projectId" params={{ projectId: project.id }} className={ui.link}>
+              {projectName(project)}
+            </Link>
+          </strong>
+          <span>{project.visibility ?? "local"}</span>
+        </div>
+      </div>
     </td>
   );
 }
