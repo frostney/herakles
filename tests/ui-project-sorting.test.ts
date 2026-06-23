@@ -47,6 +47,20 @@ describe("project sorting", () => {
     expect(sorted.map((item) => item.repo)).toEqual(["a", "z"]);
   });
 
+  test("breaks non-starred sort ties by pinned state and slug", () => {
+    const sorted = sortProjects(
+      [
+        project({ repo: "zeta", primaryLanguage: "TypeScript" }),
+        project({ repo: "beta", primaryLanguage: "TypeScript", pinned: true }),
+        project({ repo: "alpha", primaryLanguage: "TypeScript" }),
+      ],
+      "language",
+      "asc",
+    );
+
+    expect(sorted.map((item) => item.repo)).toEqual(["beta", "alpha", "zeta"]);
+  });
+
   test("sorts by line counts", () => {
     const projects = [
       project({ repo: "small", lineCounts: { loc: 10, sloc: 8 } }),

@@ -44,6 +44,8 @@ type ListGitHubRepositoriesOptions = {
   tolerateOwnerFailures?: boolean;
 };
 
+const GH_ENRICH_CONCURRENCY = 8;
+
 function topicNames(topics: GhRepo["repositoryTopics"]): string[] {
   if (!topics) return [];
   return topics.map((topic) => (typeof topic === "string" ? topic : topic.name)).filter(Boolean);
@@ -158,10 +160,8 @@ export async function listGitHubRepositoriesWithRunner(
     }
   }
   const missingTrackedRepos = trackedHostedRepos(config).filter((repo) => !repos.has(repo));
-  const trackedResults = await Promise.all(
-    missingTrackedRepos.map((repo) =>
-      readRepository(repo, config, runner, options.fields ?? repoListFields()),
-    ),
+  const trackedResults = await mapWithLimit(missingTrackedRepos, GH_ENRICH_CONCURRENCY, (repo) =>
+    readRepository(repo, config, runner, options.fields ?? repoListFields()),
   );
   for (const result of trackedResults) {
     if (result) repos.set(result.nameWithOwner, result);
@@ -182,18 +182,16 @@ async function addLatestActivityDates(
   repos: Map<string, GitHubRepository>,
   runner: Runner,
 ): Promise<void> {
-  await Promise.all(
-    [...repos.values()].map(async (repo) => {
-      const issueOrPullAt = await readLatestIssueOrPullActivityDate(repo, runner);
-      const latestActivityAt = latestDate([
-        issueOrPullAt,
-        repo.pushedAt,
-        repo.mainlineCommittedAt,
-        repo.updatedAt,
-      ]);
-      if (latestActivityAt) repo.latestActivityAt = latestActivityAt;
-    }),
-  );
+  await forEachWithLimit([...repos.values()], GH_ENRICH_CONCURRENCY, async (repo) => {
+    const issueOrPullAt = await readLatestIssueOrPullActivityDate(repo, runner);
+    const latestActivityAt = latestDate([
+      issueOrPullAt,
+      repo.pushedAt,
+      repo.mainlineCommittedAt,
+      repo.updatedAt,
+    ]);
+    if (latestActivityAt) repo.latestActivityAt = latestActivityAt;
+  });
 }
 
 async function readLatestIssueOrPullActivityDate(
@@ -228,12 +226,10 @@ async function addMainlineCommitDates(
   repos: Map<string, GitHubRepository>,
   runner: Runner,
 ): Promise<void> {
-  await Promise.all(
-    [...repos.values()].map(async (repo) => {
-      const committedAt = await readMainlineCommitDate(repo, runner);
-      if (committedAt) repo.mainlineCommittedAt = committedAt;
-    }),
-  );
+  await forEachWithLimit([...repos.values()], GH_ENRICH_CONCURRENCY, async (repo) => {
+    const committedAt = await readMainlineCommitDate(repo, runner);
+    if (committedAt) repo.mainlineCommittedAt = committedAt;
+  });
 }
 
 async function readMainlineCommitDate(
@@ -261,29 +257,27 @@ async function addDraftPullRequestCounts(
   runner: Runner,
 ): Promise<void> {
   const owners = [...new Set([...repos.values()].map((repo) => repo.owner))].sort();
-  const results = await Promise.all(
-    owners.map(async (owner) => {
-      try {
-        const result = await runner([
-          "gh",
-          "search",
-          "prs",
-          "--owner",
-          owner,
-          "--state",
-          "open",
-          "--draft",
-          "--json",
-          "repository",
-          "--limit",
-          "1000",
-        ]);
-        return parseDraftPullRequestCounts(result.stdout);
-      } catch {
-        return new Map<string, number>();
-      }
-    }),
-  );
+  const results = await mapWithLimit(owners, GH_ENRICH_CONCURRENCY, async (owner) => {
+    try {
+      const result = await runner([
+        "gh",
+        "search",
+        "prs",
+        "--owner",
+        owner,
+        "--state",
+        "open",
+        "--draft",
+        "--json",
+        "repository",
+        "--limit",
+        "1000",
+      ]);
+      return parseDraftPullRequestCounts(result.stdout);
+    } catch {
+      return new Map<string, number>();
+    }
+  });
   for (const counts of results) {
     for (const [nameWithOwner, count] of counts) {
       const repo = repos.get(nameWithOwner);
@@ -302,6 +296,36 @@ function parseDraftPullRequestCounts(stdout: string): Map<string, number> {
     counts.set(nameWithOwner, (counts.get(nameWithOwner) ?? 0) + 1);
   }
   return counts;
+}
+
+async function forEachWithLimit<T>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> {
+  await mapWithLimit(items, limit, async (item) => {
+    await task(item);
+  });
+}
+
+async function mapWithLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex++;
+      const item = items[index];
+      if (item === undefined) continue;
+      results[index] = await task(item);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 async function addOwnerRepositories(

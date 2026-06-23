@@ -1912,14 +1912,14 @@ function ProjectAvatar({
 }: { project: Project; size?: "compact" | "card" }) {
   const [failed, setFailed] = useState(false);
   const initials = repoInitials(projectName(project));
+  const frameClass = size === "card" ? projectLogoClass : compactAvatarClass;
   if (failed) {
     return (
-      <span className={compactAvatarClass} aria-hidden>
+      <span className={frameClass} aria-hidden>
         {initials}
       </span>
     );
   }
-  const frameClass = size === "card" ? projectLogoClass : compactAvatarClass;
   return (
     <span className={frameClass} aria-hidden>
       <img
@@ -2315,7 +2315,9 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
   const currentKey = projectConfigPreviewKey(project.id, state, group, tags, learning, force);
   const canApply = plan !== undefined && previewKey === currentKey;
 
-  const run = async (apply: boolean) => {
+  const previewConfigPlan = () => runProjectConfigOperation("preview");
+  const applyConfigPlan = () => runProjectConfigOperation("apply");
+  const runProjectConfigOperation = async (operation: "preview" | "apply") => {
     setBusy(true);
     setMessage("");
     try {
@@ -2325,12 +2327,13 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
         tags: splitTags(tags),
         ...(learning.trim() ? { learning: learning.trim() } : {}),
       };
-      const nextPlan = apply
-        ? await postProjectConfigApply(project.id, changes, { force })
-        : await postProjectConfigPlan(project.id, changes, { force });
+      const nextPlan =
+        operation === "apply"
+          ? await postProjectConfigApply(project.id, changes, { force })
+          : await postProjectConfigPlan(project.id, changes, { force });
       setPlan(nextPlan);
       setPreviewKey(currentKey);
-      if (apply) {
+      if (operation === "apply") {
         setMessage("Applied");
         onApplied();
       }
@@ -2351,7 +2354,7 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
         project={project}
         state={state}
         tags={tags}
-        onApply={() => run(true)}
+        onApply={applyConfigPlan}
         onForceChange={(nextForce) => {
           setForce(nextForce);
           setPreviewKey("");
@@ -2364,7 +2367,7 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
           setLearning(nextLearning);
           setPreviewKey("");
         }}
-        onPreview={() => run(false)}
+        onPreview={previewConfigPlan}
         onStateChange={(nextState) => {
           setState(nextState);
           setPreviewKey("");
@@ -2546,22 +2549,33 @@ function LocalPromotionPanel({
     visibility,
   });
 
-  const run = async (apply: boolean) => {
+  const previewPromotion = () => runPromotionPlan();
+  const applyPromotion = () => runPromotionApply();
+  const runPromotionApply = async () => {
     setBusy(true);
     setMessage({ kind: "success", text: "" });
     setResult(undefined);
     try {
-      if (apply) {
-        const nextResult = await postLocalPromotion(project.id, options());
-        setResult(nextResult);
-        setPlan(nextResult.plan.command.join(" "));
-        setMessage({
-          kind: nextResult.status === "promoted" ? "success" : "error",
-          text: nextResult.message,
-        });
-        if (nextResult.status === "promoted") onPromoted();
-        return;
-      }
+      const nextResult = await postLocalPromotion(project.id, options());
+      setResult(nextResult);
+      setPlan(nextResult.plan.command.join(" "));
+      setMessage({
+        kind: nextResult.status === "promoted" ? "success" : "error",
+        text: nextResult.message,
+      });
+      if (nextResult.status === "promoted") onPromoted();
+    } catch (error) {
+      setMessage({ kind: "error", text: String(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runPromotionPlan = async () => {
+    setBusy(true);
+    setMessage({ kind: "success", text: "" });
+    setResult(undefined);
+    try {
       const nextPlan = await postLocalPromotionPlan(project.id, options());
       setPlan(nextPlan.command.join(" "));
     } catch (error) {
@@ -2580,8 +2594,8 @@ function LocalPromotionPanel({
         repo={repo}
         visibility={visibility}
         onOwnerChange={setOwner}
-        onPreview={() => run(false)}
-        onPromote={() => run(true)}
+        onPreview={previewPromotion}
+        onPromote={applyPromotion}
         onRepoChange={setRepo}
         onVisibilityChange={setVisibility}
       />

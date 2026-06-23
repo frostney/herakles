@@ -1,5 +1,5 @@
-import { existsSync, statSync } from "node:fs";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { TOML } from "bun";
 import { automateTick, configuredJobs, dueSlots, recentRuns, runAutomationJob } from "./automation";
@@ -231,10 +231,14 @@ export async function projectIcon(workspaceRoot: string, id: string) {
   if (!pathIsInside(workspaceRoot, found.path)) {
     throw new Error(`Refusing to read project icon outside workspace: ${found.path}`);
   }
+  if (!existsSync(found.path)) return undefined;
+  if (!realPathIsInside(workspaceRoot, found.path)) {
+    throw new Error(`Refusing to read project icon outside workspace: ${found.path}`);
+  }
   for (const candidate of projectIconCandidates) {
     const path = join(found.path, candidate);
     if (!existsSync(path)) continue;
-    if (!statSync(path).isFile()) continue;
+    if (!isWorkspaceFile(workspaceRoot, path)) continue;
     const extension = path.slice(path.lastIndexOf("."));
     return {
       path,
@@ -339,6 +343,7 @@ export async function resolveProjectCanonicalPath(workspaceRoot: string, project
   if (existsSync(mismatch.expectedPath)) {
     throw new Error(`Canonical checkout path already exists: ${mismatch.expectedPath}`);
   }
+  await assertCanonicalMoveInsideWorkspace(state.loaded.paths.workspaceRoot, mismatch);
   await mkdir(dirname(mismatch.expectedPath), { recursive: true });
   await rename(mismatch.actualPath, mismatch.expectedPath);
   return {
@@ -772,6 +777,50 @@ function hostedClonePathMismatches(
 function pathIsInside(base: string, path: string) {
   const offset = relative(base, path);
   return offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset);
+}
+
+function isWorkspaceFile(workspaceRoot: string, path: string): boolean {
+  let stat: ReturnType<typeof lstatSync>;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return false;
+  }
+  return stat.isFile() && realPathIsInside(workspaceRoot, path);
+}
+
+function realPathIsInside(workspaceRoot: string, path: string): boolean {
+  try {
+    return pathIsInside(realpathSync(workspaceRoot), realpathSync(path));
+  } catch {
+    return false;
+  }
+}
+
+async function assertCanonicalMoveInsideWorkspace(
+  workspaceRoot: string,
+  mismatch: HostedClonePathMismatch,
+) {
+  const workspaceRealPath = await realpath(workspaceRoot);
+  const actualRealPath = await realpath(mismatch.actualPath);
+  if (!pathIsInside(workspaceRealPath, actualRealPath)) {
+    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.actualPath}`);
+  }
+  const expectedAncestor = nearestExistingAncestor(mismatch.expectedPath);
+  const expectedAncestorRealPath = await realpath(expectedAncestor);
+  if (!pathIsInside(workspaceRealPath, expectedAncestorRealPath)) {
+    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.expectedPath}`);
+  }
+}
+
+function nearestExistingAncestor(path: string): string {
+  let current = path;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+  return current;
 }
 
 function projectConfigId(loaded: LoadedConfig, project: Project): string {

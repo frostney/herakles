@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { appendFile, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
@@ -154,6 +154,13 @@ async function resolveCanonicalPathRoute(workspaceRoot: string) {
     { workspaceRoot },
   );
   return { response, body: await response?.json() };
+}
+
+async function expectCanonicalPathResolutionError(workspaceRoot: string, message: string) {
+  const { response, body } = await resolveCanonicalPathRoute(workspaceRoot);
+
+  expect(response?.status).toBe(500);
+  expect(body.error).toContain(message);
 }
 
 describe("api routes", () => {
@@ -316,6 +323,33 @@ prompt = "Summarize the workspace."
     expect(response?.status).toBe(200);
     expect(response?.headers.get("content-type")).toBe("image/svg+xml");
     expect(await response?.text()).toBe("<svg></svg>");
+  });
+
+  test("rejects malformed project icon path encoding", async () => {
+    const workspaceRoot = await tempWorkspace();
+    const response = await routeApi(new Request("http://x/api/project-icons/%"), {
+      workspaceRoot,
+    });
+
+    expect(response?.status).toBe(400);
+    expect(await response?.json()).toEqual({ error: "invalid path encoding" });
+  });
+
+  test("does not serve project icons through symlinked files", async () => {
+    const workspaceRoot = await tempWorkspace();
+    const outsideRoot = await mkdtemp(join(tmpdir(), "herakles-outside-icon-"));
+    await addLocalGitProject(workspaceRoot, "scratch");
+    await writeFile(join(outsideRoot, "logo.svg"), "<svg>outside</svg>");
+    await symlink(
+      join(outsideRoot, "logo.svg"),
+      join(workspaceRoot, "experiment", "scratch", "logo.svg"),
+    );
+
+    const response = await routeApi(new Request("http://x/api/project-icons/local%3Ascratch"), {
+      workspaceRoot,
+    });
+
+    expect(response?.status).toBe(404);
   });
 
   test("returns not found for projects without icons", async () => {
@@ -507,10 +541,24 @@ prompt = "Summarize the workspace."
     await mkdir(canonicalPath, { recursive: true });
 
     await withFakeGhRepo({ name: "public-tool" }, async () => {
-      const { response, body } = await resolveCanonicalPathRoute(workspaceRoot);
+      await expectCanonicalPathResolutionError(
+        workspaceRoot,
+        "Canonical checkout path already exists",
+      );
+      expect(existsSync(duplicatePath)).toBe(true);
+    });
+  });
 
-      expect(response?.status).toBe(500);
-      expect(body.error).toContain("Canonical checkout path already exists");
+  test("refuses to resolve hosted clone paths through symlinked canonical ancestors", async () => {
+    const { workspaceRoot, duplicatePath } = await hostedPathMismatchWorkspace();
+    const outsideRoot = await mkdtemp(join(tmpdir(), "herakles-outside-canonical-"));
+    await symlink(outsideRoot, join(workspaceRoot, "open-source"));
+
+    await withFakeGhRepo({ name: "public-tool" }, async () => {
+      await expectCanonicalPathResolutionError(
+        workspaceRoot,
+        "Refusing to move checkout outside workspace",
+      );
       expect(existsSync(duplicatePath)).toBe(true);
     });
   });

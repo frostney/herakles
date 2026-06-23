@@ -163,6 +163,9 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
     if (error instanceof app.InvalidProjectOpenDestinationError) {
       return json({ error: error.message }, { status: 400 });
     }
+    if (error instanceof InvalidRequestPathError) {
+      return json({ error: error.message }, { status: 400 });
+    }
     if (error instanceof z.ZodError) {
       return zodErrorResponse(error);
     }
@@ -174,7 +177,7 @@ async function routeGet(context: ApiContext): Promise<Response | undefined> {
   const handler = getRoutes[context.path];
   if (handler) return handler(context);
   if (context.path.startsWith("/api/project-icons/")) {
-    const id = decodeURIComponent(context.path.slice("/api/project-icons/".length));
+    const id = decodePathComponent(context.path.slice("/api/project-icons/".length));
     const icon = await app.projectIcon(context.options.workspaceRoot, id);
     if (!icon) return new Response(null, { status: 404 });
     return new Response(Bun.file(icon.path), {
@@ -329,16 +332,25 @@ async function routeSyncDefaultBranch(context: ApiContext): Promise<Response> {
   emitApiEvent("up-started", `default branch sync started for ${body.data.projectId}`, {
     projectId: body.data.projectId,
   });
-  const result = await app.syncProjectDefaultBranch(
-    context.options.workspaceRoot,
-    body.data.projectId,
-  );
-  emitApiEvent("up-finished", `default branch sync finished for ${body.data.projectId}`, {
-    projectId: body.data.projectId,
-    status: result.status,
-    behindAfter: result.behindAfter,
-  });
-  return json(result);
+  try {
+    const result = await app.syncProjectDefaultBranch(
+      context.options.workspaceRoot,
+      body.data.projectId,
+    );
+    emitApiEvent("up-finished", `default branch sync finished for ${body.data.projectId}`, {
+      projectId: body.data.projectId,
+      status: result.status,
+      behindAfter: result.behindAfter,
+    });
+    return json(result);
+  } catch (error) {
+    emitApiEvent("up-finished", `default branch sync failed for ${body.data.projectId}`, {
+      projectId: body.data.projectId,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 async function routeConfigToml(
@@ -512,6 +524,16 @@ async function jsonAsync(value: Promise<unknown>): Promise<Response> {
 function isStrict(url: URL) {
   return url.searchParams.get("strict") === "true";
 }
+
+function decodePathComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new InvalidRequestPathError("invalid path encoding");
+  }
+}
+
+class InvalidRequestPathError extends Error {}
 
 async function readJsonBody<T extends z.ZodTypeAny>(
   context: ApiContext,

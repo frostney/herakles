@@ -58,7 +58,20 @@ export async function syncDefaultBranch(project: Project): Promise<ProjectDefaul
     };
   }
 
-  await runCommand(["git", "fetch", "--all", "--prune"], { cwd: project.path });
+  const fetched = await runCommand(["git", "fetch", "--all", "--prune"], {
+    cwd: project.path,
+    allowFailure: true,
+  });
+  if (fetched.exitCode !== 0) {
+    return {
+      projectId: project.id,
+      branch,
+      status: "failed",
+      message: fetched.stderr.trim() || "failed to fetch remote refs",
+      ...(behindBefore === undefined ? {} : { behindBefore }),
+      ...optionalBehindAfter(readDefaultBranchBehind(project.path, branch)),
+    };
+  }
   if (dirty.stdout.trim()) {
     return {
       projectId: project.id,

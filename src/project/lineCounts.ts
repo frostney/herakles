@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import type { ProjectLineCounts } from "../domain";
 
@@ -74,15 +74,22 @@ export function countProjectLines(projectPath: string): ProjectLineCounts | unde
 }
 
 function visit(path: string, totals: ProjectLineCounts) {
-  let stat: ReturnType<typeof statSync>;
+  let stat: ReturnType<typeof lstatSync>;
   try {
-    stat = statSync(path);
+    stat = lstatSync(path);
   } catch {
     return;
   }
+  if (stat.isSymbolicLink()) return;
   if (stat.isDirectory()) {
     if (ignoredDirectories.has(basename(path))) return;
-    for (const entry of readdirSync(path)) {
+    let entries: string[];
+    try {
+      entries = readdirSync(path);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
       visit(join(path, entry), totals);
     }
     return;
