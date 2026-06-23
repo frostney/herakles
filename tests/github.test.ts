@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { heraklesConfigSchema } from "../src/config/schema";
-import { listGitHubRepositoriesWithRunner } from "../src/github/gh";
+import {
+  listGitHubRepositoriesWithRunner,
+  listImportableGitHubRepositoriesWithRunner,
+} from "../src/github/gh";
 
 describe("github context wrappers", () => {
   test("lists source repositories by default and asks gh to omit archived repos when configured", async () => {
@@ -159,6 +162,34 @@ describe("github context wrappers", () => {
     ]);
   });
 
+  test("uses lightweight personal repository discovery for imports", async () => {
+    const calls: string[][] = [];
+    const config = heraklesConfigSchema.parse({ github: { include_archived: false } });
+    const repos = await listImportableGitHubRepositoriesWithRunner(config, async (argv) => {
+      calls.push([...argv]);
+      const command = argv.join(" ");
+      if (command === "gh api user --jq .login") return ghStdout("frostney\n");
+      if (command === "gh org list --limit 1000") return ghStdout("");
+      if (argv.slice(0, 4).join(" ") === "gh repo list frostney") {
+        const fields = argv[argv.indexOf("--json") + 1] ?? "";
+        expect(fields.split(",")).not.toContain("languages");
+        expect(fields.split(",")).not.toContain("pullRequests");
+        expect(fields.split(",")).not.toContain("issues");
+        expect(fields.split(",")).not.toContain("defaultBranchRef");
+        return ghStdout(JSON.stringify([githubRepo("frostney", "personal-tool")]));
+      }
+      throw new Error(`Unexpected GitHub command: ${argv.join(" ")}`);
+    });
+
+    expect(repos.map((repo) => repo.nameWithOwner)).toEqual(["frostney/personal-tool"]);
+    expect(calls.map((call) => call.slice(0, 4))).toContainEqual([
+      "gh",
+      "repo",
+      "list",
+      "frostney",
+    ]);
+  });
+
   test("reads explicitly tracked repositories outside configured owners", async () => {
     const calls: string[][] = [];
     const config = heraklesConfigSchema.parse({
@@ -233,3 +264,18 @@ describe("github context wrappers", () => {
     ]);
   });
 });
+
+function ghStdout(stdout: string) {
+  return { exitCode: 0, stderr: "", stdout };
+}
+
+function githubRepo(owner: string, name: string) {
+  return {
+    name,
+    nameWithOwner: `${owner}/${name}`,
+    owner: { login: owner },
+    visibility: "PUBLIC",
+    isArchived: false,
+    repositoryTopics: [],
+  };
+}

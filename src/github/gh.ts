@@ -37,6 +37,13 @@ type GhSearchPullRequest = {
   };
 };
 
+type ListGitHubRepositoriesOptions = {
+  enrichProjectMetrics?: boolean;
+  fields?: string[];
+  includeAuthenticatedOwners?: boolean;
+  tolerateOwnerFailures?: boolean;
+};
+
 function topicNames(topics: GhRepo["repositoryTopics"]): string[] {
   if (!topics) return [];
   return topics.map((topic) => (typeof topic === "string" ? topic : topic.name)).filter(Boolean);
@@ -111,7 +118,16 @@ export async function listGitHubRepositories(config: HeraklesConfig): Promise<Gi
 export async function listImportableGitHubRepositories(
   config: HeraklesConfig,
 ): Promise<GitHubRepository[]> {
-  return listGitHubRepositoriesWithRunner(config, runCommand, {
+  return listImportableGitHubRepositoriesWithRunner(config, runCommand);
+}
+
+export async function listImportableGitHubRepositoriesWithRunner(
+  config: HeraklesConfig,
+  runner: Runner,
+): Promise<GitHubRepository[]> {
+  return listGitHubRepositoriesWithRunner(config, runner, {
+    enrichProjectMetrics: false,
+    fields: repoImportFields(),
     includeAuthenticatedOwners: true,
     tolerateOwnerFailures: true,
   });
@@ -120,7 +136,7 @@ export async function listImportableGitHubRepositories(
 export async function listGitHubRepositoriesWithRunner(
   config: HeraklesConfig,
   runner: Runner,
-  options: { includeAuthenticatedOwners?: boolean; tolerateOwnerFailures?: boolean } = {},
+  options: ListGitHubRepositoriesOptions = {},
 ): Promise<GitHubRepository[]> {
   const repos = new Map<string, GitHubRepository>();
   const listedOwners = new Set<string>();
@@ -143,14 +159,18 @@ export async function listGitHubRepositoriesWithRunner(
   }
   const missingTrackedRepos = trackedHostedRepos(config).filter((repo) => !repos.has(repo));
   const trackedResults = await Promise.all(
-    missingTrackedRepos.map((repo) => readRepository(repo, config, runner)),
+    missingTrackedRepos.map((repo) =>
+      readRepository(repo, config, runner, options.fields ?? repoListFields()),
+    ),
   );
   for (const result of trackedResults) {
     if (result) repos.set(result.nameWithOwner, result);
   }
-  await addMainlineCommitDates(repos, runner);
-  await addLatestActivityDates(repos, runner);
-  await addDraftPullRequestCounts(repos, runner);
+  if (options.enrichProjectMetrics !== false) {
+    await addMainlineCommitDates(repos, runner);
+    await addLatestActivityDates(repos, runner);
+    await addDraftPullRequestCounts(repos, runner);
+  }
   const result = [...repos.values()].sort((a, b) => a.nameWithOwner.localeCompare(b.nameWithOwner));
   if (successfulOwnerFetches === 0 && ownerFailures.length > 0) {
     throw new Error(ownerFailures.join("\n"));
@@ -289,11 +309,11 @@ async function addOwnerRepositories(
   config: HeraklesConfig,
   owner: string,
   runner: Runner,
-  options: { tolerateOwnerFailures?: boolean },
+  options: ListGitHubRepositoriesOptions,
   ownerFailures: string[],
 ): Promise<boolean> {
   try {
-    const result = await runner(repoListArgs(config, owner));
+    const result = await runner(repoListArgs(config, owner, options.fields ?? repoListFields()));
     addRepositoryResults(repos, config, result.stdout);
     return true;
   } catch (error) {
@@ -334,9 +354,10 @@ async function readRepository(
   repo: string,
   config: HeraklesConfig,
   runner: Runner,
+  fields: string[] = repoListFields(),
 ): Promise<GitHubRepository | undefined> {
   try {
-    const result = await runner(["gh", "repo", "view", repo, "--json", repoListFields().join(",")]);
+    const result = await runner(["gh", "repo", "view", repo, "--json", fields.join(",")]);
     const parsed = JSON.parse(result.stdout) as GhRepo;
     const normalized = normalizeRepository(parsed);
     if (!config.github.include_archived && normalized.isArchived) return undefined;
@@ -366,12 +387,28 @@ async function discoverAuthenticatedOwners(runner: Runner): Promise<string[]> {
   return [...owners];
 }
 
-function repoListArgs(config: HeraklesConfig, owner: string): string[] {
+function repoListArgs(config: HeraklesConfig, owner: string, fields: string[]): string[] {
   const args = ["gh", "repo", "list", owner, "--limit", "1000"];
   if (!config.github.include_forks) args.push("--source");
   if (!config.github.include_archived) args.push("--no-archived");
-  args.push("--json", repoListFields().join(","));
+  args.push("--json", fields.join(","));
   return args;
+}
+
+function repoImportFields(): string[] {
+  return [
+    "name",
+    "nameWithOwner",
+    "owner",
+    "sshUrl",
+    "url",
+    "visibility",
+    "isPrivate",
+    "isArchived",
+    "repositoryTopics",
+    "description",
+    "updatedAt",
+  ];
 }
 
 function repoListFields(): string[] {

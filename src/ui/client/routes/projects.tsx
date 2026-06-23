@@ -81,7 +81,7 @@ import { shouldScaffoldFromConfiguration, workspaceDriftItems } from "../upPlanP
 import { ReportLink } from "./reports";
 
 const githubImportDraftStorageKey = "herakles.githubImportDraft.v1";
-const githubImportCandidatesStorageKey = "herakles.githubImportCandidates.v1";
+const githubImportCandidatesStorageKey = "herakles.githubImportCandidates.v2";
 
 type GitHubImportDraft = {
   selected: Record<string, boolean>;
