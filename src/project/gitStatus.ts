@@ -80,13 +80,10 @@ export async function syncDefaultBranch(project: Project): Promise<ProjectDefaul
           cwd: project.path,
           allowFailure: true,
         })
-      : await runCommand(
-          ["git", "fetch", "origin", `${remoteBranchRef(branch)}:${localBranchRef(branch)}`],
-          {
-            cwd: project.path,
-            allowFailure: true,
-          },
-        );
+      : await runCommand(["git", "fetch", "origin", `${branch}:${localBranchRef(branch)}`], {
+          cwd: project.path,
+          allowFailure: true,
+        });
   const behindAfter = readDefaultBranchBehind(project.path, branch);
   return {
     projectId: project.id,

@@ -56,7 +56,7 @@ describe("project git status", () => {
         behindAfter: 2,
       });
       expect(log).toContain("git fetch --all --prune");
-      expect(log).toContain("git fetch origin refs/remotes/origin/main:refs/heads/main");
+      expect(log).toContain("git fetch origin main:refs/heads/main");
       expect(log).not.toContain("git pull --ff-only");
     });
   });

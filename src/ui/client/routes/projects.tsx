@@ -1598,7 +1598,16 @@ function ProjectDefaultBranchSync({
     setBusy(true);
     setError("");
     try {
-      await postSyncProjectDefaultBranch(project.id);
+      const result = await postSyncProjectDefaultBranch(project.id);
+      if (result.status !== "done") {
+        setError(result.message);
+      } else if (result.behindAfter && result.behindAfter > 0) {
+        setError(
+          `${result.branch} is still ${result.behindAfter} ${
+            result.behindAfter === 1 ? "commit" : "commits"
+          } behind`,
+        );
+      }
       onChanged();
     } catch (error) {
       setError(String(error));
