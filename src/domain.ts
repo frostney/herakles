@@ -27,6 +27,7 @@ export type GitHubRepository = {
   defaultBranchRef?: string;
   description?: string;
   homepageUrl?: string;
+  mainlineCommittedAt?: string;
   pushedAt?: string;
   updatedAt?: string;
   openPullRequests?: number;
@@ -66,6 +67,7 @@ export type Project = {
   up: boolean;
   automationEnabled: boolean;
   description?: string;
+  mainlineCommittedAt?: string;
   pushedAt?: string;
   updatedAt?: string;
   openPullRequests?: number;

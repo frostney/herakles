@@ -1527,8 +1527,8 @@ function ProjectRepositorySignals({ project }: { project: Project }) {
         <ProjectSignal
           icon={<History size={13} aria-hidden />}
           label="Last commit"
-          value={relativeDate(project.pushedAt)}
-          title={absoluteDate(project.pushedAt)}
+          value={relativeDate(project.mainlineCommittedAt)}
+          title={absoluteDate(project.mainlineCommittedAt)}
         />
         <ProjectSignal
           icon={<RefreshCcw size={13} aria-hidden />}

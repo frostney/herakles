@@ -148,12 +148,45 @@ export async function listGitHubRepositoriesWithRunner(
   for (const result of trackedResults) {
     if (result) repos.set(result.nameWithOwner, result);
   }
+  await addMainlineCommitDates(repos, runner);
   await addDraftPullRequestCounts(repos, runner);
   const result = [...repos.values()].sort((a, b) => a.nameWithOwner.localeCompare(b.nameWithOwner));
   if (successfulOwnerFetches === 0 && ownerFailures.length > 0) {
     throw new Error(ownerFailures.join("\n"));
   }
   return result;
+}
+
+async function addMainlineCommitDates(
+  repos: Map<string, GitHubRepository>,
+  runner: Runner,
+): Promise<void> {
+  await Promise.all(
+    [...repos.values()].map(async (repo) => {
+      const committedAt = await readMainlineCommitDate(repo, runner);
+      if (committedAt) repo.mainlineCommittedAt = committedAt;
+    }),
+  );
+}
+
+async function readMainlineCommitDate(
+  repo: GitHubRepository,
+  runner: Runner,
+): Promise<string | undefined> {
+  if (!repo.defaultBranchRef) return undefined;
+  try {
+    const result = await runner([
+      "gh",
+      "api",
+      `repos/${repo.nameWithOwner}/commits/${encodeURIComponent(repo.defaultBranchRef)}`,
+      "--jq",
+      ".commit.committer.date",
+    ]);
+    const committedAt = result.stdout.trim();
+    return Number.isNaN(Date.parse(committedAt)) ? undefined : committedAt;
+  } catch {
+    return undefined;
+  }
 }
 
 async function addDraftPullRequestCounts(

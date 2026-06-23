@@ -35,6 +35,15 @@ describe("github context wrappers", () => {
       github: { owners: ["frostney"] },
     });
     const repos = await listGitHubRepositoriesWithRunner(config, async (argv) => {
+      if (
+        argv.join(" ") === "gh api repos/frostney/tool/commits/main --jq .commit.committer.date"
+      ) {
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: "2026-06-21T10:00:00Z\n",
+        };
+      }
       if (argv.slice(0, 4).join(" ") === "gh search prs --owner") {
         return {
           exitCode: 0,
@@ -60,6 +69,7 @@ describe("github context wrappers", () => {
               { size: 120, node: { name: "TypeScript" } },
               { size: 30, node: { name: "CSS" } },
             ],
+            defaultBranchRef: { name: "main" },
             pullRequests: { totalCount: 3 },
             issues: { totalCount: 5 },
             pushedAt: "2026-06-22T10:00:00Z",
@@ -79,6 +89,7 @@ describe("github context wrappers", () => {
       openPullRequests: 3,
       draftPullRequests: 2,
       openIssues: 5,
+      mainlineCommittedAt: "2026-06-21T10:00:00Z",
       pushedAt: "2026-06-22T10:00:00Z",
       updatedAt: "2026-06-23T10:00:00Z",
     });

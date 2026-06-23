@@ -161,6 +161,7 @@ function enrichGitHubProject(
   if (learningPath) project.learningPath = learningPath;
   if (archiveNote) project.archiveNote = archiveNote;
   if (repo.description) project.description = repo.description;
+  if (repo.mainlineCommittedAt) project.mainlineCommittedAt = repo.mainlineCommittedAt;
   if (repo.pushedAt) project.pushedAt = repo.pushedAt;
   if (repo.updatedAt) project.updatedAt = repo.updatedAt;
   if (repo.openPullRequests !== undefined) project.openPullRequests = repo.openPullRequests;
