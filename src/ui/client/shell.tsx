@@ -101,13 +101,18 @@ export function Shell() {
               </span>
             </div>
           </div>
-          <button type="button" className={ui.buttonGhost} onClick={theme.cycle}>
+          <button
+            type="button"
+            className={classNames(ui.iconButton, "justify-self-start")}
+            title={`Theme: ${theme.preference}`}
+            aria-label={`Theme: ${theme.preference}`}
+            onClick={theme.cycle}
+          >
             {theme.preference === "dark" ? (
               <Moon size={15} aria-hidden />
             ) : (
               <Sun size={15} aria-hidden />
             )}
-            <span>Theme: {theme.preference}</span>
           </button>
         </div>
       </aside>
