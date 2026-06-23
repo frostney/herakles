@@ -65,6 +65,7 @@ const openProjectBodySchema = z
 const projectUpBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
   .strict();
+const syncDefaultBranchBodySchema = z.object({ projectId: nonEmptyString }).strict();
 const configTomlBodySchema = z.object({ toml: z.string() }).strict();
 const reportNoteBodySchema = z
   .object({
@@ -119,6 +120,7 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/resolve-canonical-path": (context) => routeResolveCanonicalPath(context),
   "/api/projects/open": (context) => routeOpenProject(context),
   "/api/projects/up": (context) => routeProjectUp(context),
+  "/api/projects/sync-default-branch": (context) => routeSyncDefaultBranch(context),
   "/api/projects/promote-plan": (context) => routeProjectPromotionAction(context, false),
   "/api/projects/promote": (context) => routeProjectPromotionAction(context, true),
   "/api/config/toml/plan": (context) =>
@@ -317,6 +319,24 @@ async function routeProjectUp(context: ApiContext): Promise<Response> {
     projectId: body.data.projectId,
     dryRun: body.data.dryRun === true,
     results: result.length,
+  });
+  return json(result);
+}
+
+async function routeSyncDefaultBranch(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, syncDefaultBranchBodySchema);
+  if (!body.ok) return body.response;
+  emitApiEvent("up-started", `default branch sync started for ${body.data.projectId}`, {
+    projectId: body.data.projectId,
+  });
+  const result = await app.syncProjectDefaultBranch(
+    context.options.workspaceRoot,
+    body.data.projectId,
+  );
+  emitApiEvent("up-finished", `default branch sync finished for ${body.data.projectId}`, {
+    projectId: body.data.projectId,
+    status: result.status,
+    behindAfter: result.behindAfter,
   });
   return json(result);
 }

@@ -70,6 +70,7 @@ export type Project = {
   languageBreakdown?: ProjectLanguage[];
   lineCounts?: ProjectLineCounts;
   defaultBranchRef?: string;
+  defaultBranchBehindBy?: number;
   hasRoadmap: boolean;
   learningPath?: string;
   archiveNote?: string;
@@ -83,6 +84,15 @@ export type Project = {
   openPullRequests?: number;
   draftPullRequests?: number;
   openIssues?: number;
+};
+
+export type ProjectDefaultBranchSyncResult = {
+  projectId: string;
+  branch: string;
+  status: "done" | "skipped" | "failed";
+  message: string;
+  behindBefore?: number;
+  behindAfter?: number;
 };
 
 export type HostedImportCandidate = {

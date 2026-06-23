@@ -6,6 +6,7 @@ import type { HeraklesConfig } from "../config/schema";
 import type { ProjectDiscovery } from "../discovery";
 import type { GitHubRepository, LocalRepository, Project, ProjectState } from "../domain";
 import { matchesProjectFilter } from "../filters/project";
+import { readDefaultBranchBehind } from "./gitStatus";
 import { countProjectLines } from "./lineCounts";
 
 const archiveDescriptionPatterns = [
@@ -163,6 +164,8 @@ function enrichGitHubProject(
   if (repo.url) project.url = repo.url;
   if (repo.primaryLanguage) project.primaryLanguage = repo.primaryLanguage;
   if (repo.defaultBranchRef) project.defaultBranchRef = repo.defaultBranchRef;
+  const defaultBranchBehindBy = readDefaultBranchBehind(project.path, repo.defaultBranchRef);
+  if (defaultBranchBehindBy !== undefined) project.defaultBranchBehindBy = defaultBranchBehindBy;
   if (learningPath) project.learningPath = learningPath;
   if (archiveNote) project.archiveNote = archiveNote;
   if (repo.description) project.description = repo.description;

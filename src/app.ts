@@ -25,6 +25,7 @@ import type {
   HostedImportCandidate,
   LocalRepository,
   Project,
+  ProjectDefaultBranchSyncResult,
   ProjectDetail,
   ProjectOpenTarget,
   ProjectState,
@@ -41,6 +42,7 @@ import {
   createLocalPromotionPlan,
   promoteLocalProject,
 } from "./local/promote";
+import { syncDefaultBranch } from "./project/gitStatus";
 import { resolveProjects } from "./project/resolve";
 import {
   createReportNote,
@@ -387,6 +389,15 @@ export async function upProject(
   if (target.source !== "github") throw new Error("Only hosted projects can be checked out.");
   const plan = applyValidationIssuesToUpPlan(createUpPlan([target]), [target], state.validation);
   return executeUpPlan(plan, options);
+}
+
+export async function syncProjectDefaultBranch(
+  workspaceRoot: string,
+  projectId: string,
+): Promise<ProjectDefaultBranchSyncResult> {
+  const target = await project(workspaceRoot, projectId);
+  if (target.source !== "github") throw new Error("Only hosted projects can be synchronised.");
+  return syncDefaultBranch(target);
 }
 
 function validateProjectInput(input: ProjectConfigChanges & { id?: string; name?: string }) {

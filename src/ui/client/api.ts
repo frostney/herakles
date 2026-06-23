@@ -16,6 +16,7 @@ import type {
   LocalPromotionPlan,
   LocalPromotionResult,
   Project,
+  ProjectDefaultBranchSyncResult,
   ProjectDetail,
   ProjectOpenTarget,
   ProjectState,
@@ -147,6 +148,12 @@ export async function postProjectUp(
   options: { dryRun?: boolean } = {},
 ): Promise<UpRunResult> {
   return post("/api/projects/up", { projectId, dryRun: options.dryRun === true });
+}
+
+export async function postSyncProjectDefaultBranch(
+  projectId: string,
+): Promise<ProjectDefaultBranchSyncResult> {
+  return post("/api/projects/sync-default-branch", { projectId });
 }
 
 export async function postValidate(options: { strict?: boolean } = {}): Promise<ValidationResult> {

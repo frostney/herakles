@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   CircleDot,
   FolderOpen,
+  GitBranch,
   GitPullRequest,
   Github,
   History,
@@ -48,6 +49,7 @@ import {
   postProjectUp,
   postRemoveProject,
   postResolveProjectCanonicalPath,
+  postSyncProjectDefaultBranch,
   postUp,
   projectIconUrl,
 } from "../api";
@@ -262,6 +264,7 @@ export function Projects() {
             />
             <ProjectTable
               projects={filtered}
+              onChanged={refreshProjects}
               selectedProjectId={selectedProjectId}
               onPinnedChange={(projectId, pinned) =>
                 setPinnedOverrides((current) => ({ ...current, [projectId]: pinned }))
@@ -1398,6 +1401,7 @@ type ProjectTableProps =
   | {
       projects: Project[];
       compact?: false;
+      onChanged: () => void;
       onPinnedChange: (projectId: string, pinned: boolean) => void;
       selectedProjectId: string;
       onSelectProject: (id: string) => void;
@@ -1448,12 +1452,14 @@ function CompactProjectRow({ project }: { project: Project }) {
 }
 
 function ProjectCardGrid({
+  onChanged,
   onPinnedChange,
   projects,
   selectedProjectId,
   onSelectProject,
   onRemove,
 }: {
+  onChanged: () => void;
   onPinnedChange: (projectId: string, pinned: boolean) => void;
   projects: Project[];
   selectedProjectId: string;
@@ -1465,6 +1471,7 @@ function ProjectCardGrid({
       {projects.map((project) => (
         <ProjectCard
           key={project.id}
+          onChanged={onChanged}
           onPinnedChange={onPinnedChange}
           onRemove={onRemove}
           onSelectProject={onSelectProject}
@@ -1494,12 +1501,14 @@ function ProjectTableShell({
 }
 
 function ProjectCard({
+  onChanged,
   onPinnedChange,
   onRemove,
   onSelectProject,
   project,
   selectedProjectId,
 }: {
+  onChanged: () => void;
   onPinnedChange: (projectId: string, pinned: boolean) => void;
   onRemove: () => void;
   onSelectProject: (id: string) => void;
@@ -1544,6 +1553,7 @@ function ProjectCard({
       )}
       <ProjectLanguageBar project={project} />
       <ProjectRepositorySignals project={project} />
+      <ProjectDefaultBranchSync project={project} onChanged={onChanged} />
       <div className="mb-0 mt-auto flex items-center gap-[var(--space-3)] pt-[var(--space-1)]">
         <span className="inline-flex items-center gap-[var(--space-1)] bg-transparent p-0 font-mono text-[var(--text-xs)] text-[var(--text-faint)]">
           <Workflow size={14} aria-hidden /> workspace up: {yesNo(project.up)}
@@ -1571,6 +1581,61 @@ function ProjectCard({
       </div>
     </article>
   );
+}
+
+function ProjectDefaultBranchSync({
+  onChanged,
+  project,
+}: {
+  onChanged: () => void;
+  project: Project;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (project.source !== "github" || !project.defaultBranchRef) return null;
+  const sync = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await postSyncProjectDefaultBranch(project.id);
+      onChanged();
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-[var(--space-2)] font-mono text-[var(--text-2xs)] text-[var(--text-faint)]">
+      <span className="inline-flex min-w-0 items-center gap-[var(--space-1)]">
+        <GitBranch size={13} aria-hidden />
+        <span className="truncate">{defaultBranchBehindLabel(project)}</span>
+      </span>
+      <button
+        type="button"
+        className={ui.iconButton}
+        title="Synchronize local default branch"
+        aria-label="Synchronize local default branch"
+        disabled={busy}
+        onClick={sync}
+      >
+        {busy ? (
+          <LoaderCircle size={15} className="animate-spin" aria-hidden />
+        ) : (
+          <RefreshCcw size={15} aria-hidden />
+        )}
+      </button>
+      {error ? <span className={feedbackClass.error}>{error}</span> : null}
+    </div>
+  );
+}
+
+function defaultBranchBehindLabel(project: Project): string {
+  const branch = project.defaultBranchRef ?? "default branch";
+  const behind = project.defaultBranchBehindBy;
+  if (behind === undefined) return `${branch}: behind unknown`;
+  return `${branch}: ${behind} ${behind === 1 ? "commit" : "commits"} behind`;
 }
 
 function ProjectRepositoryLink({ project }: { project: Project }) {
