@@ -1465,6 +1465,7 @@ function ProjectLanguageBar({ project }: { project: Project }) {
       <div className="grid gap-1">
         <span className={ui.labelText}>Languages</span>
         <span className={ui.mono}>No language data</span>
+        <ProjectLineCountSummary project={project} />
       </div>
     );
   }
@@ -1503,6 +1504,26 @@ function ProjectLanguageBar({ project }: { project: Project }) {
           </span>
         ))}
       </div>
+      <ProjectLineCountSummary project={project} />
+    </div>
+  );
+}
+
+function ProjectLineCountSummary({ project }: { project: Project }) {
+  return (
+    <div className="flex min-w-0 flex-wrap gap-x-[var(--space-3)] gap-y-1 font-mono text-[var(--text-2xs)] text-[var(--text-faint)]">
+      <span>
+        LOC{" "}
+        <strong className="font-semibold text-[var(--text-muted)]">
+          {lineCount(project.lineCounts?.loc)}
+        </strong>
+      </span>
+      <span>
+        SLOC{" "}
+        <strong className="font-semibold text-[var(--text-muted)]">
+          {lineCount(project.lineCounts?.sloc)}
+        </strong>
+      </span>
     </div>
   );
 }
@@ -1587,6 +1608,10 @@ function languagePercent(size: number, total: number): string {
 
 function countLabel(count: number | undefined): string {
   return count === undefined ? "--" : String(count);
+}
+
+function lineCount(count: number | undefined): string {
+  return count === undefined ? "--" : count.toLocaleString();
 }
 
 function draftPullRequestLabel(project: Project): string | undefined {

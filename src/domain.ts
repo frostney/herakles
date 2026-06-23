@@ -11,6 +11,11 @@ export type ProjectLanguage = {
   size: number;
 };
 
+export type ProjectLineCounts = {
+  loc: number;
+  sloc: number;
+};
+
 export type GitHubRepository = {
   name: string;
   nameWithOwner: string;
@@ -61,6 +66,7 @@ export type Project = {
   primaryLanguage?: string;
   languages: string[];
   languageBreakdown?: ProjectLanguage[];
+  lineCounts?: ProjectLineCounts;
   defaultBranchRef?: string;
   hasRoadmap: boolean;
   learningPath?: string;

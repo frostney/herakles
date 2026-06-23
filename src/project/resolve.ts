@@ -6,6 +6,7 @@ import type { HeraklesConfig } from "../config/schema";
 import type { ProjectDiscovery } from "../discovery";
 import type { GitHubRepository, LocalRepository, Project, ProjectState } from "../domain";
 import { matchesProjectFilter } from "../filters/project";
+import { countProjectLines } from "./lineCounts";
 
 const archiveDescriptionPatterns = [
   /\bmoved to\b/i,
@@ -92,6 +93,7 @@ function resolveGitHubProject(
   const state = repo.isArchived ? "archived" : (config.state ?? inferredState(loaded, repo));
   const projectPath = derivedProjectPath(loaded, state, config.group, repo.name);
   const learningPath = findLearningPath(loaded, projectPath, config.learning);
+  const lineCounts = countProjectLines(projectPath);
   const project: Project = {
     source: "github",
     id: `github:${repo.nameWithOwner}`,
@@ -108,6 +110,7 @@ function resolveGitHubProject(
     tags: config.tags ?? [],
     languages: repo.languages,
     ...(repo.languageBreakdown === undefined ? {} : { languageBreakdown: repo.languageBreakdown }),
+    ...(lineCounts === undefined ? {} : { lineCounts }),
     hasRoadmap: hasAnyFile(projectPath, loaded.config.defaults.roadmap_files),
     up: false,
     automationEnabled: false,
@@ -189,6 +192,7 @@ function resolveLocalProject(
     syntheticLocalRepo(loaded, configuredPath);
   const learningPath = findLearningPath(loaded, repo.path, config.learning);
   const resolvedState = config.state ?? loaded.config.defaults.state_for_local;
+  const lineCounts = countProjectLines(repo.path);
   const project: Project = {
     source: "local",
     id: `local:${repo.name}`,
@@ -203,6 +207,7 @@ function resolveLocalProject(
     topics: [],
     tags: config.tags ?? [],
     languages: [],
+    ...(lineCounts === undefined ? {} : { lineCounts }),
     hasRoadmap: hasAnyFile(repo.path, loaded.config.defaults.roadmap_files),
     up: false,
     automationEnabled: false,

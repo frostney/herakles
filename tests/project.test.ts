@@ -162,6 +162,37 @@ repo = "frostney/private-hidden"
     expect(projects.find((project) => project.repo === "private-hidden")?.up).toBe(false);
   });
 
+  test("resolved hosted projects include local checkout line counts", async () => {
+    const root = await tempTrackedWorkspace(
+      "herakles-project-line-counts-",
+      `
+[project."public-tool"]
+source = "github"
+repo = "frostney/public-tool"
+`,
+    );
+    const projectPath = join(root, "open-source", "public-tool");
+    await mkdir(join(projectPath, "src"), { recursive: true });
+    await writeFile(join(projectPath, "src", "index.ts"), "// setup\nexport const ok = true;\n");
+
+    const projects = resolveProjects(await loadConfig(root), {
+      hosted: [
+        repo({
+          name: "public-tool",
+          nameWithOwner: "frostney/public-tool",
+          owner: "frostney",
+        }),
+      ],
+      local: [],
+      hostedClones: [],
+    });
+
+    expect(projects.find((project) => project.repo === "public-tool")?.lineCounts).toEqual({
+      loc: 2,
+      sloc: 1,
+    });
+  });
+
   test("hosted clones at unexpected paths are validation-only up items", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-hosted-path-"));
     await mkdir(join(root, "_herakles"), { recursive: true });
