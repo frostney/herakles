@@ -152,7 +152,7 @@ export function SettingsScreen() {
       {doctor.status === "ready" ? (
         <DoctorPanel data={doctor.data} />
       ) : (
-        <LoadState state={doctor} />
+        <LoadState state={doctor} label="Loading doctor checks..." />
       )}
     </Screen>
   );
@@ -221,7 +221,7 @@ function ConfigExchangePanel({ onApplied }: { onApplied: () => void }) {
           </div>
         </>
       ) : (
-        <LoadState state={loaded} />
+        <LoadState state={loaded} label="Loading configuration..." />
       )}
       {validation && <ValidationResultPanel result={validation} title="Config Parse" />}
       {message && <p className={feedbackToneClass(messageKind)}>{message}</p>}

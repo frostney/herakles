@@ -57,7 +57,8 @@ function Dashboard() {
     "up-finished",
     "validation-updated",
   ]);
-  if (status.status !== "ready") return <LoadState state={status} />;
+  if (status.status !== "ready")
+    return <LoadState state={status} label="Loading workspace status..." />;
   const topProjects = projects.status === "ready" ? projects.data.slice(0, 8) : [];
   return (
     <Screen
@@ -78,7 +79,7 @@ function Dashboard() {
         ) : (
           <section className={ui.panel}>
             <h2>Config Health</h2>
-            <LoadState state={doctor} />
+            <LoadState state={doctor} label="Loading config health..." />
           </section>
         )}
       </div>
@@ -104,7 +105,7 @@ function Dashboard() {
           {automation.status === "ready" ? (
             <DashboardDueSlots automation={automation.data} />
           ) : (
-            <LoadState state={automation} />
+            <LoadState state={automation} label="Loading automation schedule..." />
           )}
         </section>
         <section className={ui.panel}>
@@ -112,7 +113,7 @@ function Dashboard() {
           {automation.status === "ready" ? (
             <DashboardAutomationRuns automation={automation.data} />
           ) : (
-            <LoadState state={automation} />
+            <LoadState state={automation} label="Loading automation runs..." />
           )}
         </section>
       </div>
@@ -236,7 +237,7 @@ export function Automation() {
             />
           </>
         ) : (
-          <LoadState state={automation} />
+          <LoadState state={automation} label="Loading automations..." />
         )}
       </>
     </Screen>

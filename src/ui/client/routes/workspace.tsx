@@ -101,14 +101,14 @@ export function WorkspaceScreen() {
             <Metric label="Validation issues" value={status.data.validation.issues.length} />
           </>
         ) : (
-          <LoadState state={status} />
+          <LoadState state={status} label="Loading workspace status..." />
         )}
       </div>
       {upPlan.status === "ready" ? (
         <WorkspacePlanPanel result={upPlan.data} />
       ) : (
         <Panel title="Workspace Up Plan">
-          <LoadState state={upPlan} />
+          <LoadState state={upPlan} label="Loading workspace up plan..." />
         </Panel>
       )}
       {upResult && <UpResultPanel result={upResult} />}
@@ -116,7 +116,7 @@ export function WorkspaceScreen() {
       {doctor.status === "ready" ? (
         <DoctorPanel data={doctor.data} />
       ) : (
-        <LoadState state={doctor} />
+        <LoadState state={doctor} label="Loading doctor checks..." />
       )}
     </Screen>
   );

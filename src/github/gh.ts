@@ -101,9 +101,11 @@ export async function listGitHubRepositoriesWithRunner(
       }
     }
   }
-  for (const repo of trackedHostedRepos(config)) {
-    if (repos.has(repo)) continue;
-    const result = await readRepository(repo, config, runner);
+  const missingTrackedRepos = trackedHostedRepos(config).filter((repo) => !repos.has(repo));
+  const trackedResults = await Promise.all(
+    missingTrackedRepos.map((repo) => readRepository(repo, config, runner)),
+  );
+  for (const result of trackedResults) {
     if (result) repos.set(result.nameWithOwner, result);
   }
   const result = [...repos.values()].sort((a, b) => a.nameWithOwner.localeCompare(b.nameWithOwner));

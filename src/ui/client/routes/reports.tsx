@@ -36,7 +36,7 @@ export function Reports() {
           <ReportNotePanel onCreated={refresh} />
         </>
       ) : (
-        <LoadState state={reports} />
+        <LoadState state={reports} label="Loading reports..." />
       )}
     </Screen>
   );
@@ -244,7 +244,7 @@ export function ReportDetailScreen({ reportId }: { reportId: string }) {
       {report.status === "ready" ? (
         <ReportDetailPanel report={report.data} />
       ) : (
-        <LoadState state={report} />
+        <LoadState state={report} label="Loading report..." />
       )}
     </Screen>
   );

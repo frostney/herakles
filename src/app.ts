@@ -58,7 +58,19 @@ type WorkspaceState = {
   validation: ValidationResult;
 };
 
+const workspaceLoads = new Map<string, Promise<WorkspaceState>>();
+
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
+  const existing = workspaceLoads.get(workspaceRoot);
+  if (existing) return existing;
+  const loading = loadWorkspaceFresh(workspaceRoot).finally(() => {
+    if (workspaceLoads.get(workspaceRoot) === loading) workspaceLoads.delete(workspaceRoot);
+  });
+  workspaceLoads.set(workspaceRoot, loading);
+  return loading;
+}
+
+async function loadWorkspaceFresh(workspaceRoot: string): Promise<WorkspaceState> {
   const loaded = await loadConfig(workspaceRoot);
   const discovery = await refreshProjectDiscovery(loaded);
   const projects = resolveProjects(loaded, discovery);

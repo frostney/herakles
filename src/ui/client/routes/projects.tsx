@@ -201,7 +201,7 @@ export function Projects() {
             />
           </>
         ) : (
-          <LoadState state={projects} />
+          <LoadState state={projects} label="Loading projects..." />
         )}
       </>
     </Screen>
@@ -537,7 +537,7 @@ function GitHubImportPanel({
           <GitHubImportReadyPanel draft={draft} rows={rows} onDraft={setDraft} />
         </>
       ) : (
-        <LoadState state={candidates} />
+        <LoadState state={candidates} label="Loading GitHub repositories..." />
       )}
       {message && (
         <p className={message.startsWith("Imported") ? feedbackClass.success : feedbackClass.error}>
@@ -1209,7 +1209,7 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
       {detail.status === "ready" ? (
         <ProjectDetailPanel detail={detail.data} />
       ) : (
-        <LoadState state={detail} />
+        <LoadState state={detail} label="Loading project details..." />
       )}
     </Screen>
   );
