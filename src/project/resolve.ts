@@ -78,7 +78,9 @@ export function resolveProjects(loaded: LoadedConfig, discovery: ProjectDiscover
     }
   }
 
-  return projects.sort((a, b) => a.slug.localeCompare(b.slug));
+  return projects.sort(
+    (a, b) => Number(b.pinned) - Number(a.pinned) || a.slug.localeCompare(b.slug),
+  );
 }
 
 function resolveGitHubProject(
@@ -105,7 +107,7 @@ function resolveGitHubProject(
     visibility: visibility(repo),
     state,
     archived: repo.isArchived || state === "archived",
-    pinned: false,
+    pinned: config.pinned,
     topics: repo.repositoryTopics,
     tags: config.tags ?? [],
     languages: repo.languages,
@@ -203,7 +205,7 @@ function resolveLocalProject(
     visibility: null,
     state: resolvedState,
     archived: resolvedState === "archived",
-    pinned: false,
+    pinned: config.pinned,
     topics: [],
     tags: config.tags ?? [],
     languages: [],

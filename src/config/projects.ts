@@ -12,6 +12,7 @@ export type ProjectConfigChanges = {
   state?: ProjectState | undefined;
   tags?: string[] | undefined;
   learning?: string | undefined;
+  pinned?: boolean | undefined;
 };
 
 export type ProjectConfigPlan = {
@@ -68,6 +69,7 @@ function projectConfigFromProject(project: Project): ProjectConfigChanges {
     ...(project.group === undefined ? {} : { group: project.group }),
     state: project.state,
     ...(project.tags.length === 0 ? {} : { tags: project.tags }),
+    ...(project.pinned ? { pinned: true } : {}),
   };
 }
 
@@ -105,6 +107,7 @@ function compactProjectConfig(values: ProjectConfigChanges): ProjectConfigChange
     ...(values.state === undefined ? {} : { state: values.state }),
     ...(values.tags === undefined || values.tags.length === 0 ? {} : { tags: values.tags }),
     ...(values.learning === undefined ? {} : { learning: values.learning }),
+    ...(values.pinned ? { pinned: true } : {}),
   };
 }
 
@@ -117,6 +120,7 @@ function renderProjectConfig(projectId: string, values: ProjectConfigChanges): s
   if (values.tags)
     lines.push(`tags = [${values.tags.map((tag) => JSON.stringify(tag)).join(", ")}]`);
   if (values.learning) lines.push(`learning = ${JSON.stringify(values.learning)}`);
+  if (values.pinned) lines.push("pinned = true");
   return `${lines.join("\n")}\n`;
 }
 

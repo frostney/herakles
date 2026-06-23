@@ -56,6 +56,7 @@ export const projectConfigBodySchema = z
     group: z.string().optional(),
     tags: z.array(nonEmptyStringSchema).optional(),
     learning: nonEmptyStringSchema.optional(),
+    pinned: z.boolean().optional(),
     force: z.boolean().optional(),
   })
   .strict();
@@ -109,6 +110,7 @@ export function projectConfigChangesFromPayload(body: ProjectConfigPayload): Pro
     ...(body.group === undefined ? {} : { group: body.group }),
     ...(body.tags === undefined ? {} : { tags: body.tags }),
     ...(body.learning === undefined ? {} : { learning: body.learning }),
+    ...(body.pinned === undefined ? {} : { pinned: body.pinned }),
   };
 }
 

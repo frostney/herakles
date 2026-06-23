@@ -250,6 +250,7 @@ function projectConfigChangesFromInput(
     ...(input.state === undefined ? {} : { state: input.state }),
     ...(input.tags === undefined ? {} : { tags: input.tags }),
     ...(input.learning === undefined ? {} : { learning: input.learning }),
+    ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
   };
 }
 
@@ -617,6 +618,7 @@ function projectConfigProjection(
     const projected: Project = {
       ...projectBase,
       ...(changes.tags === undefined ? {} : { tags: changes.tags }),
+      ...(changes.pinned === undefined ? {} : { pinned: changes.pinned }),
       ...(group ? { group } : {}),
       path,
       state: projectedState,

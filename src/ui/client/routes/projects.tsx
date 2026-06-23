@@ -12,6 +12,7 @@ import {
   Search,
   Server,
   SquareTerminal,
+  Star,
   Workflow,
   X,
 } from "lucide-react";
@@ -1427,6 +1428,7 @@ function ProjectCard({
               : (project.visibility ?? project.source)}
           </span>
         </div>
+        <ProjectStarButton project={project} onChanged={onRemove} />
         <LifecycleBadge state={project.state} />
       </div>
       {project.description && (
@@ -1760,6 +1762,47 @@ function LifecycleBadge({ state }: { state: ProjectState }) {
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
       {state}
+    </span>
+  );
+}
+
+function ProjectStarButton({ onChanged, project }: { onChanged: () => void; project: Project }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const toggle = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await postProjectConfigApply(project.id, { pinned: !project.pinned });
+      onChanged();
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="inline-flex items-center">
+      <button
+        type="button"
+        className={classNames(
+          ui.iconButton,
+          project.pinned && "text-[var(--primary)] hover:text-[var(--primary-hover)]",
+        )}
+        title={project.pinned ? "Unstar repository" : "Star repository"}
+        aria-label={project.pinned ? "Unstar repository" : "Star repository"}
+        aria-pressed={project.pinned}
+        disabled={busy}
+        onClick={toggle}
+      >
+        {busy ? (
+          <LoaderCircle size={16} className="animate-spin" aria-hidden />
+        ) : (
+          <Star size={16} className={project.pinned ? "fill-current" : undefined} aria-hidden />
+        )}
+      </button>
+      {error ? <span className={feedbackClass.error}>{error}</span> : null}
     </span>
   );
 }

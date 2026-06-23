@@ -162,6 +162,41 @@ repo = "frostney/private-hidden"
     expect(projects.find((project) => project.repo === "private-hidden")?.up).toBe(false);
   });
 
+  test("sorts pinned projects before the rest", async () => {
+    const root = await tempTrackedWorkspace(
+      "herakles-pinned-sort-",
+      `
+[project."regular-tool"]
+source = "github"
+repo = "frostney/regular-tool"
+
+[project."starred-tool"]
+source = "github"
+repo = "frostney/starred-tool"
+pinned = true
+`,
+    );
+    const projects = resolveProjects(await loadConfig(root), {
+      hosted: [
+        repo({
+          name: "regular-tool",
+          nameWithOwner: "frostney/regular-tool",
+          owner: "frostney",
+        }),
+        repo({
+          name: "starred-tool",
+          nameWithOwner: "frostney/starred-tool",
+          owner: "frostney",
+        }),
+      ],
+      local: [],
+      hostedClones: [],
+    });
+
+    expect(projects.map((project) => project.repo)).toEqual(["starred-tool", "regular-tool"]);
+    expect(projects[0]?.pinned).toBe(true);
+  });
+
   test("resolved hosted projects include local checkout line counts", async () => {
     const root = await tempTrackedWorkspace(
       "herakles-project-line-counts-",

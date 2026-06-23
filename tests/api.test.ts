@@ -551,6 +551,7 @@ owners = ["frostney"]
         state: "commercial",
         group: "clients",
         tags: ["paid"],
+        pinned: true,
         force: true,
       });
 
@@ -558,6 +559,7 @@ owners = ["frostney"]
       expect(body.toml).toContain('state = "commercial"');
       expect(body.toml).toContain('group = "clients"');
       expect(body.toml).toContain('tags = ["paid"]');
+      expect(body.toml).toContain("pinned = true");
       expect(body.validation.valid).toBe(true);
     });
   });
@@ -581,6 +583,7 @@ owners = ["frostney"]
       state: "commercial",
       group: "clients",
       tags: ["paid"],
+      pinned: true,
       force: true,
     });
     const automationPayload = automationJobBodySchema.parse({
@@ -600,6 +603,7 @@ owners = ["frostney"]
       state: "commercial",
       group: "clients",
       tags: ["paid"],
+      pinned: true,
     });
     expect(automationJobConfigChangesFromPayload(automationPayload)).toEqual({
       schedule: "0 9 * * 1",
