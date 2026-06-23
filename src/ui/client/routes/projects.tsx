@@ -36,6 +36,7 @@ import {
   postProjectConfigPlan,
   postProjectUp,
   postRemoveProject,
+  postResolveProjectCanonicalPath,
   postUp,
 } from "../api";
 import {
@@ -383,6 +384,7 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
   const [message, setMessage] = useState("");
   const [messageKind, setMessageKind] = useState<"success" | "error">("success");
   const [busy, setBusy] = useState(false);
+  const [resolvingProjectId, setResolvingProjectId] = useState("");
   const driftItems = workspaceDriftItems(result.items);
   const ignored = ignoredPlanAt === result.generatedAt;
   const primaryAction = shouldScaffoldFromConfiguration(driftItems)
@@ -404,6 +406,27 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
       setMessage(String(error));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const resolveCanonicalPath = async (item: UpPlan["items"][number]) => {
+    if (
+      !confirm(`Move ${item.project.repo} to the canonical checkout path?\n\n${item.project.path}`)
+    ) {
+      return;
+    }
+    setResolvingProjectId(item.project.id);
+    setMessage("");
+    try {
+      await postResolveProjectCanonicalPath(item.project.id);
+      setMessageKind("success");
+      setMessage("Canonical checkout path resolved.");
+      onChanged();
+    } catch (error) {
+      setMessageKind("error");
+      setMessage(String(error));
+    } finally {
+      setResolvingProjectId("");
     }
   };
 
@@ -432,7 +455,11 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
           </button>
         </div>
       </div>
-      <PlanItemList items={driftItems} />
+      <PlanItemList
+        items={driftItems}
+        onResolveCanonicalPath={(item) => void resolveCanonicalPath(item)}
+        resolvingProjectId={resolvingProjectId}
+      />
       {reviewing && <PlanItemList items={result.items} title="Dry Run Items" />}
       {upResult && <UpResultList result={upResult} />}
       {message && <p className={feedbackToneClass(messageKind)}>{message}</p>}
@@ -443,9 +470,13 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
 function PlanItemList({
   items,
   title = "Drifted Items",
+  onResolveCanonicalPath,
+  resolvingProjectId = "",
 }: {
   items: UpPlan["items"];
   title?: string;
+  onResolveCanonicalPath?: (item: UpPlan["items"][number]) => void;
+  resolvingProjectId?: string;
 }) {
   return (
     <div className={classNames(ui.list, "mb-[var(--space-4)]")}>
@@ -457,11 +488,27 @@ function PlanItemList({
             <span className={ui.muted}>{item.reason}</span>
             <span className={ui.mono}>{item.project.path}</span>
           </div>
-          <Badge tone="primary">{item.action}</Badge>
+          <div className={ui.actions}>
+            {onResolveCanonicalPath && isHostedClonePathMismatch(item) ? (
+              <button
+                type="button"
+                className={ui.buttonGhost}
+                onClick={() => onResolveCanonicalPath(item)}
+                disabled={resolvingProjectId === item.project.id}
+              >
+                {resolvingProjectId === item.project.id ? "Resolving..." : "Use Canonical Path"}
+              </button>
+            ) : null}
+            <Badge tone="primary">{item.action}</Badge>
+          </div>
         </article>
       ))}
     </div>
   );
+}
+
+function isHostedClonePathMismatch(item: UpPlan["items"][number]) {
+  return item.action === "validate" && item.reason.includes("hosted-clone-path-mismatch:");
 }
 
 function GitHubImportPanel({

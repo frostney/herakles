@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { TOML } from "bun";
 import { automateTick, configuredJobs, dueSlots, recentRuns, runAutomationJob } from "./automation";
 import { listLocks } from "./automation/locks";
@@ -191,6 +191,36 @@ export async function removeProject(workspaceRoot: string, projectId: string) {
   const plan = createRemoveProjectConfigPlan(loaded, id);
   const result = await applyProjectConfigPlan(plan);
   return result;
+}
+
+export async function resolveProjectCanonicalPath(workspaceRoot: string, projectId: string) {
+  const state = await loadWorkspace(workspaceRoot);
+  const mismatch = hostedClonePathMismatches(state.discovery, state.projects).find(
+    (item) => item.projectId === projectId,
+  );
+  if (!mismatch) {
+    throw new Error(`No hosted clone path mismatch for project: ${projectId}`);
+  }
+  if (!pathIsInside(state.loaded.paths.workspaceRoot, mismatch.actualPath)) {
+    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.actualPath}`);
+  }
+  if (!pathIsInside(state.loaded.paths.workspaceRoot, mismatch.expectedPath)) {
+    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.expectedPath}`);
+  }
+  if (!existsSync(mismatch.actualPath)) {
+    throw new Error(`Existing checkout is missing: ${mismatch.actualPath}`);
+  }
+  if (existsSync(mismatch.expectedPath)) {
+    throw new Error(`Canonical checkout path already exists: ${mismatch.expectedPath}`);
+  }
+  await mkdir(dirname(mismatch.expectedPath), { recursive: true });
+  await rename(mismatch.actualPath, mismatch.expectedPath);
+  return {
+    projectId,
+    from: mismatch.actualPath,
+    to: mismatch.expectedPath,
+    moved: true,
+  };
 }
 
 export async function importHostedProjects(
@@ -601,6 +631,11 @@ function hostedClonePathMismatches(
     })
     .filter((mismatch): mismatch is HostedClonePathMismatch => mismatch !== undefined)
     .sort((a, b) => a.projectId.localeCompare(b.projectId));
+}
+
+function pathIsInside(base: string, path: string) {
+  const offset = relative(base, path);
+  return offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset);
 }
 
 function projectConfigId(loaded: LoadedConfig, project: Project): string {

@@ -123,6 +123,12 @@ export async function postRemoveProject(projectId: string) {
   return post("/api/projects/remove", { projectId });
 }
 
+export async function postResolveProjectCanonicalPath(
+  projectId: string,
+): Promise<{ projectId: string; from: string; to: string; moved: true }> {
+  return post("/api/projects/resolve-canonical-path", { projectId });
+}
+
 export async function postProjectUp(
   projectId: string,
   options: { dryRun?: boolean } = {},

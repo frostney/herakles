@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { appendFile, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -121,6 +122,38 @@ source = "github"
 repo = ${JSON.stringify(repo)}
 `,
   );
+}
+
+async function createGitCheckout(path: string, remote: string) {
+  await mkdir(join(path, ".git"), { recursive: true });
+  await writeFile(join(path, ".git", "HEAD"), "ref: refs/heads/main\n");
+  await writeFile(
+    join(path, ".git", "config"),
+    `[remote "origin"]
+  url = ${remote}
+`,
+  );
+}
+
+async function hostedPathMismatchWorkspace() {
+  const workspaceRoot = await tempWorkspace();
+  await configureGithubOwner(workspaceRoot);
+  await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
+  const duplicatePath = join(workspaceRoot, "experiment", "old-public-tool");
+  const canonicalPath = join(workspaceRoot, "open-source", "public-tool");
+  await createGitCheckout(duplicatePath, "git@github.com:frostney/public-tool.git");
+  return { workspaceRoot, duplicatePath, canonicalPath };
+}
+
+async function resolveCanonicalPathRoute(workspaceRoot: string) {
+  const response = await routeApi(
+    new Request("http://x/api/projects/resolve-canonical-path", {
+      method: "POST",
+      body: JSON.stringify({ projectId: "github:frostney/public-tool" }),
+    }),
+    { workspaceRoot },
+  );
+  return { response, body: await response?.json() };
 }
 
 describe("api routes", () => {
@@ -283,6 +316,37 @@ prompt = "Summarize the workspace."
 
     expect(response?.status).toBe(200);
     expect(body.local.map((repo: { name: string }) => repo.name)).toEqual(["scratch"]);
+  });
+
+  test("resolves hosted clone path mismatches by moving the checkout to the canonical path", async () => {
+    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+
+    await withFakeGhRepo({ name: "public-tool" }, async () => {
+      const { response, body } = await resolveCanonicalPathRoute(workspaceRoot);
+
+      expect(response?.status).toBe(200);
+      expect(body).toMatchObject({
+        projectId: "github:frostney/public-tool",
+        from: duplicatePath,
+        to: canonicalPath,
+        moved: true,
+      });
+      expect(existsSync(duplicatePath)).toBe(false);
+      expect(existsSync(canonicalPath)).toBe(true);
+    });
+  });
+
+  test("refuses to resolve hosted clone path mismatches over an existing canonical path", async () => {
+    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    await mkdir(canonicalPath, { recursive: true });
+
+    await withFakeGhRepo({ name: "public-tool" }, async () => {
+      const { response, body } = await resolveCanonicalPathRoute(workspaceRoot);
+
+      expect(response?.status).toBe(500);
+      expect(body.error).toContain("Canonical checkout path already exists");
+      expect(existsSync(duplicatePath)).toBe(true);
+    });
   });
 
   test("project config plan route validates required project selector", async () => {

@@ -54,6 +54,7 @@ const importProjectsBodySchema = z
   })
   .strict();
 const removeProjectBodySchema = z.object({ projectId: nonEmptyString }).strict();
+const resolveCanonicalPathBodySchema = z.object({ projectId: nonEmptyString }).strict();
 const projectUpBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
   .strict();
@@ -108,6 +109,7 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/add": (context) => routeAddProject(context),
   "/api/projects/import": (context) => routeImportProjects(context),
   "/api/projects/remove": (context) => routeRemoveProject(context),
+  "/api/projects/resolve-canonical-path": (context) => routeResolveCanonicalPath(context),
   "/api/projects/up": (context) => routeProjectUp(context),
   "/api/projects/promote-plan": (context) => routeProjectPromotionAction(context, false),
   "/api/projects/promote": (context) => routeProjectPromotionAction(context, true),
@@ -243,6 +245,21 @@ async function routeRemoveProject(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, removeProjectBodySchema);
   if (!body.ok) return body.response;
   return json(await app.removeProject(context.options.workspaceRoot, body.data.projectId));
+}
+
+async function routeResolveCanonicalPath(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, resolveCanonicalPathBodySchema);
+  if (!body.ok) return body.response;
+  const result = await app.resolveProjectCanonicalPath(
+    context.options.workspaceRoot,
+    body.data.projectId,
+  );
+  emitApiEvent("projects-refresh-finished", `canonical path resolved for ${body.data.projectId}`, {
+    projectId: body.data.projectId,
+    from: result.from,
+    to: result.to,
+  });
+  return json(result);
 }
 
 async function routeProjectUp(context: ApiContext): Promise<Response> {
