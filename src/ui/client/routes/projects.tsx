@@ -1,7 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import {
   CheckCircle2,
+  CircleDot,
+  GitPullRequest,
   Github,
+  History,
   LoaderCircle,
   Plus,
   RefreshCcw,
@@ -10,7 +13,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   HostedImportCandidate,
   LocalPromotionResult,
@@ -1425,6 +1428,8 @@ function ProjectCard({
           {project.description}
         </p>
       )}
+      <ProjectLanguageBar project={project} />
+      <ProjectRepositorySignals project={project} />
       <div className="mb-0 mt-auto flex items-center gap-[var(--space-3)] pt-[var(--space-1)]">
         <span className="inline-flex items-center gap-[var(--space-1)] bg-transparent p-0 font-mono text-[var(--text-xs)] text-[var(--text-faint)]">
           <Workflow size={14} aria-hidden /> workspace up: {yesNo(project.up)}
@@ -1450,6 +1455,195 @@ function ProjectCard({
     </article>
   );
 }
+
+function ProjectLanguageBar({ project }: { project: Project }) {
+  const languages = topProjectLanguages(project);
+  if (languages.length === 0) {
+    return (
+      <div className="grid gap-1">
+        <span className={ui.labelText}>Languages</span>
+        <span className={ui.mono}>No language data</span>
+      </div>
+    );
+  }
+  const total = languages.reduce((sum, language) => sum + language.size, 0) || languages.length;
+  return (
+    <div className="grid gap-1.5">
+      <div
+        className="flex h-2 overflow-hidden rounded-full bg-[var(--surface-inset)]"
+        aria-label={`Top languages: ${languages.map((language) => language.name).join(", ")}`}
+      >
+        {languages.map((language) => (
+          <span
+            key={language.name}
+            className="h-full min-w-[3px]"
+            style={{
+              backgroundColor: languageColor(language.name),
+              width: `${Math.max(((language.size || 1) / total) * 100, 3)}%`,
+            }}
+            title={`${language.name} ${languagePercent(language.size || 1, total)}`}
+          />
+        ))}
+      </div>
+      <div className="flex min-w-0 flex-wrap gap-x-[var(--space-2)] gap-y-1">
+        {languages.map((language) => (
+          <span
+            className="inline-flex items-center gap-[var(--space-1)] font-mono text-[var(--text-2xs)] text-[var(--text-faint)]"
+            key={language.name}
+          >
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ backgroundColor: languageColor(language.name) }}
+              aria-hidden
+            />
+            {language.name}
+            <span>{languagePercent(language.size || 1, total)}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProjectRepositorySignals({ project }: { project: Project }) {
+  return (
+    <div className="grid gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--surface-inset)] px-[var(--space-3)] py-[var(--space-2)]">
+      <div className="grid grid-cols-2 gap-x-[var(--space-3)] gap-y-1">
+        <ProjectSignal
+          icon={<GitPullRequest size={13} aria-hidden />}
+          label="PRs"
+          value={countLabel(project.openPullRequests)}
+          detail={
+            project.openPullRequests === undefined
+              ? undefined
+              : `${project.draftPullRequests ?? 0} draft`
+          }
+        />
+        <ProjectSignal
+          icon={<CircleDot size={13} aria-hidden />}
+          label="Issues"
+          value={countLabel(project.openIssues)}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-x-[var(--space-3)] gap-y-1">
+        <ProjectSignal
+          icon={<History size={13} aria-hidden />}
+          label="Last commit"
+          value={relativeDate(project.pushedAt)}
+          title={absoluteDate(project.pushedAt)}
+        />
+        <ProjectSignal
+          icon={<RefreshCcw size={13} aria-hidden />}
+          label="Activity"
+          value={relativeDate(project.updatedAt)}
+          title={absoluteDate(project.updatedAt)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ProjectSignal({
+  detail,
+  icon,
+  label,
+  title,
+  value,
+}: {
+  detail?: string | undefined;
+  icon: ReactNode;
+  label: string;
+  title?: string | undefined;
+  value: string;
+}) {
+  return (
+    <span
+      className="min-w-0 font-mono text-[var(--text-2xs)] text-[var(--text-faint)]"
+      title={title}
+    >
+      <span className="mb-0.5 flex min-w-0 items-center gap-[var(--space-1)] text-[var(--text-muted)]">
+        {icon}
+        <span>{label}</span>
+      </span>
+      <strong className="text-[var(--text-xs)] font-semibold text-[var(--text-strong)]">
+        {value}
+      </strong>
+      {detail ? <span className="ml-1 text-[var(--text-faint)]">{detail}</span> : null}
+    </span>
+  );
+}
+
+function topProjectLanguages(project: Project): Array<{ name: string; size: number }> {
+  const languages = project.languageBreakdown?.length
+    ? project.languageBreakdown
+    : project.languages.map((name) => ({ name, size: 1 }));
+  return languages
+    .filter((language) => language.name)
+    .sort((a, b) => b.size - a.size || a.name.localeCompare(b.name))
+    .slice(0, 5);
+}
+
+function languagePercent(size: number, total: number): string {
+  return `${Math.round((size / total) * 100)}%`;
+}
+
+function countLabel(count: number | undefined): string {
+  return count === undefined ? "--" : String(count);
+}
+
+function relativeDate(value: string | undefined): string {
+  if (!value) return "--";
+  const time = Date.parse(value);
+  if (Number.isNaN(time)) return "--";
+  const seconds = Math.round((time - Date.now()) / 1000);
+  const ranges: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ["year", 31536000],
+    ["month", 2592000],
+    ["week", 604800],
+    ["day", 86400],
+    ["hour", 3600],
+    ["minute", 60],
+  ];
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  for (const [unit, unitSeconds] of ranges) {
+    if (Math.abs(seconds) >= unitSeconds || unit === "minute") {
+      return formatter.format(Math.round(seconds / unitSeconds), unit);
+    }
+  }
+  return "just now";
+}
+
+function absoluteDate(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const time = Date.parse(value);
+  if (Number.isNaN(time)) return undefined;
+  return new Date(time).toLocaleString();
+}
+
+function languageColor(language: string): string {
+  const color = githubLanguageColors[language];
+  if (color) return color;
+  let hash = 0;
+  for (const char of language) hash = (hash * 31 + char.charCodeAt(0)) % 360;
+  return `hsl(${hash} 58% 58%)`;
+}
+
+const githubLanguageColors: Record<string, string> = {
+  CSS: "#663399",
+  Dockerfile: "#384d54",
+  Go: "#00add8",
+  HTML: "#e34c26",
+  JavaScript: "#f1e05a",
+  "Jupyter Notebook": "#da5b0b",
+  Pascal: "#e3f171",
+  PHP: "#4f5d95",
+  Python: "#3572a5",
+  Ruby: "#701516",
+  Rust: "#dea584",
+  Shell: "#89e051",
+  Swift: "#f05138",
+  TypeScript: "#3178c6",
+};
 
 function ProjectAvatar({ project }: { project: Project }) {
   const [failed, setFailed] = useState(false);

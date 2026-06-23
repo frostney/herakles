@@ -107,6 +107,7 @@ function resolveGitHubProject(
     topics: repo.repositoryTopics,
     tags: config.tags ?? [],
     languages: repo.languages,
+    ...(repo.languageBreakdown === undefined ? {} : { languageBreakdown: repo.languageBreakdown }),
     hasRoadmap: hasAnyFile(projectPath, loaded.config.defaults.roadmap_files),
     up: false,
     automationEnabled: false,
@@ -160,7 +161,11 @@ function enrichGitHubProject(
   if (learningPath) project.learningPath = learningPath;
   if (archiveNote) project.archiveNote = archiveNote;
   if (repo.description) project.description = repo.description;
+  if (repo.pushedAt) project.pushedAt = repo.pushedAt;
   if (repo.updatedAt) project.updatedAt = repo.updatedAt;
+  if (repo.openPullRequests !== undefined) project.openPullRequests = repo.openPullRequests;
+  if (repo.draftPullRequests !== undefined) project.draftPullRequests = repo.draftPullRequests;
+  if (repo.openIssues !== undefined) project.openIssues = repo.openIssues;
 }
 
 function resolveLocalProject(

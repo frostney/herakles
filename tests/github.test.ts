@@ -30,6 +30,60 @@ describe("github context wrappers", () => {
     expect(calls[0]).not.toContain("--source");
   });
 
+  test("normalizes repository card metrics from GitHub discovery", async () => {
+    const config = heraklesConfigSchema.parse({
+      github: { owners: ["frostney"] },
+    });
+    const repos = await listGitHubRepositoriesWithRunner(config, async (argv) => {
+      if (argv.slice(0, 4).join(" ") === "gh search prs --owner") {
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: JSON.stringify([
+            { repository: { nameWithOwner: "frostney/tool" } },
+            { repository: { nameWithOwner: "frostney/tool" } },
+          ]),
+        };
+      }
+      return {
+        exitCode: 0,
+        stderr: "",
+        stdout: JSON.stringify([
+          {
+            name: "tool",
+            nameWithOwner: "frostney/tool",
+            owner: { login: "frostney" },
+            visibility: "PUBLIC",
+            isArchived: false,
+            repositoryTopics: [],
+            languages: [
+              { size: 120, node: { name: "TypeScript" } },
+              { size: 30, node: { name: "CSS" } },
+            ],
+            pullRequests: { totalCount: 3 },
+            issues: { totalCount: 5 },
+            pushedAt: "2026-06-22T10:00:00Z",
+            updatedAt: "2026-06-23T10:00:00Z",
+          },
+        ]),
+      };
+    });
+
+    expect(repos[0]).toMatchObject({
+      nameWithOwner: "frostney/tool",
+      languages: ["TypeScript", "CSS"],
+      languageBreakdown: [
+        { name: "TypeScript", size: 120 },
+        { name: "CSS", size: 30 },
+      ],
+      openPullRequests: 3,
+      draftPullRequests: 2,
+      openIssues: 5,
+      pushedAt: "2026-06-22T10:00:00Z",
+      updatedAt: "2026-06-23T10:00:00Z",
+    });
+  });
+
   test("discovers authenticated user and organization repositories for imports", async () => {
     const calls: string[][] = [];
     const config = heraklesConfigSchema.parse({

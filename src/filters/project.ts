@@ -245,7 +245,11 @@ function fieldValue(project: Project, field: string): Value {
   if (field === "has_roadmap") return project.hasRoadmap;
   if (field === "primary_language") return project.primaryLanguage ?? null;
   const value = project[field as keyof Project];
-  if (typeof value === "string" || typeof value === "boolean" || Array.isArray(value)) {
+  if (
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (Array.isArray(value) && value.every((item) => typeof item === "string"))
+  ) {
     return value;
   }
   return null;
