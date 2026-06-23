@@ -1513,11 +1513,7 @@ function ProjectRepositorySignals({ project }: { project: Project }) {
           icon={<GitPullRequest size={13} aria-hidden />}
           label="PRs"
           value={countLabel(project.openPullRequests)}
-          detail={
-            project.openPullRequests === undefined
-              ? undefined
-              : `${project.draftPullRequests ?? 0} draft`
-          }
+          detail={draftPullRequestLabel(project)}
         />
         <ProjectSignal
           icon={<CircleDot size={13} aria-hidden />}
@@ -1589,6 +1585,11 @@ function languagePercent(size: number, total: number): string {
 
 function countLabel(count: number | undefined): string {
   return count === undefined ? "--" : String(count);
+}
+
+function draftPullRequestLabel(project: Project): string | undefined {
+  if (project.openPullRequests === undefined) return undefined;
+  return `(${project.draftPullRequests ?? 0} draft)`;
 }
 
 function relativeDate(value: string | undefined): string {
