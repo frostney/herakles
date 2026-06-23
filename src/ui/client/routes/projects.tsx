@@ -1580,7 +1580,7 @@ function topProjectLanguages(project: Project): Array<{ name: string; size: numb
 }
 
 function languagePercent(size: number, total: number): string {
-  return `${Math.round((size / total) * 100)}%`;
+  return `${((size / total) * 100).toFixed(1)}%`;
 }
 
 function countLabel(count: number | undefined): string {
