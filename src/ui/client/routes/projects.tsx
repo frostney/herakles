@@ -49,6 +49,13 @@ import {
   projectIconUrl,
 } from "../api";
 import {
+  type ProjectSortDirection,
+  type ProjectSortKey,
+  defaultProjectSortDirection,
+  projectSortOptions,
+  sortProjects,
+} from "../projectSorting";
+import {
   Badge,
   DetailItem,
   EmptyState,
@@ -101,6 +108,8 @@ export function Projects() {
   const [upPlan, refreshUpPlan] = useResource(getUpPlan);
   const [query, setQuery] = useState("");
   const [stateFilter, setStateFilter] = useState<ProjectState | "all">("all");
+  const [sortKey, setSortKey] = useState<ProjectSortKey>("starred");
+  const [sortDirection, setSortDirection] = useState<ProjectSortDirection>("desc");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -117,17 +126,20 @@ export function Projects() {
   const filtered = useMemo(() => {
     if (projects.status !== "ready") return [];
     const needle = query.toLowerCase();
-    return projects.data.filter((project) => {
+    const filteredProjects = projects.data.filter((project) => {
       const stateMatches = stateFilter === "all" || project.state === stateFilter;
       const queryMatches = [
         project.slug,
         project.state,
         project.source,
         project.visibility ?? "",
+        project.primaryLanguage ?? "",
+        project.languages.join(" "),
       ].some((value) => value.toLowerCase().includes(needle));
       return stateMatches && queryMatches;
     });
-  }, [projects, query, stateFilter]);
+    return sortProjects(filteredProjects, sortKey, sortDirection);
+  }, [projects, query, sortDirection, sortKey, stateFilter]);
   return (
     <Screen
       title="Projects"
@@ -193,8 +205,15 @@ export function Projects() {
             <ProjectFilters
               projects={projects.data}
               query={query}
+              sortDirection={sortDirection}
+              sortKey={sortKey}
               state={stateFilter}
               onQuery={setQuery}
+              onSortDirection={setSortDirection}
+              onSortKey={(key) => {
+                setSortKey(key);
+                setSortDirection(defaultProjectSortDirection(key));
+              }}
               onState={setStateFilter}
             />
             <ProjectTable
@@ -223,14 +242,22 @@ export function Projects() {
 function ProjectFilters({
   projects,
   query,
+  sortDirection,
+  sortKey,
   state,
   onQuery,
+  onSortDirection,
+  onSortKey,
   onState,
 }: {
   projects: Project[];
   query: string;
+  sortDirection: ProjectSortDirection;
+  sortKey: ProjectSortKey;
   state: ProjectState | "all";
   onQuery: (query: string) => void;
+  onSortDirection: (direction: ProjectSortDirection) => void;
+  onSortKey: (key: ProjectSortKey) => void;
   onState: (state: ProjectState | "all") => void;
 }) {
   const states: Array<ProjectState | "all"> = [
@@ -269,20 +296,45 @@ function ProjectFilters({
           </button>
         ))}
       </div>
-      <label className="relative grid min-w-[260px] gap-1.5 text-[0.875rem] font-semibold text-[var(--text-muted)] max-[820px]:w-full">
-        <Search
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]"
-          size={16}
-          aria-hidden
-        />
-        <span className="sr-only">Search projects</span>
-        <input
-          className={classNames(ui.input, "pl-[calc(var(--space-3)+22px)]")}
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
-          placeholder="Search projects..."
-        />
-      </label>
+      <div className="flex flex-wrap items-end justify-end gap-[var(--space-2)] max-[820px]:w-full max-[820px]:justify-stretch">
+        <label className="grid min-w-[180px] gap-1.5 text-[0.875rem] font-semibold text-[var(--text-muted)]">
+          <span className={ui.labelText}>Sort by</span>
+          <select
+            className={ui.input}
+            value={sortKey}
+            onChange={(event) => onSortKey(event.currentTarget.value as ProjectSortKey)}
+          >
+            {projectSortOptions.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className={classNames(ui.button, "min-w-[92px] px-[var(--space-2)]")}
+          onClick={() => onSortDirection(sortDirection === "asc" ? "desc" : "asc")}
+          title={sortDirection === "asc" ? "Sort ascending" : "Sort descending"}
+        >
+          {sortDirection === "asc" ? "Asc" : "Desc"}
+        </button>
+        <label className="relative grid min-w-[260px] gap-1.5 text-[0.875rem] font-semibold text-[var(--text-muted)] max-[820px]:min-w-0 max-[820px]:flex-1">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]"
+            size={16}
+            aria-hidden
+          />
+          <span className="sr-only">Search projects</span>
+          <input
+            className={classNames(ui.input, "pl-[calc(var(--space-3)+22px)]")}
+            type="search"
+            value={query}
+            onChange={(event) => onQuery(event.currentTarget.value)}
+            placeholder="Search projects..."
+          />
+        </label>
+      </div>
     </div>
   );
 }
