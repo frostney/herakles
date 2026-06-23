@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { appendFile, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import {
+  automationJobBodySchema,
+  automationJobConfigChangesFromPayload,
+  projectConfigBodySchema,
+  projectConfigChangesFromPayload,
+} from "../src/api/contracts";
 import { routeApi } from "../src/api/routes";
 import { loadConfig } from "../src/config/load";
 import type { HeraklesEvent } from "../src/domain";
@@ -412,6 +418,45 @@ owners = ["frostney"]
     );
 
     await expectInvalidBody(response, "jobId");
+  });
+
+  test("shared API contract maps config payloads to core config changes", () => {
+    const projectPayload = projectConfigBodySchema.parse({
+      projectId: "public-tool",
+      state: "commercial",
+      group: "clients",
+      tags: ["paid"],
+      force: true,
+    });
+    const automationPayload = automationJobBodySchema.parse({
+      jobId: "weekly-review",
+      schedule: "0 9 * * 1",
+      runtime: "codex",
+      prompt: "Review all tracked projects.",
+      output: "automation/weekly.md",
+      repoFilter: "not archived",
+      includeTags: ["weekly"],
+      excludeTags: ["paused"],
+      skill: "review-pr",
+      enabled: false,
+    });
+
+    expect(projectConfigChangesFromPayload(projectPayload)).toEqual({
+      state: "commercial",
+      group: "clients",
+      tags: ["paid"],
+    });
+    expect(automationJobConfigChangesFromPayload(automationPayload)).toEqual({
+      schedule: "0 9 * * 1",
+      runtime: "codex",
+      prompt: "Review all tracked projects.",
+      output: "automation/weekly.md",
+      repo_filter: "not archived",
+      include_tags: ["weekly"],
+      exclude_tags: ["paused"],
+      skill: "review-pr",
+      enabled: false,
+    });
   });
 
   test("config TOML exchange route rejects malformed JSON", async () => {
