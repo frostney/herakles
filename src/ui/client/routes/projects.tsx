@@ -495,18 +495,31 @@ function PlanItemList({
             <span className={ui.muted}>
               <TextWithMonoPaths text={item.reason} />
             </span>
-            <span className={ui.mono}>{displayPath(item.project.path)}</span>
+            <div className="grid gap-1">
+              <span className={ui.labelText}>
+                {isHostedClonePathMismatch(item) ? "Canonical path" : "Path"}
+              </span>
+              <span className={ui.mono}>{displayPath(item.project.path)}</span>
+            </div>
           </div>
           <div className={ui.actions}>
             {onResolveCanonicalPath && isHostedClonePathMismatch(item) ? (
-              <button
-                type="button"
-                className={ui.buttonGhost}
-                onClick={() => onResolveCanonicalPath(item)}
-                disabled={resolvingProjectId === item.project.id}
-              >
-                {resolvingProjectId === item.project.id ? "Resolving..." : "Use Canonical Path"}
-              </button>
+              <div className="grid min-w-0 justify-items-start gap-1 sm:justify-items-end">
+                <button
+                  type="button"
+                  className={ui.buttonGhost}
+                  onClick={() => onResolveCanonicalPath(item)}
+                  disabled={resolvingProjectId === item.project.id}
+                >
+                  {resolvingProjectId === item.project.id ? "Resolving..." : "Use Canonical Path"}
+                </button>
+                <span
+                  className={classNames(ui.mono, "max-w-[16rem] truncate")}
+                  title={displayPath(item.project.path)}
+                >
+                  {displayPath(item.project.path)}
+                </span>
+              </div>
             ) : null}
             <Badge tone="primary">{item.action}</Badge>
           </div>
