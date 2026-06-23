@@ -1,5 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import {
+  ArrowDown,
+  ArrowUp,
   CheckCircle2,
   CircleDot,
   FolderOpen,
@@ -357,11 +359,16 @@ function ProjectFilters({
         </label>
         <button
           type="button"
-          className={classNames(ui.button, "min-w-[92px] px-[var(--space-2)]")}
+          className={classNames(ui.button, "h-10 w-12 min-w-12 justify-center px-0")}
           onClick={() => onSortDirection(sortDirection === "asc" ? "desc" : "asc")}
           title={sortDirection === "asc" ? "Sort ascending" : "Sort descending"}
+          aria-label={sortDirection === "asc" ? "Sort ascending" : "Sort descending"}
         >
-          {sortDirection === "asc" ? "Asc" : "Desc"}
+          {sortDirection === "asc" ? (
+            <ArrowUp size={16} aria-hidden />
+          ) : (
+            <ArrowDown size={16} aria-hidden />
+          )}
         </button>
         <label className="relative grid min-w-[260px] gap-1.5 text-[0.875rem] font-semibold text-[var(--text-muted)] max-[820px]:min-w-0 max-[820px]:flex-1">
           <Search
