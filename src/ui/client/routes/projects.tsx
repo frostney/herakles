@@ -48,13 +48,14 @@ import {
   Modal,
   Screen,
   StateSelect,
+  TextWithMonoPaths,
   UpResultList,
   ValidationIssueList,
   ValidationSummary,
   VisualBanner,
   splitTags,
 } from "../shared/components";
-import { displayPath, displayTextWithHomePaths } from "../shared/displayPath";
+import { displayPath } from "../shared/displayPath";
 import { type Loadable, useRefreshOnEvents, useResource } from "../shared/hooks";
 import { assets, classNames, feedbackClass, feedbackToneClass, ui } from "../shared/styles";
 import { shouldScaffoldFromConfiguration, workspaceDriftItems } from "../upPlanPresentation";
@@ -490,7 +491,9 @@ function PlanItemList({
         <article className={ui.listRow} key={`${title}-${item.project.id}-${item.action}`}>
           <div className={ui.listRowMain}>
             <strong>{item.project.repo}</strong>
-            <span className={ui.muted}>{displayTextWithHomePaths(item.reason)}</span>
+            <span className={ui.muted}>
+              <TextWithMonoPaths text={item.reason} />
+            </span>
             <span className={ui.mono}>{displayPath(item.project.path)}</span>
           </div>
           <div className={ui.actions}>

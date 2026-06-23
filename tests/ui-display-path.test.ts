@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { displayPath, displayTextWithHomePaths } from "../src/ui/client/shared/displayPath";
+import {
+  displayPath,
+  displayTextPartsWithHomePaths,
+  displayTextWithHomePaths,
+} from "../src/ui/client/shared/displayPath";
 
 describe("UI display paths", () => {
   test("shortens home paths across supported platforms", () => {
@@ -17,6 +21,10 @@ describe("UI display paths", () => {
         "cloned at /Users/jstein/Documents/Projects/experiment/tool, expected C:\\Users\\jstein\\Projects\\open-source\\tool.",
       ),
     ).toBe("cloned at ~/Documents/Projects/experiment/tool, expected ~/Projects/open-source/tool.");
+    expect(displayTextPartsWithHomePaths("expected /home/jstein/projects/tool")).toEqual([
+      { kind: "text", value: "expected " },
+      { kind: "path", value: "~/projects/tool" },
+    ]);
   });
 
   test("leaves non-home absolute paths unchanged", () => {

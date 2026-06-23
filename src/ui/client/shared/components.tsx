@@ -7,6 +7,7 @@ import type {
   ValidationResult,
 } from "../../../domain";
 import type { ProjectDiscoveryRefreshResult, StatusPayload, UpRunResult } from "../api";
+import { displayTextPartsWithHomePaths } from "./displayPath";
 import type { Loadable } from "./hooks";
 import { assets, classNames, feedbackClass, ui } from "./styles";
 
@@ -530,6 +531,22 @@ export function DetailItem({
         {value}
       </strong>
     </div>
+  );
+}
+
+export function TextWithMonoPaths({ text }: { text: string }) {
+  return (
+    <>
+      {displayTextPartsWithHomePaths(text).map((part, index) =>
+        part.kind === "path" ? (
+          <span className={ui.mono} key={`${part.value}-${index}`}>
+            {part.value}
+          </span>
+        ) : (
+          part.value
+        ),
+      )}
+    </>
   );
 }
 
