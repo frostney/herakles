@@ -338,14 +338,22 @@ prompt = "Summarize the workspace."
       const filesystem = await routeApi(
         new Request("http://x/api/projects/open", {
           method: "POST",
-          body: JSON.stringify({ projectId: "local:scratch", target: "filesystem" }),
+          body: JSON.stringify({
+            projectId: "local:scratch",
+            target: "filesystem",
+            destination: projectPath,
+          }),
         }),
         { workspaceRoot },
       );
       const codex = await routeApi(
         new Request("http://x/api/projects/open", {
           method: "POST",
-          body: JSON.stringify({ projectId: "local:scratch", target: "codex" }),
+          body: JSON.stringify({
+            projectId: "local:scratch",
+            target: "codex",
+            destination: projectPath,
+          }),
         }),
         { workspaceRoot },
       );
@@ -364,7 +372,7 @@ prompt = "Summarize the workspace."
         destination: projectPath,
         opened: true,
       });
-      const log = await readFile(logPath, "utf8");
+      const log = await waitForLogContains(logPath, `codex app ${projectPath}`);
       expect(log).toContain(`${platformOpenCommand()} ${projectPath}`);
       expect(log).toContain(`codex app ${projectPath}`);
     });
@@ -377,7 +385,11 @@ prompt = "Summarize the workspace."
         const response = await routeApi(
           new Request("http://x/api/projects/open", {
             method: "POST",
-            body: JSON.stringify({ projectId: "github:frostney/public-tool", target: "github" }),
+            body: JSON.stringify({
+              projectId: "github:frostney/public-tool",
+              target: "github",
+              destination: "https://github.com/frostney/public-tool",
+            }),
           }),
           { workspaceRoot },
         );
@@ -389,9 +401,49 @@ prompt = "Summarize the workspace."
           destination: "https://github.com/frostney/public-tool",
           opened: true,
         });
-        const log = await readFile(logPath, "utf8");
+        const log = await waitForLogContains(
+          logPath,
+          platformUrlOpenLog("https://github.com/frostney/public-tool"),
+        );
         expect(log).toContain(platformUrlOpenLog("https://github.com/frostney/public-tool"));
       });
+    });
+  });
+
+  test("rejects project open destinations outside the explicit target boundary", async () => {
+    const workspaceRoot = await tempWorkspace();
+    const outsideWorkspace = join(tmpdir(), "outside-herakles-workspace");
+
+    const filesystem = await routeApi(
+      new Request("http://x/api/projects/open", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: "local:scratch",
+          target: "filesystem",
+          destination: outsideWorkspace,
+        }),
+      }),
+      { workspaceRoot },
+    );
+    const github = await routeApi(
+      new Request("http://x/api/projects/open", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: "github:frostney/public-tool",
+          target: "github",
+          destination: "https://example.com/frostney/public-tool",
+        }),
+      }),
+      { workspaceRoot },
+    );
+
+    expect(filesystem?.status).toBe(400);
+    expect(await filesystem?.json()).toEqual({
+      error: `Project destination must stay inside the workspace: ${outsideWorkspace}`,
+    });
+    expect(github?.status).toBe(400);
+    expect(await github?.json()).toEqual({
+      error: "Unsupported GitHub destination: https://example.com/frostney/public-tool",
     });
   });
 
@@ -905,6 +957,21 @@ echo "$(basename "$0") $*" >> ${JSON.stringify(logPath)}
   } finally {
     process.env.PATH = previousPath;
   }
+}
+
+async function waitForLogContains(logPath: string, text: string) {
+  const deadline = Date.now() + 2000;
+  let last = "";
+  while (Date.now() < deadline) {
+    try {
+      last = await readFile(logPath, "utf8");
+      if (last.includes(text)) return last;
+    } catch {
+      // The launcher process may not have created the log yet.
+    }
+    await Bun.sleep(25);
+  }
+  throw new Error(`Expected launcher log to contain ${text}, saw: ${last}`);
 }
 
 function platformOpenCommand() {

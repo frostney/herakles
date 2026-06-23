@@ -134,8 +134,12 @@ export async function postResolveProjectCanonicalPath(
   return post("/api/projects/resolve-canonical-path", { projectId });
 }
 
-export async function postOpenProject(projectId: string, target: ProjectOpenTarget) {
-  return post("/api/projects/open", { projectId, target });
+export async function postOpenProject(
+  projectId: string,
+  target: ProjectOpenTarget,
+  destination: string,
+) {
+  return post("/api/projects/open", { projectId, target, destination });
 }
 
 export async function postProjectUp(

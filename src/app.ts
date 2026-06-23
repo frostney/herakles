@@ -51,7 +51,6 @@ import {
 } from "./reports";
 import { type UpExecution, executeUpPlan } from "./up/execute";
 import { createUpPlan } from "./up/plan";
-import { runCommand } from "./utils/command";
 
 type WorkspaceState = {
   loaded: LoadedConfig;
@@ -59,6 +58,13 @@ type WorkspaceState = {
   projects: Project[];
   validation: ValidationResult;
 };
+
+export class InvalidProjectOpenDestinationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidProjectOpenDestinationError";
+  }
+}
 
 const workspaceLoads = new Map<string, Promise<WorkspaceState>>();
 
@@ -109,12 +115,16 @@ export async function project(workspaceRoot: string, id: string): Promise<Projec
   return found;
 }
 
-export async function openProject(workspaceRoot: string, id: string, target: ProjectOpenTarget) {
-  const found = await project(workspaceRoot, id);
-  const destination = projectOpenDestination(found, target);
+export async function openProject(
+  workspaceRoot: string,
+  id: string,
+  target: ProjectOpenTarget,
+  destination: string,
+) {
+  validateProjectOpenDestination(workspaceRoot, target, destination);
   const command = projectOpenCommand(target, destination);
-  await runCommand(command);
-  return { projectId: found.id, target, destination, opened: true };
+  launchProjectOpenCommand(command);
+  return { projectId: id, target, destination, opened: true };
 }
 
 export async function projectDetail(workspaceRoot: string, id: string): Promise<ProjectDetail> {
@@ -128,14 +138,6 @@ export async function projectDetail(workspaceRoot: string, id: string): Promise<
   };
 }
 
-function projectOpenDestination(project: Project, target: ProjectOpenTarget): string {
-  if (target === "github") {
-    if (!project.url) throw new Error(`Project ${project.id} does not have a GitHub URL.`);
-    return project.url;
-  }
-  return project.path;
-}
-
 function projectOpenCommand(target: ProjectOpenTarget, destination: string): string[] {
   if (target === "codex") return ["codex", "app", destination];
   if (process.platform === "darwin") return ["open", destination];
@@ -145,6 +147,48 @@ function projectOpenCommand(target: ProjectOpenTarget, destination: string): str
       : ["cmd", "/c", "start", "", destination];
   }
   return ["xdg-open", destination];
+}
+
+function validateProjectOpenDestination(
+  workspaceRoot: string,
+  target: ProjectOpenTarget,
+  destination: string,
+) {
+  if (target === "github") {
+    const url = parseProjectOpenUrl(destination);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      !["github.com", "www.github.com"].includes(url.hostname)
+    ) {
+      throw new InvalidProjectOpenDestinationError(
+        `Unsupported GitHub destination: ${destination}`,
+      );
+    }
+    return;
+  }
+  if (!isAbsolute(destination) || !pathIsInside(workspaceRoot, destination)) {
+    throw new InvalidProjectOpenDestinationError(
+      `Project destination must stay inside the workspace: ${destination}`,
+    );
+  }
+}
+
+function parseProjectOpenUrl(destination: string): URL {
+  try {
+    return new URL(destination);
+  } catch {
+    throw new InvalidProjectOpenDestinationError(`Unsupported GitHub destination: ${destination}`);
+  }
+}
+
+function launchProjectOpenCommand(command: string[]) {
+  const proc = Bun.spawn(command, {
+    env: process.env,
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  proc.unref();
 }
 
 const projectIconCandidates = [

@@ -56,7 +56,11 @@ const importProjectsBodySchema = z
 const removeProjectBodySchema = z.object({ projectId: nonEmptyString }).strict();
 const resolveCanonicalPathBodySchema = z.object({ projectId: nonEmptyString }).strict();
 const openProjectBodySchema = z
-  .object({ projectId: nonEmptyString, target: z.enum(["filesystem", "github", "codex"]) })
+  .object({
+    projectId: nonEmptyString,
+    target: z.enum(["filesystem", "github", "codex"]),
+    destination: nonEmptyString,
+  })
   .strict();
 const projectUpBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
@@ -153,6 +157,9 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
   } catch (error) {
     if (error instanceof InvalidProjectStateTransitionError) {
       return json({ error: error.message, transition: error.transition }, { status: 400 });
+    }
+    if (error instanceof app.InvalidProjectOpenDestinationError) {
+      return json({ error: error.message }, { status: 400 });
     }
     if (error instanceof z.ZodError) {
       return zodErrorResponse(error);
@@ -284,6 +291,7 @@ async function routeOpenProject(context: ApiContext): Promise<Response> {
     context.options.workspaceRoot,
     body.data.projectId,
     body.data.target,
+    body.data.destination,
   );
   return json(result);
 }

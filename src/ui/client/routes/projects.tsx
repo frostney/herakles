@@ -1923,10 +1923,12 @@ function ProjectOpenActions({ project }: { project: Project }) {
   const [error, setError] = useState("");
   const openTarget = async (target: ProjectOpenTarget) => {
     if (busyTarget) return;
+    const destination = target === "github" ? project.url : project.path;
+    if (!destination) return;
     setBusyTarget(target);
     setError("");
     try {
-      await postOpenProject(project.id, target);
+      await postOpenProject(project.id, target, destination);
     } catch (error) {
       setError(String(error));
     } finally {
