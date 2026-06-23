@@ -1533,8 +1533,8 @@ function ProjectRepositorySignals({ project }: { project: Project }) {
         <ProjectSignal
           icon={<RefreshCcw size={13} aria-hidden />}
           label="Activity"
-          value={relativeDate(project.updatedAt)}
-          title={absoluteDate(project.updatedAt)}
+          value={relativeDate(project.latestActivityAt)}
+          title={absoluteDate(project.latestActivityAt)}
         />
       </div>
     </div>

@@ -149,12 +149,59 @@ export async function listGitHubRepositoriesWithRunner(
     if (result) repos.set(result.nameWithOwner, result);
   }
   await addMainlineCommitDates(repos, runner);
+  await addLatestActivityDates(repos, runner);
   await addDraftPullRequestCounts(repos, runner);
   const result = [...repos.values()].sort((a, b) => a.nameWithOwner.localeCompare(b.nameWithOwner));
   if (successfulOwnerFetches === 0 && ownerFailures.length > 0) {
     throw new Error(ownerFailures.join("\n"));
   }
   return result;
+}
+
+async function addLatestActivityDates(
+  repos: Map<string, GitHubRepository>,
+  runner: Runner,
+): Promise<void> {
+  await Promise.all(
+    [...repos.values()].map(async (repo) => {
+      const issueOrPullAt = await readLatestIssueOrPullActivityDate(repo, runner);
+      const latestActivityAt = latestDate([
+        issueOrPullAt,
+        repo.pushedAt,
+        repo.mainlineCommittedAt,
+        repo.updatedAt,
+      ]);
+      if (latestActivityAt) repo.latestActivityAt = latestActivityAt;
+    }),
+  );
+}
+
+async function readLatestIssueOrPullActivityDate(
+  repo: GitHubRepository,
+  runner: Runner,
+): Promise<string | undefined> {
+  try {
+    const result = await runner([
+      "gh",
+      "api",
+      `repos/${repo.nameWithOwner}/issues?state=all&per_page=1&sort=updated&direction=desc`,
+      "--jq",
+      ".[0].updated_at",
+    ]);
+    const updatedAt = result.stdout.trim();
+    return Number.isNaN(Date.parse(updatedAt)) ? undefined : updatedAt;
+  } catch {
+    return undefined;
+  }
+}
+
+function latestDate(values: Array<string | undefined>): string | undefined {
+  let latest: string | undefined;
+  for (const value of values) {
+    if (!value || Number.isNaN(Date.parse(value))) continue;
+    if (!latest || Date.parse(value) > Date.parse(latest)) latest = value;
+  }
+  return latest;
 }
 
 async function addMainlineCommitDates(

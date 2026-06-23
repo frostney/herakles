@@ -44,6 +44,16 @@ describe("github context wrappers", () => {
           stdout: "2026-06-21T10:00:00Z\n",
         };
       }
+      if (
+        argv.join(" ") ===
+        "gh api repos/frostney/tool/issues?state=all&per_page=1&sort=updated&direction=desc --jq .[0].updated_at"
+      ) {
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: "2026-06-24T10:00:00Z\n",
+        };
+      }
       if (argv.slice(0, 4).join(" ") === "gh search prs --owner") {
         return {
           exitCode: 0,
@@ -89,6 +99,7 @@ describe("github context wrappers", () => {
       openPullRequests: 3,
       draftPullRequests: 2,
       openIssues: 5,
+      latestActivityAt: "2026-06-24T10:00:00Z",
       mainlineCommittedAt: "2026-06-21T10:00:00Z",
       pushedAt: "2026-06-22T10:00:00Z",
       updatedAt: "2026-06-23T10:00:00Z",
