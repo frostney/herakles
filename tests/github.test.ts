@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { heraklesConfigSchema } from "../src/config/schema";
-import { listGitHubRepositoriesWithRunner } from "../src/github/gh";
+import {
+  listGitHubRepositoriesWithRunner,
+  listImportableGitHubRepositoriesWithRunner,
+} from "../src/github/gh";
 
 describe("github context wrappers", () => {
   test("lists source repositories by default and asks gh to omit archived repos when configured", async () => {
@@ -28,6 +31,82 @@ describe("github context wrappers", () => {
     });
 
     expect(calls[0]).not.toContain("--source");
+  });
+
+  test("normalizes repository card metrics from GitHub discovery", async () => {
+    const config = heraklesConfigSchema.parse({
+      github: { owners: ["frostney"] },
+    });
+    const repos = await listGitHubRepositoriesWithRunner(config, async (argv) => {
+      if (
+        argv.join(" ") === "gh api repos/frostney/tool/commits/main --jq .commit.committer.date"
+      ) {
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: "2026-06-21T10:00:00Z\n",
+        };
+      }
+      if (
+        argv.join(" ") ===
+        "gh api repos/frostney/tool/issues?state=all&per_page=1&sort=updated&direction=desc --jq .[0].updated_at"
+      ) {
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: "2026-06-24T10:00:00Z\n",
+        };
+      }
+      if (argv.slice(0, 4).join(" ") === "gh search prs --owner") {
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: JSON.stringify([
+            { repository: { nameWithOwner: "frostney/tool" } },
+            { repository: { nameWithOwner: "frostney/tool" } },
+          ]),
+        };
+      }
+      return {
+        exitCode: 0,
+        stderr: "",
+        stdout: JSON.stringify([
+          {
+            name: "tool",
+            nameWithOwner: "frostney/tool",
+            owner: { login: "frostney" },
+            visibility: "PUBLIC",
+            isArchived: false,
+            repositoryTopics: [],
+            languages: [
+              { size: 120, node: { name: "TypeScript" } },
+              { size: 30, node: { name: "CSS" } },
+            ],
+            defaultBranchRef: { name: "main" },
+            pullRequests: { totalCount: 3 },
+            issues: { totalCount: 5 },
+            pushedAt: "2026-06-22T10:00:00Z",
+            updatedAt: "2026-06-23T10:00:00Z",
+          },
+        ]),
+      };
+    });
+
+    expect(repos[0]).toMatchObject({
+      nameWithOwner: "frostney/tool",
+      languages: ["TypeScript", "CSS"],
+      languageBreakdown: [
+        { name: "TypeScript", size: 120 },
+        { name: "CSS", size: 30 },
+      ],
+      openPullRequests: 3,
+      draftPullRequests: 2,
+      openIssues: 5,
+      latestActivityAt: "2026-06-24T10:00:00Z",
+      mainlineCommittedAt: "2026-06-21T10:00:00Z",
+      pushedAt: "2026-06-22T10:00:00Z",
+      updatedAt: "2026-06-23T10:00:00Z",
+    });
   });
 
   test("discovers authenticated user and organization repositories for imports", async () => {
@@ -80,6 +159,34 @@ describe("github context wrappers", () => {
     expect(repos.map((repo) => repo.nameWithOwner)).toEqual([
       "frostney/tool",
       "herakles-labs/tool",
+    ]);
+  });
+
+  test("uses lightweight personal repository discovery for imports", async () => {
+    const calls: string[][] = [];
+    const config = heraklesConfigSchema.parse({ github: { include_archived: false } });
+    const repos = await listImportableGitHubRepositoriesWithRunner(config, async (argv) => {
+      calls.push([...argv]);
+      const command = argv.join(" ");
+      if (command === "gh api user --jq .login") return ghStdout("frostney\n");
+      if (command === "gh org list --limit 1000") return ghStdout("");
+      if (argv.slice(0, 4).join(" ") === "gh repo list frostney") {
+        const fields = argv[argv.indexOf("--json") + 1] ?? "";
+        expect(fields.split(",")).not.toContain("languages");
+        expect(fields.split(",")).not.toContain("pullRequests");
+        expect(fields.split(",")).not.toContain("issues");
+        expect(fields.split(",")).not.toContain("defaultBranchRef");
+        return ghStdout(JSON.stringify([githubRepo("frostney", "personal-tool")]));
+      }
+      throw new Error(`Unexpected GitHub command: ${argv.join(" ")}`);
+    });
+
+    expect(repos.map((repo) => repo.nameWithOwner)).toEqual(["frostney/personal-tool"]);
+    expect(calls.map((call) => call.slice(0, 4))).toContainEqual([
+      "gh",
+      "repo",
+      "list",
+      "frostney",
     ]);
   });
 
@@ -157,3 +264,18 @@ describe("github context wrappers", () => {
     ]);
   });
 });
+
+function ghStdout(stdout: string) {
+  return { exitCode: 0, stderr: "", stdout };
+}
+
+function githubRepo(owner: string, name: string) {
+  return {
+    name,
+    nameWithOwner: `${owner}/${name}`,
+    owner: { login: owner },
+    visibility: "PUBLIC",
+    isArchived: false,
+    repositoryTopics: [],
+  };
+}

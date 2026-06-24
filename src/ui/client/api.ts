@@ -16,7 +16,9 @@ import type {
   LocalPromotionPlan,
   LocalPromotionResult,
   Project,
+  ProjectDefaultBranchSyncResult,
   ProjectDetail,
+  ProjectOpenTarget,
   ProjectState,
   ReportDetail,
   ReportSummary,
@@ -46,6 +48,10 @@ export async function getProjects(): Promise<Project[]> {
 
 export async function getProjectDetail(id: string): Promise<ProjectDetail> {
   return get(`/api/projects/${encodeURIComponent(id)}`);
+}
+
+export function projectIconUrl(id: string): string {
+  return `/api/project-icons/${encodeURIComponent(id)}`;
 }
 
 export async function getReports(): Promise<ReportSummary[]> {
@@ -123,11 +129,31 @@ export async function postRemoveProject(projectId: string) {
   return post("/api/projects/remove", { projectId });
 }
 
+export async function postResolveProjectCanonicalPath(
+  projectId: string,
+): Promise<{ projectId: string; from: string; to: string; moved: true }> {
+  return post("/api/projects/resolve-canonical-path", { projectId });
+}
+
+export async function postOpenProject(
+  projectId: string,
+  target: ProjectOpenTarget,
+  destination: string,
+) {
+  return post("/api/projects/open", { projectId, target, destination });
+}
+
 export async function postProjectUp(
   projectId: string,
   options: { dryRun?: boolean } = {},
 ): Promise<UpRunResult> {
   return post("/api/projects/up", { projectId, dryRun: options.dryRun === true });
+}
+
+export async function postSyncProjectDefaultBranch(
+  projectId: string,
+): Promise<ProjectDefaultBranchSyncResult> {
+  return post("/api/projects/sync-default-branch", { projectId });
 }
 
 export async function postValidate(options: { strict?: boolean } = {}): Promise<ValidationResult> {

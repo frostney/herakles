@@ -54,9 +54,18 @@ const importProjectsBodySchema = z
   })
   .strict();
 const removeProjectBodySchema = z.object({ projectId: nonEmptyString }).strict();
+const resolveCanonicalPathBodySchema = z.object({ projectId: nonEmptyString }).strict();
+const openProjectBodySchema = z
+  .object({
+    projectId: nonEmptyString,
+    target: z.enum(["filesystem", "github", "codex", "terminal"]),
+    destination: nonEmptyString,
+  })
+  .strict();
 const projectUpBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
   .strict();
+const syncDefaultBranchBodySchema = z.object({ projectId: nonEmptyString }).strict();
 const configTomlBodySchema = z.object({ toml: z.string() }).strict();
 const reportNoteBodySchema = z
   .object({
@@ -108,7 +117,10 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/add": (context) => routeAddProject(context),
   "/api/projects/import": (context) => routeImportProjects(context),
   "/api/projects/remove": (context) => routeRemoveProject(context),
+  "/api/projects/resolve-canonical-path": (context) => routeResolveCanonicalPath(context),
+  "/api/projects/open": (context) => routeOpenProject(context),
   "/api/projects/up": (context) => routeProjectUp(context),
+  "/api/projects/sync-default-branch": (context) => routeSyncDefaultBranch(context),
   "/api/projects/promote-plan": (context) => routeProjectPromotionAction(context, false),
   "/api/projects/promote": (context) => routeProjectPromotionAction(context, true),
   "/api/config/toml/plan": (context) =>
@@ -148,6 +160,12 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
     if (error instanceof InvalidProjectStateTransitionError) {
       return json({ error: error.message, transition: error.transition }, { status: 400 });
     }
+    if (error instanceof app.InvalidProjectOpenDestinationError) {
+      return json({ error: error.message }, { status: 400 });
+    }
+    if (error instanceof InvalidRequestPathError) {
+      return json({ error: error.message }, { status: 400 });
+    }
     if (error instanceof z.ZodError) {
       return zodErrorResponse(error);
     }
@@ -158,6 +176,17 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
 async function routeGet(context: ApiContext): Promise<Response | undefined> {
   const handler = getRoutes[context.path];
   if (handler) return handler(context);
+  if (context.path.startsWith("/api/project-icons/")) {
+    const id = decodePathComponent(context.path.slice("/api/project-icons/".length));
+    const icon = await app.projectIcon(context.options.workspaceRoot, id);
+    if (!icon) return new Response(null, { status: 404 });
+    return new Response(Bun.file(icon.path), {
+      headers: {
+        "cache-control": "no-store",
+        "content-type": icon.contentType,
+      },
+    });
+  }
   if (context.path.startsWith("/api/projects/")) {
     const id = decodeURIComponent(context.path.slice("/api/projects/".length));
     return json(await app.projectDetail(context.options.workspaceRoot, id));
@@ -245,6 +274,33 @@ async function routeRemoveProject(context: ApiContext): Promise<Response> {
   return json(await app.removeProject(context.options.workspaceRoot, body.data.projectId));
 }
 
+async function routeResolveCanonicalPath(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, resolveCanonicalPathBodySchema);
+  if (!body.ok) return body.response;
+  const result = await app.resolveProjectCanonicalPath(
+    context.options.workspaceRoot,
+    body.data.projectId,
+  );
+  emitApiEvent("projects-refresh-finished", `canonical path resolved for ${body.data.projectId}`, {
+    projectId: body.data.projectId,
+    from: result.from,
+    to: result.to,
+  });
+  return json(result);
+}
+
+async function routeOpenProject(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, openProjectBodySchema);
+  if (!body.ok) return body.response;
+  const result = await app.openProject(
+    context.options.workspaceRoot,
+    body.data.projectId,
+    body.data.target,
+    body.data.destination,
+  );
+  return json(result);
+}
+
 async function routeProjectUp(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, projectUpBodySchema);
   if (!body.ok) return body.response;
@@ -268,6 +324,33 @@ async function routeProjectUp(context: ApiContext): Promise<Response> {
     results: result.length,
   });
   return json(result);
+}
+
+async function routeSyncDefaultBranch(context: ApiContext): Promise<Response> {
+  const body = await readJsonBody(context, syncDefaultBranchBodySchema);
+  if (!body.ok) return body.response;
+  emitApiEvent("up-started", `default branch sync started for ${body.data.projectId}`, {
+    projectId: body.data.projectId,
+  });
+  try {
+    const result = await app.syncProjectDefaultBranch(
+      context.options.workspaceRoot,
+      body.data.projectId,
+    );
+    emitApiEvent("up-finished", `default branch sync finished for ${body.data.projectId}`, {
+      projectId: body.data.projectId,
+      status: result.status,
+      behindAfter: result.behindAfter,
+    });
+    return json(result);
+  } catch (error) {
+    emitApiEvent("up-finished", `default branch sync failed for ${body.data.projectId}`, {
+      projectId: body.data.projectId,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 async function routeConfigToml(
@@ -441,6 +524,16 @@ async function jsonAsync(value: Promise<unknown>): Promise<Response> {
 function isStrict(url: URL) {
   return url.searchParams.get("strict") === "true";
 }
+
+function decodePathComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new InvalidRequestPathError("invalid path encoding");
+  }
+}
+
+class InvalidRequestPathError extends Error {}
 
 async function readJsonBody<T extends z.ZodTypeAny>(
   context: ApiContext,
