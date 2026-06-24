@@ -350,18 +350,18 @@ if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
 echo "repo unavailable" >&2
 exit 1
 fi
-if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
-echo "$@" >> "${ghLogPath}"
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+printf 'api graphql\n' >> "${ghLogPath}"
 fi
-if [ "$1" = "pr" ] && [ "$2" = "list" ] && [ "$4" = "frostney/public-tool" ]; then
+if [ "$1" = "api" ] && [ "$2" = "graphql" ] && echo "$*" | grep -q "name=public-tool"; then
 cat <<'JSON'
-[{"number":12,"title":"Improve Workbench","author":{"login":"frostney"},"isDraft":true,"state":"OPEN","headRefName":"codex/workbench","baseRefName":"main","updatedAt":"2026-06-24T10:00:00Z","url":"https://github.com/frostney/public-tool/pull/12","reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":[{"state":"PENDING"}]}]
+[{"data":{"repository":{"pullRequests":{"nodes":[{"number":12,"title":"Improve Workbench","author":{"login":"frostney"},"isDraft":true,"state":"OPEN","headRefName":"codex/workbench","baseRefName":"main","updatedAt":"2026-06-24T10:00:00Z","url":"https://github.com/frostney/public-tool/pull/12","reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":{"state":"PENDING","contexts":{"nodes":[{"state":"PENDING"}]}}}]}}}}]
 JSON
 exit 0
 fi
-if [ "$1" = "pr" ] && [ "$2" = "list" ] && [ "$4" = "frostney/starred-tool" ]; then
+if [ "$1" = "api" ] && [ "$2" = "graphql" ] && echo "$*" | grep -q "name=starred-tool"; then
 cat <<'JSON'
-[{"number":8,"title":"Older starred work","author":{"login":"frostney"},"isDraft":false,"state":"OPEN","headRefName":"codex/starred","baseRefName":"main","updatedAt":"2026-06-20T10:00:00Z","url":"https://github.com/frostney/starred-tool/pull/8","reviewDecision":"APPROVED","statusCheckRollup":[{"conclusion":"SUCCESS"}]}]
+[{"data":{"repository":{"pullRequests":{"nodes":[{"number":8,"title":"Older starred work","author":{"login":"frostney"},"isDraft":false,"state":"OPEN","headRefName":"codex/starred","baseRefName":"main","updatedAt":"2026-06-20T10:00:00Z","url":"https://github.com/frostney/starred-tool/pull/8","reviewDecision":"APPROVED","statusCheckRollup":{"state":"SUCCESS","contexts":{"nodes":[{"conclusion":"SUCCESS"}]}}}]}}}}]
 JSON
 exit 0
 fi

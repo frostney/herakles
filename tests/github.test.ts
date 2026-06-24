@@ -266,46 +266,54 @@ describe("github context wrappers", () => {
   });
 
   test("lists open pull requests with draft, review, and check summaries", async () => {
-    const calls: string[][] = [];
+    const calls: Array<{ argv: string[]; timeoutMs?: number }> = [];
     const pullRequests = await listOpenPullRequestsForRepoWithRunner(
       "frostney/tool",
-      async (argv) => {
-        calls.push([...argv]);
+      async (argv, options) => {
+        calls.push({
+          argv: [...argv],
+          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        });
         return {
           exitCode: 0,
           stderr: "",
           stdout: JSON.stringify([
             {
-              number: 7,
-              title: "Add search",
-              author: { login: "octo" },
-              isDraft: true,
-              state: "OPEN",
-              headRefName: "feature/search",
-              baseRefName: "main",
-              updatedAt: "2026-06-24T09:00:00Z",
-              url: "https://github.com/frostney/tool/pull/7",
-              reviewDecision: "CHANGES_REQUESTED",
-              statusCheckRollup: [{ conclusion: "FAILURE" }],
+              data: {
+                repository: {
+                  pullRequests: {
+                    nodes: [
+                      {
+                        number: 7,
+                        title: "Add search",
+                        author: { login: "octo" },
+                        isDraft: true,
+                        state: "OPEN",
+                        headRefName: "feature/search",
+                        baseRefName: "main",
+                        updatedAt: "2026-06-24T09:00:00Z",
+                        url: "https://github.com/frostney/tool/pull/7",
+                        reviewDecision: "CHANGES_REQUESTED",
+                        statusCheckRollup: {
+                          state: "FAILURE",
+                          contexts: { nodes: [{ conclusion: "FAILURE" }] },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
             },
           ]),
         };
       },
     );
 
-    expect(calls[0]).toEqual([
-      "gh",
-      "pr",
-      "list",
-      "--repo",
-      "frostney/tool",
-      "--state",
-      "open",
-      "--limit",
-      "100",
-      "--json",
-      "number,title,author,isDraft,state,headRefName,baseRefName,updatedAt,url,reviewDecision,statusCheckRollup",
-    ]);
+    expect(calls[0]?.argv.slice(0, 5)).toEqual(["gh", "api", "graphql", "--paginate", "--slurp"]);
+    expect(calls[0]?.argv).toContain("owner=frostney");
+    expect(calls[0]?.argv).toContain("name=tool");
+    expect(calls[0]?.argv.find((arg) => arg.startsWith("query="))).toContain("pullRequests");
+    expect(calls[0]?.timeoutMs).toBe(15_000);
     expect(pullRequests[0]).toMatchObject({
       owner: "frostney",
       repo: "tool",
@@ -318,12 +326,55 @@ describe("github context wrappers", () => {
     });
   });
 
+  test("collects paginated open pull request pages", async () => {
+    const pullRequests = await listOpenPullRequestsForRepoWithRunner("frostney/tool", async () => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: JSON.stringify([
+        {
+          data: {
+            repository: {
+              pullRequests: {
+                nodes: [
+                  {
+                    number: 1,
+                    title: "Older page",
+                    updatedAt: "2026-06-23T09:00:00Z",
+                    statusCheckRollup: { state: "SUCCESS", contexts: { nodes: [] } },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        {
+          data: {
+            repository: {
+              pullRequests: {
+                nodes: [
+                  {
+                    number: 2,
+                    title: "Newer page",
+                    updatedAt: "2026-06-24T09:00:00Z",
+                    statusCheckRollup: { state: "SUCCESS", contexts: { nodes: [] } },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      ]),
+    }));
+
+    expect(pullRequests.map((pullRequest) => pullRequest.number)).toEqual([2, 1]);
+  });
+
   test("normalizes empty pull request lists", async () => {
     await expect(
       listOpenPullRequestsForRepoWithRunner("frostney/tool", async () => ({
         exitCode: 0,
         stderr: "",
-        stdout: "[]",
+        stdout: JSON.stringify([{ data: { repository: { pullRequests: { nodes: [] } } } }]),
       })),
     ).resolves.toEqual([]);
   });

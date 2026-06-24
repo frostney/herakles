@@ -42,11 +42,27 @@ type GhPullRequest = {
   updatedAt?: string;
   url?: string;
   reviewDecision?: string | null;
-  statusCheckRollup?: Array<{
-    conclusion?: string | null;
-    state?: string | null;
-    status?: string | null;
-  }>;
+  statusCheckRollup?: GhStatusCheckRollup;
+};
+
+type GhStatusCheck = {
+  conclusion?: string | null;
+  state?: string | null;
+  status?: string | null;
+};
+
+type GhStatusCheckRollup =
+  | { contexts?: { nodes?: GhStatusCheck[] }; nodes?: GhStatusCheck[]; state?: string | null }
+  | GhStatusCheck[];
+
+type GhPullRequestPage = {
+  data?: {
+    repository?: {
+      pullRequests?: {
+        nodes?: GhPullRequest[];
+      };
+    };
+  };
 };
 
 type GhLanguage = {
@@ -69,6 +85,7 @@ type ListGitHubRepositoriesOptions = {
 };
 
 const GH_ENRICH_CONCURRENCY = 8;
+const GH_PULL_REQUEST_TIMEOUT_MS = 15_000;
 function topicNames(topics: GhRepo["repositoryTopics"]): string[] {
   if (!topics) return [];
   return topics.map((topic) => (typeof topic === "string" ? topic : topic.name)).filter(Boolean);
@@ -172,21 +189,24 @@ export async function listOpenPullRequestsForRepoWithRunner(
 ): Promise<
   Array<Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState">>
 > {
-  const result = await runner([
-    "gh",
-    "pr",
-    "list",
-    "--repo",
-    repo,
-    "--state",
-    "open",
-    "--limit",
-    "100",
-    "--json",
-    pullRequestFields().join(","),
-  ]);
   const [owner, name] = splitOwnerRepo(repo);
-  return (JSON.parse(result.stdout) as GhPullRequest[])
+  const result = await runner(
+    [
+      "gh",
+      "api",
+      "graphql",
+      "--paginate",
+      "--slurp",
+      "-f",
+      `owner=${owner}`,
+      "-f",
+      `name=${name}`,
+      "-f",
+      `query=${pullRequestQuery()}`,
+    ],
+    { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
+  );
+  return pullRequestNodes(result.stdout)
     .map((pullRequest) => normalizePullRequest(owner, name, pullRequest))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.number - b.number);
 }
@@ -550,11 +570,15 @@ function normalizeReviewStatus(value: string | null | undefined): PullRequestRev
 }
 
 function normalizeCheckStatus(checks: GhPullRequest["statusCheckRollup"]): PullRequestCheckStatus {
-  if (!checks || checks.length === 0) return "unknown";
-  const states = checks
-    .flatMap((check) => [check.conclusion, check.state, check.status])
+  const nodes = Array.isArray(checks) ? checks : (checks?.contexts?.nodes ?? checks?.nodes ?? []);
+  const rollupState = Array.isArray(checks) ? undefined : checks?.state;
+  const states = [
+    rollupState,
+    ...nodes.flatMap((check) => [check.conclusion, check.state, check.status]),
+  ]
     .filter((state): state is string => Boolean(state))
     .map((state) => state.toUpperCase());
+  if (states.length === 0) return "unknown";
   if (
     states.some((state) =>
       ["FAILURE", "FAILED", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "CANCELLED"].includes(state),
@@ -583,18 +607,47 @@ function splitOwnerRepo(repo: string): [string, string] {
   return [owner, name];
 }
 
-function pullRequestFields(): string[] {
-  return [
-    "number",
-    "title",
-    "author",
-    "isDraft",
-    "state",
-    "headRefName",
-    "baseRefName",
-    "updatedAt",
-    "url",
-    "reviewDecision",
-    "statusCheckRollup",
-  ];
+function pullRequestNodes(stdout: string): GhPullRequest[] {
+  const parsed = JSON.parse(stdout) as GhPullRequestPage | GhPullRequestPage[];
+  const pages = Array.isArray(parsed) ? parsed : [parsed];
+  return pages.flatMap((page) => page.data?.repository?.pullRequests?.nodes ?? []);
+}
+
+function pullRequestQuery(): string {
+  return `query($owner: String!, $name: String!, $endCursor: String) {
+    repository(owner: $owner, name: $name) {
+      pullRequests(first: 100, after: $endCursor, states: OPEN, orderBy: { field: UPDATED_AT, direction: DESC }) {
+        nodes {
+          number
+          title
+          author { login }
+          isDraft
+          state
+          headRefName
+          baseRefName
+          updatedAt
+          url
+          reviewDecision
+          statusCheckRollup {
+            state
+            contexts(first: 100) {
+              nodes {
+                ... on CheckRun {
+                  conclusion
+                  status
+                }
+                ... on StatusContext {
+                  state
+                }
+              }
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }`;
 }

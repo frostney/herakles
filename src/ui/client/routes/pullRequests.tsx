@@ -1,5 +1,5 @@
 import { RefreshCcw, Star } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   ProjectState,
   PullRequestCheckStatus,
@@ -32,28 +32,42 @@ import { assets, ui } from "../shared/styles";
 
 export function PullRequests() {
   const [data, refresh] = useResource(getPullRequests);
+  const [lastReadyData, setLastReadyData] = useState<PullRequestCollection>();
   const [filters, setFilters] = useState<PullRequestFilterState>(defaultPullRequestFilters);
+  useEffect(() => {
+    if (data.status === "ready") setLastReadyData(data.data);
+  }, [data]);
+  const visibleData = data.status === "ready" ? data.data : lastReadyData;
+  const refreshing = data.status === "loading" && visibleData !== undefined;
   const filtered = useMemo(
-    () => (data.status === "ready" ? filterPullRequests(data.data.pullRequests, filters) : []),
-    [data, filters],
+    () => (visibleData ? filterPullRequests(visibleData.pullRequests, filters) : []),
+    [filters, visibleData],
   );
   return (
     <Screen
       title="Pull Requests"
       subtitle="Review open work across tracked hosted projects"
       actions={
-        <IconButton
-          label="Refresh"
-          onClick={() => refresh(() => getPullRequests({ refresh: true }))}
-          icon={<RefreshCcw size={16} />}
-        />
+        <>
+          {refreshing ? <output className={ui.muted}>Refreshing...</output> : null}
+          <IconButton
+            label="Refresh"
+            onClick={() => refresh(() => getPullRequests({ refresh: true }))}
+            icon={<RefreshCcw size={16} />}
+          />
+        </>
       }
     >
-      {data.status === "ready" ? (
+      {visibleData ? (
         <>
-          <PullRequestOverview data={data.data} />
-          <PullRequestFilters data={data.data} filters={filters} onFilters={setFilters} />
-          <PullRequestFailurePanel failures={data.data.failures} />
+          <PullRequestOverview data={visibleData} />
+          <PullRequestFilters data={visibleData} filters={filters} onFilters={setFilters} />
+          <PullRequestFailurePanel failures={visibleData.failures} />
+          {data.status === "error" ? (
+            <Panel title="Refresh Failed" actions={<Badge tone="danger">error</Badge>}>
+              <p className={ui.muted}>{data.error}</p>
+            </Panel>
+          ) : null}
           <PullRequestTable pullRequests={filtered} />
         </>
       ) : (
@@ -249,7 +263,7 @@ function PullRequestTable({ pullRequests }: { pullRequests: PullRequestSummary[]
                     aria-label="Starred project"
                   />
                 ) : null}
-                <a className={ui.link} href={pullRequest.url}>
+                <a className={ui.link} href={pullRequest.url} target="_blank" rel="noreferrer">
                   #{pullRequest.number} {pullRequest.title}
                 </a>
               </div>
