@@ -13,8 +13,8 @@ import {
   type PullRequestFilterState,
   defaultPullRequestFilters,
   filterPullRequests,
+  pullRequestProjectOptions,
   uniquePullRequestAuthors,
-  uniquePullRequestProjects,
 } from "../pullRequestFilters";
 import {
   Badge,
@@ -85,7 +85,10 @@ function PullRequestFilters({
   filters: PullRequestFilterState;
   onFilters: (filters: PullRequestFilterState) => void;
 }) {
-  const projects = uniquePullRequestProjects(data.pullRequests);
+  const projects = pullRequestProjectOptions(data.pullRequests);
+  const projectLabels = Object.fromEntries(
+    projects.map((project) => [project.value, project.label]),
+  );
   const authors = uniquePullRequestAuthors(data.pullRequests);
   const lifecycles: Array<ProjectState | "all"> = [
     "all",
@@ -125,7 +128,8 @@ function PullRequestFilters({
         <PullRequestSelect
           label="Project"
           value={filters.project}
-          values={["all", ...projects]}
+          values={["all", ...projects.map((project) => project.value)]}
+          labels={projectLabels}
           onChange={(project) => onFilters({ ...filters, project })}
         />
         <PullRequestSelect
@@ -167,11 +171,13 @@ function PullRequestSelect<T extends string>({
   label,
   value,
   values,
+  labels = {},
   onChange,
 }: {
   label: string;
   value: T;
   values: readonly T[];
+  labels?: Record<string, string>;
   onChange: (value: T) => void;
 }) {
   return (
@@ -184,7 +190,7 @@ function PullRequestSelect<T extends string>({
       >
         {values.map((candidate) => (
           <option value={candidate} key={candidate}>
-            {pullRequestFilterLabel(candidate)}
+            {labels[candidate] ?? pullRequestFilterLabel(candidate)}
           </option>
         ))}
       </select>
@@ -204,7 +210,7 @@ function PullRequestFailurePanel({
         {failures.map((failure) => (
           <article className={ui.listRow} key={failure.projectId}>
             <div className={ui.listRowMain}>
-              <strong className={ui.listTitle}>{failure.projectSlug}</strong>
+              <strong className={ui.listTitle}>{pullRequestRepoName(failure.repo)}</strong>
               <span className={ui.muted}>{failure.message}</span>
             </div>
             <span className={ui.mono}>{failure.repo}</span>
@@ -239,7 +245,7 @@ function PullRequestTable({ pullRequests }: { pullRequests: PullRequestSummary[]
           </td>
           <td>
             <div className="grid gap-1">
-              <strong>{pullRequest.projectSlug}</strong>
+              <strong>{pullRequest.repo}</strong>
               <span className={ui.mono}>
                 {pullRequest.owner}/{pullRequest.repo}
               </span>
@@ -281,6 +287,10 @@ function pullRequestFilterLabel(value: string): string {
     .split("-")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function pullRequestRepoName(repo: string): string {
+  return repo.split("/").pop() || repo;
 }
 
 function pullRequestReviewTone(status: PullRequestReviewStatus): BadgeTone {

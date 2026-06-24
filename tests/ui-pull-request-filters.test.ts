@@ -3,6 +3,7 @@ import type { PullRequestSummary } from "../src/domain";
 import {
   defaultPullRequestFilters,
   filterPullRequests,
+  pullRequestProjectOptions,
   uniquePullRequestAuthors,
   uniquePullRequestProjects,
 } from "../src/ui/client/pullRequestFilters";
@@ -71,12 +72,16 @@ describe("pull request filters", () => {
 
   test("summarizes distinct projects and authors", () => {
     const rows = [
-      pullRequest({ projectSlug: "b", author: "zoe" }),
-      pullRequest({ projectSlug: "a", author: "amy" }),
-      pullRequest({ projectSlug: "b", author: "amy" }),
+      pullRequest({ projectSlug: "b", owner: "frostney", repo: "bravo", author: "zoe" }),
+      pullRequest({ projectSlug: "a", owner: "signalovernoise-ai", repo: "app", author: "amy" }),
+      pullRequest({ projectSlug: "b", owner: "frostney", repo: "bravo", author: "amy" }),
     ];
 
     expect(uniquePullRequestProjects(rows)).toEqual(["a", "b"]);
+    expect(pullRequestProjectOptions(rows)).toEqual([
+      { value: "b", label: "frostney/bravo" },
+      { value: "a", label: "signalovernoise-ai/app" },
+    ]);
     expect(uniquePullRequestAuthors(rows)).toEqual(["amy", "zoe"]);
   });
 });

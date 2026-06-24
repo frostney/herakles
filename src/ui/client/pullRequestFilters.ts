@@ -26,6 +26,11 @@ export const defaultPullRequestFilters: PullRequestFilterState = {
   checks: "all",
 };
 
+export type PullRequestProjectOption = {
+  value: string;
+  label: string;
+};
+
 export function filterPullRequests(
   pullRequests: readonly PullRequestSummary[],
   filters: PullRequestFilterState,
@@ -65,4 +70,21 @@ export function uniquePullRequestAuthors(pullRequests: readonly PullRequestSumma
 
 export function uniquePullRequestProjects(pullRequests: readonly PullRequestSummary[]): string[] {
   return [...new Set(pullRequests.map((pullRequest) => pullRequest.projectSlug))].sort();
+}
+
+export function pullRequestProjectOptions(
+  pullRequests: readonly PullRequestSummary[],
+): PullRequestProjectOption[] {
+  const options = new Map<string, string>();
+  for (const pullRequest of pullRequests) {
+    if (!options.has(pullRequest.projectSlug)) {
+      options.set(pullRequest.projectSlug, `${pullRequest.owner}/${pullRequest.repo}`);
+    }
+  }
+  return [...options.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort(
+      (left, right) =>
+        left.label.localeCompare(right.label) || left.value.localeCompare(right.value),
+    );
 }
