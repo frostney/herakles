@@ -39,6 +39,12 @@ The UI should call typed API routes and shared services. It should not duplicate
 
 API routes should expose Herakles operations, not generic shell execution.
 
+Project action buttons should be narrow typed operations with bounded targets and validated destinations. Opening a repository in the filesystem, GitHub, Codex, or a terminal is allowed as an explicit app-launch operation; the UI should not grow arbitrary command execution or unvalidated local path handling.
+
+Workspace-derived assets such as project icons must be served only from validated project paths inside the Herakles Workspace and must not follow symlinked files outside that boundary.
+
+Any operation that moves repositories or serves workspace files must validate containment against real filesystem paths, not only lexical path prefixes.
+
 ## Testing
 
 Add focused tests near the behavior surface being changed:

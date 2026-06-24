@@ -45,6 +45,10 @@ Spin up is a workspace-level flow, not a per-project checkout action. Add Projec
 A Herakles Workspace state where synced configuration expects lifecycle folders or hosted project folders that are missing, stale, misplaced, or blocked by conflicts on disk. Drift is surfaced as a blocking message that shows the exact mismatch and offers the right workspace recovery action or a local ignore.
 _Avoid_: Sync mismatch, checkout task
 
+**Canonical Checkout Path**:
+The derived local path where Herakles expects a project repository to live inside a Herakles Workspace, based on lifecycle state, optional project group, and repository name.
+_Avoid_: Expected path, target path, configured path
+
 **Scaffold from Configuration**:
 The user-facing action that makes a fresh Herakles Workspace with synced configuration but no matching local structure create its expected lifecycle folders and hosted project folders.
 _Avoid_: Run Up, Apply Config
