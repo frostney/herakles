@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { appendFile, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
@@ -123,6 +124,45 @@ repo = ${JSON.stringify(repo)}
   );
 }
 
+async function createGitCheckout(path: string, remote: string) {
+  await mkdir(join(path, ".git"), { recursive: true });
+  await writeFile(join(path, ".git", "HEAD"), "ref: refs/heads/main\n");
+  await writeFile(
+    join(path, ".git", "config"),
+    `[remote "origin"]
+  url = ${remote}
+`,
+  );
+}
+
+async function hostedPathMismatchWorkspace() {
+  const workspaceRoot = await tempWorkspace();
+  await configureGithubOwner(workspaceRoot);
+  await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
+  const duplicatePath = join(workspaceRoot, "experiment", "old-public-tool");
+  const canonicalPath = join(workspaceRoot, "open-source", "public-tool");
+  await createGitCheckout(duplicatePath, "git@github.com:frostney/public-tool.git");
+  return { workspaceRoot, duplicatePath, canonicalPath };
+}
+
+async function resolveCanonicalPathRoute(workspaceRoot: string) {
+  const response = await routeApi(
+    new Request("http://x/api/projects/resolve-canonical-path", {
+      method: "POST",
+      body: JSON.stringify({ projectId: "github:frostney/public-tool" }),
+    }),
+    { workspaceRoot },
+  );
+  return { response, body: await response?.json() };
+}
+
+async function expectCanonicalPathResolutionError(workspaceRoot: string, message: string) {
+  const { response, body } = await resolveCanonicalPathRoute(workspaceRoot);
+
+  expect(response?.status).toBe(500);
+  expect(body.error).toContain(message);
+}
+
 describe("api routes", () => {
   test("streams API events for long-running operations", async () => {
     const workspaceRoot = await tempWorkspace();
@@ -187,7 +227,7 @@ describe("api routes", () => {
     expect(content).toContain("Check dry-run output");
   });
 
-  test("serves strict validation for remote archive evidence checks", async () => {
+  test("serves strict validation with hosted archive evidence from GitHub archives", async () => {
     const workspaceRoot = await tempWorkspace();
     await writeFile(
       join(workspaceRoot, "_herakles", "herakles.toml"),
@@ -208,9 +248,9 @@ owners = ["frostney"]
       expect(relaxed?.status).toBe(200);
       expect(strict?.status).toBe(200);
       expect(relaxedBody.valid).toBe(true);
-      expect(relaxedBody.issues[0].severity).toBe("warning");
-      expect(strictBody.valid).toBe(false);
-      expect(strictBody.issues[0].severity).toBe("error");
+      expect(relaxedBody.issues).toEqual([]);
+      expect(strictBody.valid).toBe(true);
+      expect(strictBody.issues).toEqual([]);
     });
   });
 
@@ -326,6 +366,199 @@ exit 1
     );
   });
 
+  test("serves project icons from common project asset paths", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await addLocalGitProject(workspaceRoot, "scratch");
+    await writeFile(join(workspaceRoot, "experiment", "scratch", "logo.svg"), "<svg></svg>");
+
+    const response = await routeApi(new Request("http://x/api/project-icons/local%3Ascratch"), {
+      workspaceRoot,
+    });
+
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("content-type")).toBe("image/svg+xml");
+    expect(await response?.text()).toBe("<svg></svg>");
+  });
+
+  test("rejects malformed project icon path encoding", async () => {
+    const workspaceRoot = await tempWorkspace();
+    const response = await routeApi(new Request("http://x/api/project-icons/%"), {
+      workspaceRoot,
+    });
+
+    expect(response?.status).toBe(400);
+    expect(await response?.json()).toEqual({ error: "invalid path encoding" });
+  });
+
+  test("does not serve project icons through symlinked files", async () => {
+    const workspaceRoot = await tempWorkspace();
+    const outsideRoot = await mkdtemp(join(tmpdir(), "herakles-outside-icon-"));
+    await addLocalGitProject(workspaceRoot, "scratch");
+    await writeFile(join(outsideRoot, "logo.svg"), "<svg>outside</svg>");
+    await symlink(
+      join(outsideRoot, "logo.svg"),
+      join(workspaceRoot, "experiment", "scratch", "logo.svg"),
+    );
+
+    const response = await routeApi(new Request("http://x/api/project-icons/local%3Ascratch"), {
+      workspaceRoot,
+    });
+
+    expect(response?.status).toBe(404);
+  });
+
+  test("returns not found for projects without icons", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await addLocalGitProject(workspaceRoot, "scratch");
+
+    const response = await routeApi(new Request("http://x/api/project-icons/local%3Ascratch"), {
+      workspaceRoot,
+    });
+
+    expect(response?.status).toBe(404);
+  });
+
+  test("opens local project targets through explicit app launch routes", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await addLocalGitProject(workspaceRoot, "scratch");
+    const projectPath = join(workspaceRoot, "experiment", "scratch");
+
+    await withFakeProjectLaunchers(async (logPath) => {
+      const filesystem = await routeApi(
+        new Request("http://x/api/projects/open", {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: "local:scratch",
+            target: "filesystem",
+            destination: projectPath,
+          }),
+        }),
+        { workspaceRoot },
+      );
+      const codex = await routeApi(
+        new Request("http://x/api/projects/open", {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: "local:scratch",
+            target: "codex",
+            destination: projectPath,
+          }),
+        }),
+        { workspaceRoot },
+      );
+      const terminal = await routeApi(
+        new Request("http://x/api/projects/open", {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: "local:scratch",
+            target: "terminal",
+            destination: projectPath,
+          }),
+        }),
+        { workspaceRoot },
+      );
+
+      expect(filesystem?.status).toBe(200);
+      expect(codex?.status).toBe(200);
+      expect(terminal?.status).toBe(200);
+      expect(await filesystem?.json()).toMatchObject({
+        projectId: "local:scratch",
+        target: "filesystem",
+        destination: projectPath,
+        opened: true,
+      });
+      expect(await codex?.json()).toMatchObject({
+        projectId: "local:scratch",
+        target: "codex",
+        destination: projectPath,
+        opened: true,
+      });
+      expect(await terminal?.json()).toMatchObject({
+        projectId: "local:scratch",
+        target: "terminal",
+        destination: projectPath,
+        opened: true,
+      });
+      const log = await waitForLogContainsAll(logPath, [
+        `${platformOpenCommand()} ${projectPath}`,
+        `codex app ${projectPath}`,
+        platformTerminalOpenLog(projectPath),
+      ]);
+      expect(log).toContain(`${platformOpenCommand()} ${projectPath}`);
+      expect(log).toContain(`codex app ${projectPath}`);
+      expect(log).toContain(platformTerminalOpenLog(projectPath));
+    });
+  });
+
+  test("opens hosted project GitHub URLs through explicit app launch routes", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await withTrackedPublicTool(workspaceRoot, async () => {
+      await withFakeProjectLaunchers(async (logPath) => {
+        const response = await routeApi(
+          new Request("http://x/api/projects/open", {
+            method: "POST",
+            body: JSON.stringify({
+              projectId: "github:frostney/public-tool",
+              target: "github",
+              destination: "https://github.com/frostney/public-tool",
+            }),
+          }),
+          { workspaceRoot },
+        );
+
+        expect(response?.status).toBe(200);
+        expect(await response?.json()).toMatchObject({
+          projectId: "github:frostney/public-tool",
+          target: "github",
+          destination: "https://github.com/frostney/public-tool",
+          opened: true,
+        });
+        const log = await waitForLogContains(
+          logPath,
+          platformUrlOpenLog("https://github.com/frostney/public-tool"),
+        );
+        expect(log).toContain(platformUrlOpenLog("https://github.com/frostney/public-tool"));
+      });
+    });
+  });
+
+  test("rejects project open destinations outside the explicit target boundary", async () => {
+    const workspaceRoot = await tempWorkspace();
+    const outsideWorkspace = join(tmpdir(), "outside-herakles-workspace");
+
+    const filesystem = await routeApi(
+      new Request("http://x/api/projects/open", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: "local:scratch",
+          target: "filesystem",
+          destination: outsideWorkspace,
+        }),
+      }),
+      { workspaceRoot },
+    );
+    const github = await routeApi(
+      new Request("http://x/api/projects/open", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: "github:frostney/public-tool",
+          target: "github",
+          destination: "https://example.com/frostney/public-tool",
+        }),
+      }),
+      { workspaceRoot },
+    );
+
+    expect(filesystem?.status).toBe(400);
+    expect(await filesystem?.json()).toEqual({
+      error: `Project destination must stay inside the workspace: ${outsideWorkspace}`,
+    });
+    expect(github?.status).toBe(400);
+    expect(await github?.json()).toEqual({
+      error: "Unsupported GitHub destination: https://example.com/frostney/public-tool",
+    });
+  });
+
   test("refreshes project discovery through the API", async () => {
     const workspaceRoot = await tempWorkspace();
     await addLocalGitProject(workspaceRoot, "scratch");
@@ -338,6 +571,51 @@ exit 1
 
     expect(response?.status).toBe(200);
     expect(body.local.map((repo: { name: string }) => repo.name)).toEqual(["scratch"]);
+  });
+
+  test("resolves hosted clone path mismatches by moving the checkout to the canonical path", async () => {
+    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+
+    await withFakeGhRepo({ name: "public-tool" }, async () => {
+      const { response, body } = await resolveCanonicalPathRoute(workspaceRoot);
+
+      expect(response?.status).toBe(200);
+      expect(body).toMatchObject({
+        projectId: "github:frostney/public-tool",
+        from: duplicatePath,
+        to: canonicalPath,
+        moved: true,
+      });
+      expect(existsSync(duplicatePath)).toBe(false);
+      expect(existsSync(canonicalPath)).toBe(true);
+    });
+  });
+
+  test("refuses to resolve hosted clone path mismatches over an existing canonical path", async () => {
+    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    await mkdir(canonicalPath, { recursive: true });
+
+    await withFakeGhRepo({ name: "public-tool" }, async () => {
+      await expectCanonicalPathResolutionError(
+        workspaceRoot,
+        "Canonical checkout path already exists",
+      );
+      expect(existsSync(duplicatePath)).toBe(true);
+    });
+  });
+
+  test("refuses to resolve hosted clone paths through symlinked canonical ancestors", async () => {
+    const { workspaceRoot, duplicatePath } = await hostedPathMismatchWorkspace();
+    const outsideRoot = await mkdtemp(join(tmpdir(), "herakles-outside-canonical-"));
+    await symlink(outsideRoot, join(workspaceRoot, "open-source"));
+
+    await withFakeGhRepo({ name: "public-tool" }, async () => {
+      await expectCanonicalPathResolutionError(
+        workspaceRoot,
+        "Refusing to move checkout outside workspace",
+      );
+      expect(existsSync(duplicatePath)).toBe(true);
+    });
   });
 
   test("project config plan route validates required project selector", async () => {
@@ -451,6 +729,7 @@ owners = ["frostney"]
         state: "commercial",
         group: "clients",
         tags: ["paid"],
+        pinned: true,
         force: true,
       });
 
@@ -458,6 +737,7 @@ owners = ["frostney"]
       expect(body.toml).toContain('state = "commercial"');
       expect(body.toml).toContain('group = "clients"');
       expect(body.toml).toContain('tags = ["paid"]');
+      expect(body.toml).toContain("pinned = true");
       expect(body.validation.valid).toBe(true);
     });
   });
@@ -481,6 +761,7 @@ owners = ["frostney"]
       state: "commercial",
       group: "clients",
       tags: ["paid"],
+      pinned: true,
       force: true,
     });
     const automationPayload = automationJobBodySchema.parse({
@@ -500,6 +781,7 @@ owners = ["frostney"]
       state: "commercial",
       group: "clients",
       tags: ["paid"],
+      pinned: true,
     });
     expect(automationJobConfigChangesFromPayload(automationPayload)).toEqual({
       schedule: "0 9 * * 1",
@@ -782,6 +1064,61 @@ echo "created"
   } finally {
     process.env.PATH = previousPath;
   }
+}
+
+async function withFakeProjectLaunchers(run: (logPath: string) => Promise<void>) {
+  const bin = await mkdtemp(join(tmpdir(), "herakles-project-open-"));
+  const logPath = join(bin, "open.log");
+  const script = `#!/bin/sh
+echo "$(basename "$0") $*" >> ${JSON.stringify(logPath)}
+`;
+  for (const command of ["open", "xdg-open", "x-terminal-emulator", "explorer", "cmd", "codex"]) {
+    await writeFile(join(bin, command), script);
+    await chmod(join(bin, command), 0o755);
+  }
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    await run(logPath);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+}
+
+async function waitForLogContains(logPath: string, text: string) {
+  return waitForLogContainsAll(logPath, [text]);
+}
+
+async function waitForLogContainsAll(logPath: string, texts: string[]) {
+  const deadline = Date.now() + 2000;
+  let last = "";
+  while (Date.now() < deadline) {
+    try {
+      last = await readFile(logPath, "utf8");
+      if (texts.every((text) => last.includes(text))) return last;
+    } catch {
+      // The launcher process may not have created the log yet.
+    }
+    await Bun.sleep(25);
+  }
+  throw new Error(`Expected launcher log to contain ${texts.join(", ")}, saw: ${last}`);
+}
+
+function platformOpenCommand() {
+  if (process.platform === "darwin") return "open";
+  if (process.platform === "win32") return "explorer";
+  return "xdg-open";
+}
+
+function platformUrlOpenLog(url: string) {
+  if (process.platform === "win32") return `cmd /c start  ${url}`;
+  return `${platformOpenCommand()} ${url}`;
+}
+
+function platformTerminalOpenLog(path: string) {
+  if (process.platform === "darwin") return `open -a Terminal ${path}`;
+  if (process.platform === "win32") return `cmd /c start  cmd /k cd /d ${path}`;
+  return `x-terminal-emulator --working-directory ${path}`;
 }
 
 async function readSseEvents(

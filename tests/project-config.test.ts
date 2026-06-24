@@ -94,6 +94,27 @@ describe("project config plans", () => {
     expect(content).toContain('state = "candidate"');
   });
 
+  test("persists pinned project config only when starred", async () => {
+    const root = await tempWorkspace();
+    const loaded = await loadConfig(root);
+    const starred = createProjectConfigPlan(loaded, "paid-api", { pinned: true }, hostedProject());
+
+    await applyProjectConfigPlan(starred);
+    const starredContent = await readFile(join(root, "_herakles", "herakles.toml"), "utf8");
+    const unstarred = createProjectConfigPlan(
+      await loadConfig(root),
+      "paid-api",
+      { pinned: false },
+      { ...hostedProject(), pinned: true },
+    );
+
+    await applyProjectConfigPlan(unstarred);
+    const unstarredContent = await readFile(join(root, "_herakles", "herakles.toml"), "utf8");
+
+    expect(starredContent).toContain("pinned = true");
+    expect(unstarredContent).not.toContain("pinned = true");
+  });
+
   test("records allowed lifecycle transitions in project config plans", async () => {
     const root = await tempWorkspace();
     const loaded = await loadConfig(root);

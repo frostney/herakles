@@ -6,6 +6,8 @@ import type { HeraklesConfig } from "../config/schema";
 import type { ProjectDiscovery } from "../discovery";
 import type { GitHubRepository, LocalRepository, Project, ProjectState } from "../domain";
 import { matchesProjectFilter } from "../filters/project";
+import { readDefaultBranchBehind } from "./gitStatus";
+import { countProjectLines } from "./lineCounts";
 
 const archiveDescriptionPatterns = [
   /\bmoved to\b/i,
@@ -57,6 +59,9 @@ function archiveNoteFromHostedMetadata(repo: GitHubRepository): string | undefin
   if (homepage && repo.isArchived) {
     return `Moved or superseded: ${homepage}`;
   }
+  if (repo.isArchived) {
+    return "GitHub archive notice: repository is archived.";
+  }
   return undefined;
 }
 
@@ -77,7 +82,9 @@ export function resolveProjects(loaded: LoadedConfig, discovery: ProjectDiscover
     }
   }
 
-  return projects.sort((a, b) => a.slug.localeCompare(b.slug));
+  return projects.sort(
+    (a, b) => Number(b.pinned) - Number(a.pinned) || a.slug.localeCompare(b.slug),
+  );
 }
 
 function resolveGitHubProject(
@@ -92,6 +99,7 @@ function resolveGitHubProject(
   const state = repo.isArchived ? "archived" : (config.state ?? inferredState(loaded, repo));
   const projectPath = derivedProjectPath(loaded, state, config.group, repo.name);
   const learningPath = findLearningPath(loaded, projectPath, config.learning);
+  const lineCounts = countProjectLines(projectPath);
   const project: Project = {
     source: "github",
     id: `github:${repo.nameWithOwner}`,
@@ -103,10 +111,12 @@ function resolveGitHubProject(
     visibility: visibility(repo),
     state,
     archived: repo.isArchived || state === "archived",
-    pinned: false,
+    pinned: config.pinned,
     topics: repo.repositoryTopics,
     tags: config.tags ?? [],
     languages: repo.languages,
+    ...(repo.languageBreakdown === undefined ? {} : { languageBreakdown: repo.languageBreakdown }),
+    ...(lineCounts === undefined ? {} : { lineCounts }),
     hasRoadmap: hasAnyFile(projectPath, loaded.config.defaults.roadmap_files),
     up: false,
     automationEnabled: false,
@@ -157,10 +167,18 @@ function enrichGitHubProject(
   if (repo.url) project.url = repo.url;
   if (repo.primaryLanguage) project.primaryLanguage = repo.primaryLanguage;
   if (repo.defaultBranchRef) project.defaultBranchRef = repo.defaultBranchRef;
+  const defaultBranchBehindBy = readDefaultBranchBehind(project.path, repo.defaultBranchRef);
+  if (defaultBranchBehindBy !== undefined) project.defaultBranchBehindBy = defaultBranchBehindBy;
   if (learningPath) project.learningPath = learningPath;
   if (archiveNote) project.archiveNote = archiveNote;
   if (repo.description) project.description = repo.description;
+  if (repo.latestActivityAt) project.latestActivityAt = repo.latestActivityAt;
+  if (repo.mainlineCommittedAt) project.mainlineCommittedAt = repo.mainlineCommittedAt;
+  if (repo.pushedAt) project.pushedAt = repo.pushedAt;
   if (repo.updatedAt) project.updatedAt = repo.updatedAt;
+  if (repo.openPullRequests !== undefined) project.openPullRequests = repo.openPullRequests;
+  if (repo.draftPullRequests !== undefined) project.draftPullRequests = repo.draftPullRequests;
+  if (repo.openIssues !== undefined) project.openIssues = repo.openIssues;
 }
 
 function resolveLocalProject(
@@ -182,6 +200,7 @@ function resolveLocalProject(
     syntheticLocalRepo(loaded, configuredPath);
   const learningPath = findLearningPath(loaded, repo.path, config.learning);
   const resolvedState = config.state ?? loaded.config.defaults.state_for_local;
+  const lineCounts = countProjectLines(repo.path);
   const project: Project = {
     source: "local",
     id: `local:${repo.name}`,
@@ -192,10 +211,11 @@ function resolveLocalProject(
     visibility: null,
     state: resolvedState,
     archived: resolvedState === "archived",
-    pinned: false,
+    pinned: config.pinned,
     topics: [],
     tags: config.tags ?? [],
     languages: [],
+    ...(lineCounts === undefined ? {} : { lineCounts }),
     hasRoadmap: hasAnyFile(repo.path, loaded.config.defaults.roadmap_files),
     up: false,
     automationEnabled: false,

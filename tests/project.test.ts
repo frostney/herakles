@@ -162,6 +162,72 @@ repo = "frostney/private-hidden"
     expect(projects.find((project) => project.repo === "private-hidden")?.up).toBe(false);
   });
 
+  test("sorts pinned projects before the rest", async () => {
+    const root = await tempTrackedWorkspace(
+      "herakles-pinned-sort-",
+      `
+[project."regular-tool"]
+source = "github"
+repo = "frostney/regular-tool"
+
+[project."starred-tool"]
+source = "github"
+repo = "frostney/starred-tool"
+pinned = true
+`,
+    );
+    const projects = resolveProjects(await loadConfig(root), {
+      hosted: [
+        repo({
+          name: "regular-tool",
+          nameWithOwner: "frostney/regular-tool",
+          owner: "frostney",
+        }),
+        repo({
+          name: "starred-tool",
+          nameWithOwner: "frostney/starred-tool",
+          owner: "frostney",
+        }),
+      ],
+      local: [],
+      hostedClones: [],
+    });
+
+    expect(projects.map((project) => project.repo)).toEqual(["starred-tool", "regular-tool"]);
+    expect(projects[0]?.pinned).toBe(true);
+  });
+
+  test("resolved hosted projects include local checkout line counts", async () => {
+    const root = await tempTrackedWorkspace(
+      "herakles-project-line-counts-",
+      `
+[project."public-tool"]
+source = "github"
+repo = "frostney/public-tool"
+`,
+    );
+    const projectPath = join(root, "open-source", "public-tool");
+    await mkdir(join(projectPath, "src"), { recursive: true });
+    await writeFile(join(projectPath, "src", "index.ts"), "// setup\nexport const ok = true;\n");
+
+    const projects = resolveProjects(await loadConfig(root), {
+      hosted: [
+        repo({
+          name: "public-tool",
+          nameWithOwner: "frostney/public-tool",
+          owner: "frostney",
+        }),
+      ],
+      local: [],
+      hostedClones: [],
+    });
+
+    expect(projects.find((project) => project.repo === "public-tool")?.lineCounts).toEqual({
+      loc: 2,
+      sloc: 1,
+    });
+  });
+
   test("hosted clones at unexpected paths are validation-only up items", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-hosted-path-"));
     await mkdir(join(root, "_herakles"), { recursive: true });
@@ -239,6 +305,35 @@ repo = "alt/tool"
 [project."silent-archive"]
 source = "github"
 repo = "frostney/silent-archive"
+state = "archived"
+`,
+    );
+    const loaded = await loadConfig(root);
+    const projects = resolveProjects(loaded, {
+      hosted: [
+        repo({
+          name: "silent-archive",
+          nameWithOwner: "frostney/silent-archive",
+          owner: "frostney",
+          description: "Small CLI experiment.",
+        }),
+      ],
+      local: [],
+      hostedClones: [],
+    });
+
+    const validation = validateProjects(projects, { strict: true });
+    expect(validation.valid).toBe(false);
+    expect(validation.issues[0]?.code).toBe("missing-archive-note");
+  });
+
+  test("github archived repositories use the hosted archive notice as archive evidence", async () => {
+    const root = await tempTrackedWorkspace(
+      "herakles-hosted-archive-note-",
+      `
+[project."silent-archive"]
+source = "github"
+repo = "frostney/silent-archive"
 `,
     );
     const loaded = await loadConfig(root);
@@ -256,9 +351,12 @@ repo = "frostney/silent-archive"
       hostedClones: [],
     });
 
+    const archive = projects.find((project) => project.repo === "silent-archive");
     const validation = validateProjects(projects, { strict: true });
-    expect(validation.valid).toBe(false);
-    expect(validation.issues[0]?.code).toBe("missing-archive-note");
+
+    expect(archive?.state).toBe("archived");
+    expect(archive?.archiveNote).toBe("GitHub archive notice: repository is archived.");
+    expect(validation.valid).toBe(true);
   });
 
   test("missing archive learning evidence is a validation-only up item", async () => {
@@ -268,10 +366,11 @@ repo = "frostney/silent-archive"
 [project."silent-archive"]
 source = "github"
 repo = "frostney/silent-archive"
+state = "archived"
 `,
     );
 
-    await withFakeArchivedGhRepo(async () => {
+    await withFakeGhRepo(async () => {
       const plan = await loadUpPlan(root);
 
       expect(plan.items).toHaveLength(1);
@@ -383,6 +482,22 @@ cat <<'JSON'
 ${fakeGhRepositoryJson({
   name: "silent-archive",
   isArchived: true,
+  description: "Small CLI experiment.",
+})}
+JSON
+`,
+    run,
+  );
+}
+
+async function withFakeGhRepo(run: () => Promise<void>) {
+  await withFakeGhScript(
+    "herakles-gh-active-",
+    `#!/bin/sh
+cat <<'JSON'
+${fakeGhRepositoryJson({
+  name: "silent-archive",
+  isArchived: false,
   description: "Small CLI experiment.",
 })}
 JSON

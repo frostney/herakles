@@ -6,6 +6,18 @@ export type ProjectState = "experiment" | "candidate" | "commercial" | "open-sou
 
 export type UpAction = "clone" | "fetch" | "skip" | "validate";
 
+export type ProjectLanguage = {
+  name: string;
+  size: number;
+};
+
+export type ProjectLineCounts = {
+  loc: number;
+  sloc: number;
+};
+
+export type ProjectOpenTarget = "filesystem" | "github" | "codex" | "terminal";
+
 export type GitHubRepository = {
   name: string;
   nameWithOwner: string;
@@ -18,11 +30,17 @@ export type GitHubRepository = {
   repositoryTopics: string[];
   primaryLanguage?: string;
   languages: string[];
+  languageBreakdown?: ProjectLanguage[];
   defaultBranchRef?: string;
   description?: string;
   homepageUrl?: string;
+  latestActivityAt?: string;
+  mainlineCommittedAt?: string;
   pushedAt?: string;
   updatedAt?: string;
+  openPullRequests?: number;
+  draftPullRequests?: number;
+  openIssues?: number;
 };
 
 export type LocalRepository = {
@@ -49,14 +67,32 @@ export type Project = {
   tags: string[];
   primaryLanguage?: string;
   languages: string[];
+  languageBreakdown?: ProjectLanguage[];
+  lineCounts?: ProjectLineCounts;
   defaultBranchRef?: string;
+  defaultBranchBehindBy?: number;
   hasRoadmap: boolean;
   learningPath?: string;
   archiveNote?: string;
   up: boolean;
   automationEnabled: boolean;
   description?: string;
+  latestActivityAt?: string;
+  mainlineCommittedAt?: string;
+  pushedAt?: string;
   updatedAt?: string;
+  openPullRequests?: number;
+  draftPullRequests?: number;
+  openIssues?: number;
+};
+
+export type ProjectDefaultBranchSyncResult = {
+  projectId: string;
+  branch: string;
+  status: "done" | "skipped" | "failed";
+  message: string;
+  behindBefore?: number;
+  behindAfter?: number;
 };
 
 export type PullRequestReviewStatus =

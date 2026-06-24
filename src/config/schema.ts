@@ -64,6 +64,7 @@ export const projectConfigSchema = z
     state: projectStateSchema.optional(),
     tags: z.array(z.string()).default([]),
     learning: relativePathSchema.optional(),
+    pinned: z.boolean().default(false),
   })
   .strict();
 
