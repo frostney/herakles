@@ -1,4 +1,4 @@
-import { RefreshCcw } from "lucide-react";
+import { RefreshCcw, Star } from "lucide-react";
 import { useMemo, useState } from "react";
 import type {
   ProjectState,
@@ -241,9 +241,18 @@ function PullRequestTable({ pullRequests }: { pullRequests: PullRequestSummary[]
         <tr key={`${pullRequest.projectId}-${pullRequest.number}`}>
           <td>
             <div className="grid gap-1">
-              <a className={ui.link} href={pullRequest.url}>
-                #{pullRequest.number} {pullRequest.title}
-              </a>
+              <div className="flex items-start gap-2">
+                {pullRequest.projectPinned ? (
+                  <Star
+                    size={14}
+                    className="mt-0.5 shrink-0 fill-current text-[var(--primary)]"
+                    aria-label="Starred project"
+                  />
+                ) : null}
+                <a className={ui.link} href={pullRequest.url}>
+                  #{pullRequest.number} {pullRequest.title}
+                </a>
+              </div>
               <span className={ui.mono}>
                 {pullRequest.branch || "unknown"} {"->"} {pullRequest.baseBranch || "unknown"}
               </span>
