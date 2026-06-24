@@ -11,13 +11,15 @@ export const EventContext = createContext<HeraklesEvent | undefined>(undefined);
 const themeStorageKey = "herakles.workbenchTheme.v1";
 type ThemePreference = "dark" | "light";
 
-export function useResource<T>(loader: () => Promise<T>): [Loadable<T>, () => void] {
+export function useResource<T>(
+  loader: () => Promise<T>,
+): [Loadable<T>, (loaderOverride?: () => Promise<T>) => void] {
   const [state, setState] = useState<Loadable<T>>({ status: "loading" });
   const requestIdRef = useRef(0);
-  const refresh = () => {
+  const refresh = (loaderOverride?: () => Promise<T>) => {
     const requestId = ++requestIdRef.current;
     setState({ status: "loading" });
-    loader()
+    (loaderOverride ?? loader)()
       .then((data) => {
         if (requestId === requestIdRef.current) setState({ status: "ready", data });
       })

@@ -52,6 +52,11 @@ owners = ["frostney"]
   );
 }
 
+async function prListCalls(path: string): Promise<string[]> {
+  if (!existsSync(path)) return [];
+  return (await readFile(path, "utf8")).split("\n").filter(Boolean);
+}
+
 async function withFakeGhRepo(
   repo: { name: string; isArchived?: boolean },
   run: () => Promise<void>,
@@ -313,6 +318,7 @@ prompt = "Summarize the workspace."
 
   test("serves open pull requests for tracked hosted projects with partial failures", async () => {
     const workspaceRoot = await tempWorkspace();
+    const ghLogPath = join(workspaceRoot, "gh.log");
     await addLocalGitProject(workspaceRoot, "scratch");
     await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
     await trackHostedProject(workspaceRoot, "broken-tool", "frostney/broken-tool");
@@ -329,6 +335,9 @@ fi
 if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
 echo "repo unavailable" >&2
 exit 1
+fi
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+echo "$@" >> "${ghLogPath}"
 fi
 if [ "$1" = "pr" ] && [ "$2" = "list" ] && [ "$4" = "frostney/public-tool" ]; then
 cat <<'JSON'
@@ -362,6 +371,23 @@ exit 1
             repo: "frostney/broken-tool",
           }),
         ]);
+
+        expect(await prListCalls(ghLogPath)).toHaveLength(2);
+        expect(existsSync(join(workspaceRoot, "_herakles", "cache", "pull-requests.json"))).toBe(
+          true,
+        );
+
+        const cached = await routeApi(new Request("http://x/api/pull-requests"), {
+          workspaceRoot,
+        });
+        expect(cached?.status).toBe(200);
+        expect(await prListCalls(ghLogPath)).toHaveLength(2);
+
+        const refreshed = await routeApi(new Request("http://x/api/pull-requests?refresh=true"), {
+          workspaceRoot,
+        });
+        expect(refreshed?.status).toBe(200);
+        expect(await prListCalls(ghLogPath)).toHaveLength(4);
       },
     );
   });

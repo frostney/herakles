@@ -41,7 +41,13 @@ export function PullRequests() {
     <Screen
       title="Pull Requests"
       subtitle="Review open work across tracked hosted projects"
-      actions={<IconButton label="Refresh" onClick={refresh} icon={<RefreshCcw size={16} />} />}
+      actions={
+        <IconButton
+          label="Refresh"
+          onClick={() => refresh(() => getPullRequests({ refresh: true }))}
+          icon={<RefreshCcw size={16} />}
+        />
+      }
     >
       {data.status === "ready" ? (
         <>

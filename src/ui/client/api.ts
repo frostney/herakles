@@ -51,8 +51,10 @@ export async function getProjectDetail(id: string): Promise<ProjectDetail> {
   return get(`/api/projects/${encodeURIComponent(id)}`);
 }
 
-export async function getPullRequests(): Promise<PullRequestCollection> {
-  return get("/api/pull-requests");
+export async function getPullRequests(
+  options: { refresh?: boolean } = {},
+): Promise<PullRequestCollection> {
+  return get(`/api/pull-requests${options.refresh ? "?refresh=true" : ""}`);
 }
 
 export function projectIconUrl(id: string): string {
