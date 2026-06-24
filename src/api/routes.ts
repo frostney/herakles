@@ -99,6 +99,12 @@ const getRoutes: Record<string, ApiHandler> = {
       }),
     ),
   "/api/projects": ({ options }) => jsonAsync(app.projects(options.workspaceRoot)),
+  "/api/pull-requests": ({ options, url }) =>
+    jsonAsync(
+      app.pullRequests(options.workspaceRoot, {
+        refresh: url.searchParams.get("refresh") === "true",
+      }),
+    ),
   "/api/up/plan": ({ options }) => jsonAsync(app.upPlan(options.workspaceRoot)),
   "/api/validate": ({ options, url }) =>
     jsonAsync(app.validation(options.workspaceRoot, { strict: isStrict(url) })),

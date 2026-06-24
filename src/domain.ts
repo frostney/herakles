@@ -95,6 +95,48 @@ export type ProjectDefaultBranchSyncResult = {
   behindAfter?: number;
 };
 
+export type PullRequestReviewStatus =
+  | "approved"
+  | "changes-requested"
+  | "review-required"
+  | "unknown";
+
+export type PullRequestCheckStatus = "passing" | "failing" | "pending" | "unknown";
+
+export type PullRequestSummary = {
+  projectId: string;
+  projectSlug: string;
+  projectPinned: boolean;
+  projectState: ProjectState;
+  repo: string;
+  owner: string;
+  number: number;
+  title: string;
+  author: string;
+  isDraft: boolean;
+  state: "open";
+  branch: string;
+  baseBranch: string;
+  updatedAt: string;
+  url: string;
+  reviewStatus: PullRequestReviewStatus;
+  checkStatus: PullRequestCheckStatus;
+};
+
+export type PullRequestCollectionFailure = {
+  projectId: string;
+  projectSlug: string;
+  repo: string;
+  message: string;
+};
+
+export type PullRequestCollection = {
+  generatedAt: string;
+  pullRequests: PullRequestSummary[];
+  failures: PullRequestCollectionFailure[];
+  skippedLocalProjects: number;
+};
+
 export type HostedImportCandidate = {
   repo: string;
   owner: string;

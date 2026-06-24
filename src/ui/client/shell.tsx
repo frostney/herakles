@@ -3,6 +3,7 @@ import {
   Boxes,
   ClipboardCheck,
   FileText,
+  GitPullRequest,
   Moon,
   Search,
   Server,
@@ -69,6 +70,14 @@ export function Shell() {
           <Link to="/reports" className={ui.navLink} activeProps={{ className: ui.navLinkActive }}>
             <FileText size={18} aria-hidden />
             Reports
+          </Link>
+          <Link
+            to="/pull-requests"
+            className={ui.navLink}
+            activeProps={{ className: ui.navLinkActive }}
+          >
+            <GitPullRequest size={18} aria-hidden />
+            Pull Requests
           </Link>
           <Link
             to="/automation"
@@ -147,7 +156,13 @@ export function Shell() {
   );
 }
 
-type PaletteRoute = "/" | "/reports" | "/automation" | "/workspace" | "/settings";
+type PaletteRoute =
+  | "/"
+  | "/reports"
+  | "/pull-requests"
+  | "/automation"
+  | "/workspace"
+  | "/settings";
 
 function CommandPalette({
   projects,
@@ -183,6 +198,13 @@ function CommandPalette({
       meta: "surface",
       icon: <FileText size={16} />,
       run: () => onNavigate("/reports"),
+    },
+    {
+      id: "pull-requests",
+      label: "Open Pull Requests",
+      meta: "surface",
+      icon: <GitPullRequest size={16} />,
+      run: () => onNavigate("/pull-requests"),
     },
     {
       id: "automation",

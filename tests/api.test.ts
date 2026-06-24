@@ -52,6 +52,11 @@ owners = ["frostney"]
   );
 }
 
+async function prListCalls(path: string): Promise<string[]> {
+  if (!existsSync(path)) return [];
+  return (await readFile(path, "utf8")).split("\n").filter(Boolean);
+}
+
 async function withFakeGhRepo(
   repo: { name: string; isArchived?: boolean },
   run: () => Promise<void>,
@@ -113,14 +118,19 @@ async function withTrackedPublicTool(workspaceRoot: string, run: () => Promise<v
   await withFakeGhRepo({ name: "public-tool" }, run);
 }
 
-async function trackHostedProject(workspaceRoot: string, id: string, repo: string) {
+async function trackHostedProject(
+  workspaceRoot: string,
+  id: string,
+  repo: string,
+  options: { pinned?: boolean } = {},
+) {
   await appendFile(
     join(workspaceRoot, "_herakles", "herakles.toml"),
     `
 [project.${JSON.stringify(id)}]
 source = "github"
 repo = ${JSON.stringify(repo)}
-`,
+${options.pinned === true ? "pinned = true\n" : ""}`,
   );
 }
 
@@ -309,6 +319,111 @@ prompt = "Summarize the workspace."
     expect(body.project.id).toBe("local:spike");
     expect(body.reports.map((report: { id: string }) => report.id)).toEqual(["notes/spike.md"]);
     expect(body.validationIssues).toEqual([]);
+  });
+
+  test("serves open pull requests for tracked hosted projects with partial failures", async () => {
+    const workspaceRoot = await tempWorkspace();
+    const ghLogPath = join(workspaceRoot, "gh.log");
+    await addLocalGitProject(workspaceRoot, "scratch");
+    await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
+    await trackHostedProject(workspaceRoot, "starred-tool", "frostney/starred-tool", {
+      pinned: true,
+    });
+    await trackHostedProject(workspaceRoot, "broken-tool", "frostney/broken-tool");
+
+    await withFakeGhScript(
+      "herakles-pr-api-",
+      `#!/bin/sh
+if [ "$1" = "repo" ] && [ "$2" = "view" ] && [ "$3" = "frostney/public-tool" ]; then
+cat <<'JSON'
+{"name":"public-tool","nameWithOwner":"frostney/public-tool","owner":{"login":"frostney"},"sshUrl":"git@github.com:frostney/public-tool.git","url":"https://github.com/frostney/public-tool","visibility":"PUBLIC","isArchived":false,"repositoryTopics":[],"languages":[]}
+JSON
+exit 0
+fi
+if [ "$1" = "repo" ] && [ "$2" = "view" ] && [ "$3" = "frostney/starred-tool" ]; then
+cat <<'JSON'
+{"name":"starred-tool","nameWithOwner":"frostney/starred-tool","owner":{"login":"frostney"},"sshUrl":"git@github.com:frostney/starred-tool.git","url":"https://github.com/frostney/starred-tool","visibility":"PUBLIC","isArchived":false,"repositoryTopics":[],"languages":[]}
+JSON
+exit 0
+fi
+if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
+echo "repo unavailable" >&2
+exit 1
+fi
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+printf 'api graphql\n' >> "${ghLogPath}"
+fi
+if [ "$1" = "api" ] && [ "$2" = "graphql" ] && echo "$*" | grep -q "name=public-tool"; then
+cat <<'JSON'
+[{"data":{"repository":{"pullRequests":{"nodes":[{"number":12,"title":"Improve Workbench","author":{"login":"frostney"},"isDraft":true,"state":"OPEN","headRefName":"codex/workbench","baseRefName":"main","updatedAt":"2026-06-24T10:00:00Z","url":"https://github.com/frostney/public-tool/pull/12","reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":{"state":"PENDING","contexts":{"nodes":[{"state":"PENDING"}]}}}]}}}}]
+JSON
+exit 0
+fi
+if [ "$1" = "api" ] && [ "$2" = "graphql" ] && echo "$*" | grep -q "name=starred-tool"; then
+cat <<'JSON'
+[{"data":{"repository":{"pullRequests":{"nodes":[{"number":8,"title":"Older starred work","author":{"login":"frostney"},"isDraft":false,"state":"OPEN","headRefName":"codex/starred","baseRefName":"main","updatedAt":"2026-06-20T10:00:00Z","url":"https://github.com/frostney/starred-tool/pull/8","reviewDecision":"APPROVED","statusCheckRollup":{"state":"SUCCESS","contexts":{"nodes":[{"conclusion":"SUCCESS"}]}}}]}}}}]
+JSON
+exit 0
+fi
+echo "pull requests unavailable" >&2
+exit 1
+`,
+      async () => {
+        const response = await routeApi(new Request("http://x/api/pull-requests"), {
+          workspaceRoot,
+        });
+        const body = await response?.json();
+
+        expect(response?.status).toBe(200);
+        expect(body.skippedLocalProjects).toBe(1);
+        expect(body.pullRequests).toHaveLength(2);
+        expect(body.pullRequests.map((pullRequest: { repo: string }) => pullRequest.repo)).toEqual([
+          "starred-tool",
+          "public-tool",
+        ]);
+        expect(body.pullRequests[0]).toMatchObject({
+          projectPinned: true,
+          projectSlug: "frostney-starred-tool",
+          repo: "starred-tool",
+          number: 8,
+          isDraft: false,
+          reviewStatus: "approved",
+          checkStatus: "passing",
+        });
+        expect(body.pullRequests[1]).toMatchObject({
+          projectPinned: false,
+          projectSlug: "frostney-public-tool",
+          repo: "public-tool",
+          number: 12,
+          isDraft: true,
+          reviewStatus: "review-required",
+          checkStatus: "pending",
+        });
+        expect(body.failures).toEqual([
+          expect.objectContaining({
+            projectSlug: "frostney-broken-tool",
+            repo: "frostney/broken-tool",
+          }),
+        ]);
+
+        expect(await prListCalls(ghLogPath)).toHaveLength(3);
+        expect(existsSync(join(workspaceRoot, "_herakles", "cache", "pull-requests.json"))).toBe(
+          true,
+        );
+
+        const cached = await routeApi(new Request("http://x/api/pull-requests"), {
+          workspaceRoot,
+        });
+        expect(cached?.status).toBe(200);
+        expect(await prListCalls(ghLogPath)).toHaveLength(3);
+
+        const refreshed = await routeApi(new Request("http://x/api/pull-requests?refresh=true"), {
+          workspaceRoot,
+        });
+        expect(refreshed?.status).toBe(200);
+        expect(await prListCalls(ghLogPath)).toHaveLength(6);
+      },
+    );
   });
 
   test("serves project icons from common project asset paths", async () => {

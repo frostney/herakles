@@ -1,5 +1,11 @@
 import type { HeraklesConfig } from "../config/schema";
-import type { GitHubRepository, ProjectLanguage } from "../domain";
+import type {
+  GitHubRepository,
+  ProjectLanguage,
+  PullRequestCheckStatus,
+  PullRequestReviewStatus,
+  PullRequestSummary,
+} from "../domain";
 import { runCommand } from "../utils/command";
 
 type Runner = typeof runCommand;
@@ -25,6 +31,40 @@ type GhRepo = {
   issues?: { totalCount?: number };
 };
 
+type GhPullRequest = {
+  number: number;
+  title: string;
+  author?: { login?: string } | string | null;
+  isDraft?: boolean;
+  state?: string;
+  headRefName?: string;
+  baseRefName?: string;
+  updatedAt?: string;
+  url?: string;
+  reviewDecision?: string | null;
+  statusCheckRollup?: GhStatusCheckRollup;
+};
+
+type GhStatusCheck = {
+  conclusion?: string | null;
+  state?: string | null;
+  status?: string | null;
+};
+
+type GhStatusCheckRollup =
+  | { contexts?: { nodes?: GhStatusCheck[] }; nodes?: GhStatusCheck[]; state?: string | null }
+  | GhStatusCheck[];
+
+type GhPullRequestPage = {
+  data?: {
+    repository?: {
+      pullRequests?: {
+        nodes?: GhPullRequest[];
+      };
+    };
+  };
+};
+
 type GhLanguage = {
   size?: number;
   node?: { name?: string };
@@ -45,7 +85,7 @@ type ListGitHubRepositoriesOptions = {
 };
 
 const GH_ENRICH_CONCURRENCY = 8;
-
+const GH_PULL_REQUEST_TIMEOUT_MS = 15_000;
 function topicNames(topics: GhRepo["repositoryTopics"]): string[] {
   if (!topics) return [];
   return topics.map((topic) => (typeof topic === "string" ? topic : topic.name)).filter(Boolean);
@@ -133,6 +173,42 @@ export async function listImportableGitHubRepositoriesWithRunner(
     includeAuthenticatedOwners: true,
     tolerateOwnerFailures: true,
   });
+}
+
+export async function listOpenPullRequestsForRepo(
+  repo: string,
+): Promise<
+  Array<Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState">>
+> {
+  return listOpenPullRequestsForRepoWithRunner(repo, runCommand);
+}
+
+export async function listOpenPullRequestsForRepoWithRunner(
+  repo: string,
+  runner: Runner,
+): Promise<
+  Array<Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState">>
+> {
+  const [owner, name] = splitOwnerRepo(repo);
+  const result = await runner(
+    [
+      "gh",
+      "api",
+      "graphql",
+      "--paginate",
+      "--slurp",
+      "-f",
+      `owner=${owner}`,
+      "-f",
+      `name=${name}`,
+      "-f",
+      `query=${pullRequestQuery()}`,
+    ],
+    { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
+  );
+  return pullRequestNodes(result.stdout)
+    .map((pullRequest) => normalizePullRequest(owner, name, pullRequest))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.number - b.number);
 }
 
 export async function listGitHubRepositoriesWithRunner(
@@ -456,4 +532,122 @@ function repoListFields(): string[] {
     "pushedAt",
     "updatedAt",
   ];
+}
+
+function normalizePullRequest(
+  owner: string,
+  repo: string,
+  pullRequest: GhPullRequest,
+): Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState"> {
+  return {
+    owner,
+    repo,
+    number: pullRequest.number,
+    title: pullRequest.title,
+    author: pullRequestAuthor(pullRequest.author),
+    isDraft: pullRequest.isDraft === true,
+    state: "open",
+    branch: pullRequest.headRefName ?? "",
+    baseBranch: pullRequest.baseRefName ?? "",
+    updatedAt: pullRequest.updatedAt ?? "",
+    url: pullRequest.url ?? `https://github.com/${owner}/${repo}/pull/${pullRequest.number}`,
+    reviewStatus: normalizeReviewStatus(pullRequest.reviewDecision),
+    checkStatus: normalizeCheckStatus(pullRequest.statusCheckRollup),
+  };
+}
+
+function pullRequestAuthor(author: GhPullRequest["author"]): string {
+  if (!author) return "unknown";
+  if (typeof author === "string") return author;
+  return author.login ?? "unknown";
+}
+
+function normalizeReviewStatus(value: string | null | undefined): PullRequestReviewStatus {
+  if (value === "APPROVED") return "approved";
+  if (value === "CHANGES_REQUESTED") return "changes-requested";
+  if (value === "REVIEW_REQUIRED") return "review-required";
+  return "unknown";
+}
+
+function normalizeCheckStatus(checks: GhPullRequest["statusCheckRollup"]): PullRequestCheckStatus {
+  const nodes = Array.isArray(checks) ? checks : (checks?.contexts?.nodes ?? checks?.nodes ?? []);
+  const rollupState = Array.isArray(checks) ? undefined : checks?.state;
+  const states = [
+    rollupState,
+    ...nodes.flatMap((check) => [check.conclusion, check.state, check.status]),
+  ]
+    .filter((state): state is string => Boolean(state))
+    .map((state) => state.toUpperCase());
+  if (states.length === 0) return "unknown";
+  if (
+    states.some((state) =>
+      ["FAILURE", "FAILED", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "CANCELLED"].includes(state),
+    )
+  ) {
+    return "failing";
+  }
+  if (
+    states.some((state) =>
+      ["PENDING", "QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED"].includes(state),
+    )
+  ) {
+    return "pending";
+  }
+  if (states.some((state) => ["SUCCESS", "PASSED", "COMPLETED"].includes(state))) {
+    return "passing";
+  }
+  return "unknown";
+}
+
+function splitOwnerRepo(repo: string): [string, string] {
+  const [owner, name] = repo.split("/");
+  if (!owner || !name || repo.split("/").length !== 2) {
+    throw new Error(`Expected hosted repository as owner/name, received: ${repo}`);
+  }
+  return [owner, name];
+}
+
+function pullRequestNodes(stdout: string): GhPullRequest[] {
+  const parsed = JSON.parse(stdout) as GhPullRequestPage | GhPullRequestPage[];
+  const pages = Array.isArray(parsed) ? parsed : [parsed];
+  return pages.flatMap((page) => page.data?.repository?.pullRequests?.nodes ?? []);
+}
+
+function pullRequestQuery(): string {
+  return `query($owner: String!, $name: String!, $endCursor: String) {
+    repository(owner: $owner, name: $name) {
+      pullRequests(first: 100, after: $endCursor, states: OPEN, orderBy: { field: UPDATED_AT, direction: DESC }) {
+        nodes {
+          number
+          title
+          author { login }
+          isDraft
+          state
+          headRefName
+          baseRefName
+          updatedAt
+          url
+          reviewDecision
+          statusCheckRollup {
+            state
+            contexts(first: 100) {
+              nodes {
+                ... on CheckRun {
+                  conclusion
+                  status
+                }
+                ... on StatusContext {
+                  state
+                }
+              }
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }`;
 }

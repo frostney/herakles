@@ -68,6 +68,14 @@ _Avoid_: Console, Dashboard as the whole-app name, terminal console
 The user-facing place for changing a project's connection and interpretation, including lifecycle state, project group, project tags, archive evidence, up behavior, and promotion from a local experiment to a hosted repository.
 _Avoid_: Separate promotion workflow
 
+**Starred Project**:
+A tracked project the user has marked as important for Workbench attention and ordering. Starred status does not change lifecycle, workspace path, or automation eligibility.
+_Avoid_: Pinned repository
+
+**Pull Request Review**:
+The Herakles Workbench surface for reviewing open pull requests across tracked hosted projects. It is a triage view over hosted repository work, not a replacement for GitHub review.
+_Avoid_: Task list, internal project list
+
 **Hosted Visibility**:
 Whether a hosted repository is public or private. Local experiments do not have hosted visibility until they are promoted to a host.
 _Avoid_: local-only visibility, internal visibility

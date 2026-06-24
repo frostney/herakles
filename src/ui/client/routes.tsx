@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { Automation } from "./routes/automation";
 import { ProjectDetailScreen, Projects } from "./routes/projects";
+import { PullRequests } from "./routes/pullRequests";
 import { ReportDetailScreen, Reports } from "./routes/reports";
 import { SettingsScreen } from "./routes/settings";
 import { WorkspaceScreen } from "./routes/workspace";
@@ -29,6 +30,11 @@ const reportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/reports",
   component: Reports,
+});
+const pullRequestsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/pull-requests",
+  component: PullRequests,
 });
 const reportsDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -60,6 +66,7 @@ export const router = createRouter({
     projectsRoute,
     projectsDetailRoute,
     reportsRoute,
+    pullRequestsRoute,
     reportsDetailRoute,
     automationRoute,
     workspaceRoute,

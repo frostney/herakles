@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
-import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { TOML } from "bun";
 import { automateTick, configuredJobs, dueSlots, recentRuns, runAutomationJob } from "./automation";
@@ -29,13 +29,16 @@ import type {
   ProjectDetail,
   ProjectOpenTarget,
   ProjectState,
+  PullRequestCollection,
+  PullRequestCollectionFailure,
+  PullRequestSummary,
   ReportDetail,
   UpPlan,
   UpPlanItem,
   ValidationIssue,
   ValidationResult,
 } from "./domain";
-import { listImportableGitHubRepositories } from "./github/gh";
+import { listImportableGitHubRepositories, listOpenPullRequestsForRepo } from "./github/gh";
 import { type HostedClonePathMismatch, validateProjects } from "./lifecycle/validate";
 import {
   type LocalPromotionOptions,
@@ -61,6 +64,19 @@ type WorkspaceState = {
   validation: ValidationResult;
 };
 
+type PullRequestCacheEntry = {
+  expiresAt: number;
+  key: string;
+  loading?: Promise<PullRequestCollection>;
+  value?: PullRequestCollection;
+};
+
+type StoredPullRequestCacheEntry = {
+  expiresAt: number;
+  key: string;
+  value: PullRequestCollection;
+};
+
 export class InvalidProjectOpenDestinationError extends Error {
   constructor(message: string) {
     super(message);
@@ -69,6 +85,9 @@ export class InvalidProjectOpenDestinationError extends Error {
 }
 
 const workspaceLoads = new Map<string, Promise<WorkspaceState>>();
+const pullRequestCacheTtlMs = 60_000;
+const pullRequestCacheVersion = 3;
+const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
 
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
   const existing = workspaceLoads.get(workspaceRoot);
@@ -109,6 +128,130 @@ export async function status(workspaceRoot: string) {
 
 export async function projects(workspaceRoot: string): Promise<Project[]> {
   return (await loadWorkspace(workspaceRoot)).projects;
+}
+
+export async function pullRequests(
+  workspaceRoot: string,
+  options: { refresh?: boolean } = {},
+): Promise<PullRequestCollection> {
+  const cacheKey = await pullRequestWorkspaceCacheKey(workspaceRoot);
+  const cached = pullRequestCaches.get(workspaceRoot);
+  const now = Date.now();
+  if (!options.refresh && cached?.key === cacheKey) {
+    if (cached.value && cached.expiresAt > now) return cached.value;
+    if (cached.loading) return cached.loading;
+  }
+  if (!options.refresh) {
+    const stored = await readStoredPullRequestCache(workspaceRoot, cacheKey);
+    if (stored) return stored;
+  }
+  const loading = collectPullRequests(workspaceRoot)
+    .then(async (value) => {
+      const expiresAt = Date.now() + pullRequestCacheTtlMs;
+      pullRequestCaches.set(workspaceRoot, {
+        expiresAt,
+        key: cacheKey,
+        value,
+      });
+      await writeStoredPullRequestCache(workspaceRoot, { expiresAt, key: cacheKey, value }).catch(
+        () => undefined,
+      );
+      return value;
+    })
+    .catch((error) => {
+      if (pullRequestCaches.get(workspaceRoot)?.loading === loading) {
+        pullRequestCaches.delete(workspaceRoot);
+      }
+      throw error;
+    });
+  pullRequestCaches.set(workspaceRoot, { expiresAt: 0, key: cacheKey, loading });
+  return loading;
+}
+
+async function collectPullRequests(workspaceRoot: string): Promise<PullRequestCollection> {
+  const state = await loadWorkspace(workspaceRoot);
+  const hosted = state.projects.filter((project) => project.source === "github" && project.owner);
+  const settled = await Promise.allSettled(
+    hosted.map(async (project) => ({
+      project,
+      pullRequests: await listOpenPullRequestsForRepo(`${project.owner}/${project.repo}`),
+    })),
+  );
+  const pullRequests: PullRequestSummary[] = [];
+  const failures: PullRequestCollectionFailure[] = [];
+  for (let index = 0; index < settled.length; index++) {
+    const project = hosted[index];
+    const result = settled[index];
+    if (!project || !result) continue;
+    if (result.status === "fulfilled") {
+      pullRequests.push(
+        ...result.value.pullRequests.map((pullRequest) => ({
+          ...pullRequest,
+          projectId: project.id,
+          projectPinned: project.pinned,
+          projectSlug: project.slug,
+          projectState: project.state,
+        })),
+      );
+    } else {
+      failures.push({
+        projectId: project.id,
+        projectSlug: project.slug,
+        repo: `${project.owner}/${project.repo}`,
+        message: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      });
+    }
+  }
+  return {
+    generatedAt: new Date().toISOString(),
+    pullRequests: pullRequests.sort(
+      (a, b) =>
+        Number(b.projectPinned) - Number(a.projectPinned) ||
+        b.updatedAt.localeCompare(a.updatedAt) ||
+        a.projectSlug.localeCompare(b.projectSlug),
+    ),
+    failures,
+    skippedLocalProjects: state.projects.length - hosted.length,
+  };
+}
+
+async function pullRequestWorkspaceCacheKey(workspaceRoot: string): Promise<string> {
+  try {
+    const configStat = await stat(join(workspaceRoot, "_herakles", "herakles.toml"));
+    return `${pullRequestCacheVersion}:${workspaceRoot}:${configStat.mtimeMs}`;
+  } catch {
+    return `${pullRequestCacheVersion}:${workspaceRoot}`;
+  }
+}
+
+async function readStoredPullRequestCache(
+  workspaceRoot: string,
+  key: string,
+): Promise<PullRequestCollection | undefined> {
+  try {
+    const raw = JSON.parse(
+      await readFile(pullRequestCachePath(workspaceRoot), "utf8"),
+    ) as Partial<StoredPullRequestCacheEntry>;
+    if (raw.key !== key || typeof raw.expiresAt !== "number" || raw.expiresAt <= Date.now()) {
+      return undefined;
+    }
+    return raw.value;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeStoredPullRequestCache(
+  workspaceRoot: string,
+  entry: StoredPullRequestCacheEntry,
+) {
+  const path = pullRequestCachePath(workspaceRoot);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(entry, null, 2)}\n`);
+}
+
+function pullRequestCachePath(workspaceRoot: string): string {
+  return join(workspaceRoot, "_herakles", "cache", "pull-requests.json");
 }
 
 export async function project(workspaceRoot: string, id: string): Promise<Project> {
