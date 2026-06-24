@@ -6,6 +6,7 @@
 - `_herakles/herakles.toml` is the canonical synced configuration.
 - Project paths are derived from lifecycle, optional group, and repository name.
 - CLI and UI call the same core services rather than owning separate behavior.
+- Herakles Workbench surfaces cross-project review, including open pull requests for tracked hosted projects.
 - Automation schedules prompt-driven agent runtime runs; Herakles owns scheduling and reports, not implementation workflows.
 
 Herakles v2 is a Bun-first TypeScript orchestrator for a personal Herakles Workspace. The CLI and UI call the same core services for configuration, project discovery, project resolution, validation, workspace spin-up, reports, and automation ticks.
@@ -45,6 +46,8 @@ The UI is launched through its own CLI/server path and can stay open while norma
 The Projects screen is the default Herakles Workbench landing surface, and `herakles add` is the primary CLI project entry point. Existing GitHub repositories are the default add path when `--repo owner/name` is provided. Hosted add/import writes minimal tracked-project config and checks out the project automatically. `herakles remove` and the UI remove action stop tracking a project after confirmation; they do not delete local files or hosted repositories.
 
 GitHub bulk import opens as a dialog. It lists accessible repositories for configured users/organizations plus the authenticated GitHub user's account and organizations, then lets the user select repositories and set lifecycle, group, and tags before tracked config is written and workspace spin-up starts.
+
+The Pull Requests screen reviews open pull requests across tracked hosted projects. It uses the resolved project model for lifecycle, starred-project ordering, repository labels, and partial failure reporting; pull request and repository links lead back to GitHub. Pull request reads are cached briefly under `_herakles/cache` as generated local state, and explicit refresh bypasses that cache.
 
 Settings exposes project refresh, validation, doctor checks, and Config Exchange. Config Exchange is a copy-paste editor for `_herakles/herakles.toml`; it validates TOML with Bun's parser and the Herakles schema before applying.
 
