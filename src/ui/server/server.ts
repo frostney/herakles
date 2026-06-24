@@ -28,6 +28,7 @@ export async function startUiServer(options: UiServerOptions) {
       "/projects/:projectId": index,
       "/reports": index,
       "/reports/*": index,
+      "/pull-requests": index,
       "/automation": index,
       "/workspace": index,
       "/settings": index,

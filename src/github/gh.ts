@@ -1,5 +1,10 @@
 import type { HeraklesConfig } from "../config/schema";
-import type { GitHubRepository } from "../domain";
+import type {
+  GitHubRepository,
+  PullRequestCheckStatus,
+  PullRequestReviewStatus,
+  PullRequestSummary,
+} from "../domain";
 import { runCommand } from "../utils/command";
 
 type Runner = typeof runCommand;
@@ -21,6 +26,24 @@ type GhRepo = {
   homepageUrl?: string;
   pushedAt?: string;
   updatedAt?: string;
+};
+
+type GhPullRequest = {
+  number: number;
+  title: string;
+  author?: { login?: string } | string | null;
+  isDraft?: boolean;
+  state?: string;
+  headRefName?: string;
+  baseRefName?: string;
+  updatedAt?: string;
+  url?: string;
+  reviewDecision?: string | null;
+  statusCheckRollup?: Array<{
+    conclusion?: string | null;
+    state?: string | null;
+    status?: string | null;
+  }>;
 };
 
 function topicNames(topics: GhRepo["repositoryTopics"]): string[] {
@@ -75,6 +98,35 @@ export async function listImportableGitHubRepositories(
     includeAuthenticatedOwners: true,
     tolerateOwnerFailures: true,
   });
+}
+
+export async function listOpenPullRequestsForRepo(
+  repo: string,
+): Promise<Array<Omit<PullRequestSummary, "projectId" | "projectSlug" | "projectState">>> {
+  return listOpenPullRequestsForRepoWithRunner(repo, runCommand);
+}
+
+export async function listOpenPullRequestsForRepoWithRunner(
+  repo: string,
+  runner: Runner,
+): Promise<Array<Omit<PullRequestSummary, "projectId" | "projectSlug" | "projectState">>> {
+  const result = await runner([
+    "gh",
+    "pr",
+    "list",
+    "--repo",
+    repo,
+    "--state",
+    "open",
+    "--limit",
+    "100",
+    "--json",
+    pullRequestFields().join(","),
+  ]);
+  const [owner, name] = splitOwnerRepo(repo);
+  return (JSON.parse(result.stdout) as GhPullRequest[])
+    .map((pullRequest) => normalizePullRequest(owner, name, pullRequest))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.number - b.number);
 }
 
 export async function listGitHubRepositoriesWithRunner(
@@ -221,5 +273,90 @@ function repoListFields(): string[] {
     "homepageUrl",
     "pushedAt",
     "updatedAt",
+  ];
+}
+
+function normalizePullRequest(
+  owner: string,
+  repo: string,
+  pullRequest: GhPullRequest,
+): Omit<PullRequestSummary, "projectId" | "projectSlug" | "projectState"> {
+  return {
+    owner,
+    repo,
+    number: pullRequest.number,
+    title: pullRequest.title,
+    author: pullRequestAuthor(pullRequest.author),
+    isDraft: pullRequest.isDraft === true,
+    state: "open",
+    branch: pullRequest.headRefName ?? "",
+    baseBranch: pullRequest.baseRefName ?? "",
+    updatedAt: pullRequest.updatedAt ?? "",
+    url: pullRequest.url ?? `https://github.com/${owner}/${repo}/pull/${pullRequest.number}`,
+    reviewStatus: normalizeReviewStatus(pullRequest.reviewDecision),
+    checkStatus: normalizeCheckStatus(pullRequest.statusCheckRollup),
+  };
+}
+
+function pullRequestAuthor(author: GhPullRequest["author"]): string {
+  if (!author) return "unknown";
+  if (typeof author === "string") return author;
+  return author.login ?? "unknown";
+}
+
+function normalizeReviewStatus(value: string | null | undefined): PullRequestReviewStatus {
+  if (value === "APPROVED") return "approved";
+  if (value === "CHANGES_REQUESTED") return "changes-requested";
+  if (value === "REVIEW_REQUIRED") return "review-required";
+  return "unknown";
+}
+
+function normalizeCheckStatus(checks: GhPullRequest["statusCheckRollup"]): PullRequestCheckStatus {
+  if (!checks || checks.length === 0) return "unknown";
+  const states = checks
+    .flatMap((check) => [check.conclusion, check.state, check.status])
+    .filter((state): state is string => Boolean(state))
+    .map((state) => state.toUpperCase());
+  if (
+    states.some((state) =>
+      ["FAILURE", "FAILED", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "CANCELLED"].includes(state),
+    )
+  ) {
+    return "failing";
+  }
+  if (
+    states.some((state) =>
+      ["PENDING", "QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED"].includes(state),
+    )
+  ) {
+    return "pending";
+  }
+  if (states.some((state) => ["SUCCESS", "PASSED", "COMPLETED"].includes(state))) {
+    return "passing";
+  }
+  return "unknown";
+}
+
+function splitOwnerRepo(repo: string): [string, string] {
+  const [owner, name] = repo.split("/");
+  if (!owner || !name || repo.split("/").length !== 2) {
+    throw new Error(`Expected hosted repository as owner/name, received: ${repo}`);
+  }
+  return [owner, name];
+}
+
+function pullRequestFields(): string[] {
+  return [
+    "number",
+    "title",
+    "author",
+    "isDraft",
+    "state",
+    "headRefName",
+    "baseRefName",
+    "updatedAt",
+    "url",
+    "reviewDecision",
+    "statusCheckRollup",
   ];
 }

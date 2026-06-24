@@ -18,6 +18,7 @@ import type {
   Project,
   ProjectDetail,
   ProjectState,
+  PullRequestCollection,
   ReportDetail,
   ReportSummary,
   UpPlan,
@@ -46,6 +47,10 @@ export async function getProjects(): Promise<Project[]> {
 
 export async function getProjectDetail(id: string): Promise<ProjectDetail> {
   return get(`/api/projects/${encodeURIComponent(id)}`);
+}
+
+export async function getPullRequests(): Promise<PullRequestCollection> {
+  return get("/api/pull-requests");
 }
 
 export async function getReports(): Promise<ReportSummary[]> {

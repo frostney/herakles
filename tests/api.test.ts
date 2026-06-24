@@ -271,6 +271,61 @@ prompt = "Summarize the workspace."
     expect(body.validationIssues).toEqual([]);
   });
 
+  test("serves open pull requests for tracked hosted projects with partial failures", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await addLocalGitProject(workspaceRoot, "scratch");
+    await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
+    await trackHostedProject(workspaceRoot, "broken-tool", "frostney/broken-tool");
+
+    await withFakeGhScript(
+      "herakles-pr-api-",
+      `#!/bin/sh
+if [ "$1" = "repo" ] && [ "$2" = "view" ] && [ "$3" = "frostney/public-tool" ]; then
+cat <<'JSON'
+{"name":"public-tool","nameWithOwner":"frostney/public-tool","owner":{"login":"frostney"},"sshUrl":"git@github.com:frostney/public-tool.git","url":"https://github.com/frostney/public-tool","visibility":"PUBLIC","isArchived":false,"repositoryTopics":[],"languages":[]}
+JSON
+exit 0
+fi
+if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
+echo "repo unavailable" >&2
+exit 1
+fi
+if [ "$1" = "pr" ] && [ "$2" = "list" ] && [ "$4" = "frostney/public-tool" ]; then
+cat <<'JSON'
+[{"number":12,"title":"Improve Workbench","author":{"login":"frostney"},"isDraft":true,"state":"OPEN","headRefName":"codex/workbench","baseRefName":"main","updatedAt":"2026-06-24T10:00:00Z","url":"https://github.com/frostney/public-tool/pull/12","reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":[{"state":"PENDING"}]}]
+JSON
+exit 0
+fi
+echo "pull requests unavailable" >&2
+exit 1
+`,
+      async () => {
+        const response = await routeApi(new Request("http://x/api/pull-requests"), {
+          workspaceRoot,
+        });
+        const body = await response?.json();
+
+        expect(response?.status).toBe(200);
+        expect(body.skippedLocalProjects).toBe(1);
+        expect(body.pullRequests).toHaveLength(1);
+        expect(body.pullRequests[0]).toMatchObject({
+          projectSlug: "frostney-public-tool",
+          repo: "public-tool",
+          number: 12,
+          isDraft: true,
+          reviewStatus: "review-required",
+          checkStatus: "pending",
+        });
+        expect(body.failures).toEqual([
+          expect.objectContaining({
+            projectSlug: "frostney-broken-tool",
+            repo: "frostney/broken-tool",
+          }),
+        ]);
+      },
+    );
+  });
+
   test("refreshes project discovery through the API", async () => {
     const workspaceRoot = await tempWorkspace();
     await addLocalGitProject(workspaceRoot, "scratch");

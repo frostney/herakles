@@ -27,13 +27,16 @@ import type {
   Project,
   ProjectDetail,
   ProjectState,
+  PullRequestCollection,
+  PullRequestCollectionFailure,
+  PullRequestSummary,
   ReportDetail,
   UpPlan,
   UpPlanItem,
   ValidationIssue,
   ValidationResult,
 } from "./domain";
-import { listImportableGitHubRepositories } from "./github/gh";
+import { listImportableGitHubRepositories, listOpenPullRequestsForRepo } from "./github/gh";
 import { type HostedClonePathMismatch, validateProjects } from "./lifecycle/validate";
 import {
   type LocalPromotionOptions,
@@ -87,6 +90,50 @@ export async function status(workspaceRoot: string) {
 
 export async function projects(workspaceRoot: string): Promise<Project[]> {
   return (await loadWorkspace(workspaceRoot)).projects;
+}
+
+export async function pullRequests(workspaceRoot: string): Promise<PullRequestCollection> {
+  const state = await loadWorkspace(workspaceRoot);
+  const hosted = state.projects.filter((project) => project.source === "github" && project.owner);
+  const settled = await Promise.allSettled(
+    hosted.map(async (project) => ({
+      project,
+      pullRequests: await listOpenPullRequestsForRepo(`${project.owner}/${project.repo}`),
+    })),
+  );
+  const pullRequests: PullRequestSummary[] = [];
+  const failures: PullRequestCollectionFailure[] = [];
+  for (let index = 0; index < settled.length; index++) {
+    const project = hosted[index];
+    const result = settled[index];
+    if (!project || !result) continue;
+    if (result.status === "fulfilled") {
+      pullRequests.push(
+        ...result.value.pullRequests.map((pullRequest) => ({
+          ...pullRequest,
+          projectId: project.id,
+          projectSlug: project.slug,
+          projectState: project.state,
+        })),
+      );
+    } else {
+      failures.push({
+        projectId: project.id,
+        projectSlug: project.slug,
+        repo: `${project.owner}/${project.repo}`,
+        message: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      });
+    }
+  }
+  return {
+    generatedAt: new Date().toISOString(),
+    pullRequests: pullRequests.sort(
+      (a, b) =>
+        b.updatedAt.localeCompare(a.updatedAt) || a.projectSlug.localeCompare(b.projectSlug),
+    ),
+    failures,
+    skippedLocalProjects: state.projects.length - hosted.length,
+  };
 }
 
 export async function project(workspaceRoot: string, id: string): Promise<Project> {

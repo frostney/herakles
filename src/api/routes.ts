@@ -90,6 +90,7 @@ const getRoutes: Record<string, ApiHandler> = {
       }),
     ),
   "/api/projects": ({ options }) => jsonAsync(app.projects(options.workspaceRoot)),
+  "/api/pull-requests": ({ options }) => jsonAsync(app.pullRequests(options.workspaceRoot)),
   "/api/up/plan": ({ options }) => jsonAsync(app.upPlan(options.workspaceRoot)),
   "/api/validate": ({ options, url }) =>
     jsonAsync(app.validation(options.workspaceRoot, { strict: isStrict(url) })),

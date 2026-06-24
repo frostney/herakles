@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { heraklesConfigSchema } from "../src/config/schema";
-import { listGitHubRepositoriesWithRunner } from "../src/github/gh";
+import {
+  listGitHubRepositoriesWithRunner,
+  listOpenPullRequestsForRepoWithRunner,
+} from "../src/github/gh";
 
 describe("github context wrappers", () => {
   test("lists source repositories by default and asks gh to omit archived repos when configured", async () => {
@@ -155,5 +158,68 @@ describe("github context wrappers", () => {
       "view",
       "frostney/tool",
     ]);
+  });
+
+  test("lists open pull requests with draft, review, and check summaries", async () => {
+    const calls: string[][] = [];
+    const pullRequests = await listOpenPullRequestsForRepoWithRunner(
+      "frostney/tool",
+      async (argv) => {
+        calls.push([...argv]);
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: JSON.stringify([
+            {
+              number: 7,
+              title: "Add search",
+              author: { login: "octo" },
+              isDraft: true,
+              state: "OPEN",
+              headRefName: "feature/search",
+              baseRefName: "main",
+              updatedAt: "2026-06-24T09:00:00Z",
+              url: "https://github.com/frostney/tool/pull/7",
+              reviewDecision: "CHANGES_REQUESTED",
+              statusCheckRollup: [{ conclusion: "FAILURE" }],
+            },
+          ]),
+        };
+      },
+    );
+
+    expect(calls[0]).toEqual([
+      "gh",
+      "pr",
+      "list",
+      "--repo",
+      "frostney/tool",
+      "--state",
+      "open",
+      "--limit",
+      "100",
+      "--json",
+      "number,title,author,isDraft,state,headRefName,baseRefName,updatedAt,url,reviewDecision,statusCheckRollup",
+    ]);
+    expect(pullRequests[0]).toMatchObject({
+      owner: "frostney",
+      repo: "tool",
+      number: 7,
+      author: "octo",
+      isDraft: true,
+      branch: "feature/search",
+      reviewStatus: "changes-requested",
+      checkStatus: "failing",
+    });
+  });
+
+  test("normalizes empty pull request lists", async () => {
+    await expect(
+      listOpenPullRequestsForRepoWithRunner("frostney/tool", async () => ({
+        exitCode: 0,
+        stderr: "",
+        stdout: "[]",
+      })),
+    ).resolves.toEqual([]);
   });
 });
