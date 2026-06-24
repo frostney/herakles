@@ -12,6 +12,7 @@ function pullRequest(input: Partial<PullRequestSummary>): PullRequestSummary {
   return {
     projectId: "github:frostney/tool",
     projectSlug: "frostney-tool",
+    projectPinned: false,
     projectState: "open-source",
     repo: "tool",
     owner: "frostney",

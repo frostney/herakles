@@ -118,14 +118,19 @@ async function withTrackedPublicTool(workspaceRoot: string, run: () => Promise<v
   await withFakeGhRepo({ name: "public-tool" }, run);
 }
 
-async function trackHostedProject(workspaceRoot: string, id: string, repo: string) {
+async function trackHostedProject(
+  workspaceRoot: string,
+  id: string,
+  repo: string,
+  options: { pinned?: boolean } = {},
+) {
   await appendFile(
     join(workspaceRoot, "_herakles", "herakles.toml"),
     `
 [project.${JSON.stringify(id)}]
 source = "github"
 repo = ${JSON.stringify(repo)}
-`,
+${options.pinned === true ? "pinned = true\n" : ""}`,
   );
 }
 
@@ -321,6 +326,9 @@ prompt = "Summarize the workspace."
     const ghLogPath = join(workspaceRoot, "gh.log");
     await addLocalGitProject(workspaceRoot, "scratch");
     await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
+    await trackHostedProject(workspaceRoot, "starred-tool", "frostney/starred-tool", {
+      pinned: true,
+    });
     await trackHostedProject(workspaceRoot, "broken-tool", "frostney/broken-tool");
 
     await withFakeGhScript(
@@ -329,6 +337,12 @@ prompt = "Summarize the workspace."
 if [ "$1" = "repo" ] && [ "$2" = "view" ] && [ "$3" = "frostney/public-tool" ]; then
 cat <<'JSON'
 {"name":"public-tool","nameWithOwner":"frostney/public-tool","owner":{"login":"frostney"},"sshUrl":"git@github.com:frostney/public-tool.git","url":"https://github.com/frostney/public-tool","visibility":"PUBLIC","isArchived":false,"repositoryTopics":[],"languages":[]}
+JSON
+exit 0
+fi
+if [ "$1" = "repo" ] && [ "$2" = "view" ] && [ "$3" = "frostney/starred-tool" ]; then
+cat <<'JSON'
+{"name":"starred-tool","nameWithOwner":"frostney/starred-tool","owner":{"login":"frostney"},"sshUrl":"git@github.com:frostney/starred-tool.git","url":"https://github.com/frostney/starred-tool","visibility":"PUBLIC","isArchived":false,"repositoryTopics":[],"languages":[]}
 JSON
 exit 0
 fi
@@ -345,6 +359,12 @@ cat <<'JSON'
 JSON
 exit 0
 fi
+if [ "$1" = "pr" ] && [ "$2" = "list" ] && [ "$4" = "frostney/starred-tool" ]; then
+cat <<'JSON'
+[{"number":8,"title":"Older starred work","author":{"login":"frostney"},"isDraft":false,"state":"OPEN","headRefName":"codex/starred","baseRefName":"main","updatedAt":"2026-06-20T10:00:00Z","url":"https://github.com/frostney/starred-tool/pull/8","reviewDecision":"APPROVED","statusCheckRollup":[{"conclusion":"SUCCESS"}]}]
+JSON
+exit 0
+fi
 echo "pull requests unavailable" >&2
 exit 1
 `,
@@ -356,8 +376,22 @@ exit 1
 
         expect(response?.status).toBe(200);
         expect(body.skippedLocalProjects).toBe(1);
-        expect(body.pullRequests).toHaveLength(1);
+        expect(body.pullRequests).toHaveLength(2);
+        expect(body.pullRequests.map((pullRequest: { repo: string }) => pullRequest.repo)).toEqual([
+          "starred-tool",
+          "public-tool",
+        ]);
         expect(body.pullRequests[0]).toMatchObject({
+          projectPinned: true,
+          projectSlug: "frostney-starred-tool",
+          repo: "starred-tool",
+          number: 8,
+          isDraft: false,
+          reviewStatus: "approved",
+          checkStatus: "passing",
+        });
+        expect(body.pullRequests[1]).toMatchObject({
+          projectPinned: false,
           projectSlug: "frostney-public-tool",
           repo: "public-tool",
           number: 12,
@@ -372,7 +406,7 @@ exit 1
           }),
         ]);
 
-        expect(await prListCalls(ghLogPath)).toHaveLength(2);
+        expect(await prListCalls(ghLogPath)).toHaveLength(3);
         expect(existsSync(join(workspaceRoot, "_herakles", "cache", "pull-requests.json"))).toBe(
           true,
         );
@@ -381,13 +415,13 @@ exit 1
           workspaceRoot,
         });
         expect(cached?.status).toBe(200);
-        expect(await prListCalls(ghLogPath)).toHaveLength(2);
+        expect(await prListCalls(ghLogPath)).toHaveLength(3);
 
         const refreshed = await routeApi(new Request("http://x/api/pull-requests?refresh=true"), {
           workspaceRoot,
         });
         expect(refreshed?.status).toBe(200);
-        expect(await prListCalls(ghLogPath)).toHaveLength(4);
+        expect(await prListCalls(ghLogPath)).toHaveLength(6);
       },
     );
   });

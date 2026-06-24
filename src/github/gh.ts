@@ -160,14 +160,18 @@ export async function listImportableGitHubRepositoriesWithRunner(
 
 export async function listOpenPullRequestsForRepo(
   repo: string,
-): Promise<Array<Omit<PullRequestSummary, "projectId" | "projectSlug" | "projectState">>> {
+): Promise<
+  Array<Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState">>
+> {
   return listOpenPullRequestsForRepoWithRunner(repo, runCommand);
 }
 
 export async function listOpenPullRequestsForRepoWithRunner(
   repo: string,
   runner: Runner,
-): Promise<Array<Omit<PullRequestSummary, "projectId" | "projectSlug" | "projectState">>> {
+): Promise<
+  Array<Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState">>
+> {
   const result = await runner([
     "gh",
     "pr",
@@ -514,7 +518,7 @@ function normalizePullRequest(
   owner: string,
   repo: string,
   pullRequest: GhPullRequest,
-): Omit<PullRequestSummary, "projectId" | "projectSlug" | "projectState"> {
+): Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState"> {
   return {
     owner,
     repo,

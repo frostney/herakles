@@ -86,6 +86,7 @@ export class InvalidProjectOpenDestinationError extends Error {
 
 const workspaceLoads = new Map<string, Promise<WorkspaceState>>();
 const pullRequestCacheTtlMs = 60_000;
+const pullRequestCacheVersion = 3;
 const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
 
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
@@ -187,6 +188,7 @@ async function collectPullRequests(workspaceRoot: string): Promise<PullRequestCo
         ...result.value.pullRequests.map((pullRequest) => ({
           ...pullRequest,
           projectId: project.id,
+          projectPinned: project.pinned,
           projectSlug: project.slug,
           projectState: project.state,
         })),
@@ -204,7 +206,9 @@ async function collectPullRequests(workspaceRoot: string): Promise<PullRequestCo
     generatedAt: new Date().toISOString(),
     pullRequests: pullRequests.sort(
       (a, b) =>
-        b.updatedAt.localeCompare(a.updatedAt) || a.projectSlug.localeCompare(b.projectSlug),
+        Number(b.projectPinned) - Number(a.projectPinned) ||
+        b.updatedAt.localeCompare(a.updatedAt) ||
+        a.projectSlug.localeCompare(b.projectSlug),
     ),
     failures,
     skippedLocalProjects: state.projects.length - hosted.length,
@@ -214,9 +218,9 @@ async function collectPullRequests(workspaceRoot: string): Promise<PullRequestCo
 async function pullRequestWorkspaceCacheKey(workspaceRoot: string): Promise<string> {
   try {
     const configStat = await stat(join(workspaceRoot, "_herakles", "herakles.toml"));
-    return `${workspaceRoot}:${configStat.mtimeMs}`;
+    return `${pullRequestCacheVersion}:${workspaceRoot}:${configStat.mtimeMs}`;
   } catch {
-    return workspaceRoot;
+    return `${pullRequestCacheVersion}:${workspaceRoot}`;
   }
 }
 

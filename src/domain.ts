@@ -106,6 +106,7 @@ export type PullRequestCheckStatus = "passing" | "failing" | "pending" | "unknow
 export type PullRequestSummary = {
   projectId: string;
   projectSlug: string;
+  projectPinned: boolean;
   projectState: ProjectState;
   repo: string;
   owner: string;
