@@ -246,9 +246,14 @@ function PullRequestTable({ pullRequests }: { pullRequests: PullRequestSummary[]
           <td>
             <div className="grid gap-1">
               <strong>{pullRequest.repo}</strong>
-              <span className={ui.mono}>
+              <a
+                className={`${ui.link} ${ui.mono}`}
+                href={pullRequestGitHubRepoUrl(pullRequest)}
+                target="_blank"
+                rel="noreferrer"
+              >
                 {pullRequest.owner}/{pullRequest.repo}
-              </span>
+              </a>
             </div>
           </td>
           <td>
@@ -291,6 +296,10 @@ function pullRequestFilterLabel(value: string): string {
 
 function pullRequestRepoName(repo: string): string {
   return repo.split("/").pop() || repo;
+}
+
+function pullRequestGitHubRepoUrl(pullRequest: PullRequestSummary): string {
+  return `https://github.com/${pullRequest.owner}/${pullRequest.repo}`;
 }
 
 function pullRequestReviewTone(status: PullRequestReviewStatus): BadgeTone {
