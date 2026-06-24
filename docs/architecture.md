@@ -36,7 +36,7 @@ Lifecycle changes are checked against Herakles's transition table. Unusual trans
 
 The default eligible set is all non-archived hosted projects unless their topics match `up.exclude_topics`. Local experiments are not cloned by `up`. Validation issues such as path collisions, missing archive evidence, and hosted clone path mismatches become validation-only up items instead of Git work.
 
-If Herakles discovers a hosted repository clone at a different local path than the derived project path, validation reports `hosted-clone-path-mismatch`. The user resolves that conflict explicitly; `up` does not silently move, delete, or duplicate repositories.
+If Herakles discovers a hosted repository clone at a different local path than the canonical checkout path, validation reports `hosted-clone-path-mismatch`. The user resolves that conflict explicitly with the Use Canonical Path action after reviewing the existing and canonical paths; `up` and Sync Workspace do not silently move, delete, or duplicate repositories.
 
 ## UI and API
 
@@ -51,6 +51,8 @@ Settings exposes project refresh, validation, doctor checks, and Config Exchange
 The Reports screen lists generated Markdown reports under `_herakles/reports` and can create local Markdown notes through a typed service. Reports are local generated records, not synced configuration.
 
 The UI server exposes `/api/events` as a server-sent event stream. Events are emitted around typed Herakles operations such as project refresh, up, validation, automation runs, and report creation. The stream is a live status surface, not a command channel or persistence layer.
+
+Project cards may expose narrow repository maintenance actions, such as fetching and fast-forwarding the local default branch. These actions report typed success, skipped, or failed results and emit terminal UI status events; they are not substitutes for Spin Up Workspace and do not broaden the UI into a generic shell surface.
 
 ## Automation
 

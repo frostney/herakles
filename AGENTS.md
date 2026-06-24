@@ -41,6 +41,7 @@ Do not add a directory map here. Source ownership belongs in the implementation 
 - Add focused tests near the behavior surface being changed; do not add tests that only restate implementation.
 - Prefer fake `git`, `gh`, and `codex` binaries or injected loaders over live network or tool mutation.
 - After UI-facing changes, smoke the Bun UI server with a temporary workspace when the in-app Browser tool is unavailable.
+- Before handoff, review resolution, or PR creation, verify the applicable items in [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md).
 
 ## Safety / Boundaries
 
