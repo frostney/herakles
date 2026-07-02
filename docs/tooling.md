@@ -53,7 +53,7 @@ Run the Electrobun desktop shell locally:
 bun run desktop
 ```
 
-Build unsigned macOS desktop artifacts:
+Build unsigned macOS arm64 desktop artifacts:
 
 ```sh
 bun run desktop:build
@@ -89,8 +89,8 @@ The stable release flow is tag-driven:
 - Trigger on semantic version tags.
 - Check out the tagged commit and install with `bun install --frozen-lockfile`.
 - Run the local gate bundle or require the matching CI run to be green before building artifacts.
-- Build the unsigned macOS Electrobun artifact in the stable channel.
-- Create a GitHub Release for the tag and upload the unsigned macOS artifacts.
+- Build the unsigned macOS arm64 Electrobun artifact in the stable channel.
+- Create a GitHub Release for the tag and upload the unsigned macOS arm64 artifacts.
 
 The nightly flow is a rolling prerelease from `main`:
 
@@ -99,9 +99,9 @@ The nightly flow is a rolling prerelease from `main`:
 - Publish or replace the assets on a single `nightly` prerelease.
 - Mark the release as prerelease and keep it separate from semantic stable tags.
 
-The nightly GitHub release uses Electrobun's canary build channel internally, so generated filenames start with `canary-` even though the GitHub release tag is `nightly`.
+The nightly GitHub release uses Electrobun's canary build channel internally, so generated filenames start with `canary-` even though the GitHub release tag is `nightly`. The workflow runs on GitHub's `macos-26` arm64 runner and does not claim macOS x64 artifacts in the first release pass.
 
-Do not include auto-update feeds, delta-update publishing, signing credentials, notarization credentials, Windows packaging, or Linux packaging in the first release workflow. Add those only after the unsigned macOS artifact flow is proven.
+Do not include auto-update feeds, delta-update publishing, signing credentials, notarization credentials, macOS x64 packaging, Windows packaging, or Linux packaging in the first release workflow. Add those only after the unsigned macOS arm64 artifact flow is proven.
 
 ## Tool Choices
 

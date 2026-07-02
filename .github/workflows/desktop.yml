@@ -13,8 +13,8 @@ permissions:
 
 jobs:
   build:
-    name: Build macOS desktop
-    runs-on: macos-latest
+    name: Build macOS arm64 desktop
+    runs-on: macos-26
     defaults:
       run:
         shell: bash
@@ -47,7 +47,6 @@ jobs:
 
       - name: Build desktop artifacts
         env:
-          HERAKLES_DESKTOP_TARGETS: macos-arm64,macos-x64
           HERAKLES_DESKTOP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-nightly.{0}', github.run_number) }}
         run: |
           if [ "${{ github.ref_type }}" = "tag" ]; then
