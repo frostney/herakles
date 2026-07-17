@@ -56,6 +56,7 @@ type GhStatusCheckRollup =
   | GhStatusCheck[];
 
 type GhPullRequestPage = {
+  errors?: Array<{ message?: string }>;
   data?: {
     repository?: {
       pullRequests?: {
@@ -63,6 +64,31 @@ type GhPullRequestPage = {
       };
     };
   };
+};
+
+type GhRestPullRequest = {
+  number: number;
+  title: string;
+  user?: { login?: string } | null;
+  draft?: boolean;
+  state?: string;
+  head?: { ref?: string; sha?: string };
+  base?: { ref?: string };
+  updated_at?: string;
+  html_url?: string;
+  requested_reviewers?: Array<{ login?: string }>;
+  requested_teams?: Array<{ slug?: string }>;
+};
+
+type GhRestReview = {
+  user?: { login?: string } | null;
+  state?: string | null;
+};
+
+type GhRestCheckPage = {
+  check_runs?: GhStatusCheck[];
+  statuses?: GhStatusCheck[];
+  total_count?: number;
 };
 
 type GhLanguage = {
@@ -190,6 +216,29 @@ export async function listOpenPullRequestsForRepoWithRunner(
   Array<Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState">>
 > {
   const [owner, name] = splitOwnerRepo(repo);
+  let pullRequests: GhPullRequest[];
+  try {
+    pullRequests = await readGraphqlPullRequests(owner, name, runner);
+  } catch (graphqlError) {
+    try {
+      pullRequests = await readRestPullRequests(owner, name, runner);
+    } catch (restError) {
+      throw new Error(
+        `GitHub GraphQL read failed for ${repo}: ${errorMessage(graphqlError)}\n` +
+          `GitHub REST fallback failed for ${repo}: ${errorMessage(restError)}`,
+      );
+    }
+  }
+  return pullRequests
+    .map((pullRequest) => normalizePullRequest(owner, name, pullRequest))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.number - b.number);
+}
+
+async function readGraphqlPullRequests(
+  owner: string,
+  name: string,
+  runner: Runner,
+): Promise<GhPullRequest[]> {
   const result = await runner(
     [
       "gh",
@@ -206,9 +255,104 @@ export async function listOpenPullRequestsForRepoWithRunner(
     ],
     { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
   );
-  return pullRequestNodes(result.stdout)
-    .map((pullRequest) => normalizePullRequest(owner, name, pullRequest))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.number - b.number);
+  return pullRequestNodes(result.stdout);
+}
+
+async function readRestPullRequests(
+  owner: string,
+  name: string,
+  runner: Runner,
+): Promise<GhPullRequest[]> {
+  const repoPath = restRepoPath(owner, name);
+  const result = await runner(
+    restPaginatedArgs(`${repoPath}/pulls?state=open&sort=updated&direction=desc&per_page=100`),
+    { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
+  );
+  return mapWithLimit(
+    restArrayPages<GhRestPullRequest>(result.stdout),
+    GH_ENRICH_CONCURRENCY,
+    (pullRequest) => enrichRestPullRequest(repoPath, pullRequest, runner),
+  );
+}
+
+async function enrichRestPullRequest(
+  repoPath: string,
+  pullRequest: GhRestPullRequest,
+  runner: Runner,
+): Promise<GhPullRequest> {
+  const headSha = pullRequest.head?.sha;
+  if (!headSha) {
+    throw new Error(`GitHub REST pull request #${pullRequest.number} did not include a head SHA`);
+  }
+  const [reviews, statusChecks, checkRuns] = await Promise.all([
+    readRestReviews(repoPath, pullRequest.number, runner),
+    readRestStatusChecks(repoPath, headSha, runner),
+    readRestCheckRuns(repoPath, headSha, runner),
+  ]);
+  return {
+    number: pullRequest.number,
+    title: pullRequest.title,
+    ...(pullRequest.user === undefined ? {} : { author: pullRequest.user }),
+    ...(pullRequest.draft === undefined ? {} : { isDraft: pullRequest.draft }),
+    ...(pullRequest.state === undefined ? {} : { state: pullRequest.state }),
+    ...(pullRequest.head?.ref === undefined ? {} : { headRefName: pullRequest.head.ref }),
+    ...(pullRequest.base?.ref === undefined ? {} : { baseRefName: pullRequest.base.ref }),
+    ...(pullRequest.updated_at === undefined ? {} : { updatedAt: pullRequest.updated_at }),
+    ...(pullRequest.html_url === undefined ? {} : { url: pullRequest.html_url }),
+    reviewDecision: restReviewDecision(pullRequest, reviews),
+    statusCheckRollup: [...statusChecks, ...checkRuns],
+  };
+}
+
+async function readRestReviews(
+  repoPath: string,
+  pullRequestNumber: number,
+  runner: Runner,
+): Promise<GhRestReview[]> {
+  const result = await runner(
+    restPaginatedArgs(`${repoPath}/pulls/${pullRequestNumber}/reviews?per_page=100`),
+    { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
+  );
+  return restArrayPages<GhRestReview>(result.stdout);
+}
+
+async function readRestStatusChecks(
+  repoPath: string,
+  headSha: string,
+  runner: Runner,
+): Promise<GhStatusCheck[]> {
+  const result = await runner(
+    restPaginatedArgs(`${repoPath}/commits/${encodeURIComponent(headSha)}/status?per_page=100`),
+    { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
+  );
+  return restCheckPages(result.stdout, "statuses", "combined status");
+}
+
+async function readRestCheckRuns(
+  repoPath: string,
+  headSha: string,
+  runner: Runner,
+): Promise<GhStatusCheck[]> {
+  const result = await runner(
+    restPaginatedArgs(`${repoPath}/commits/${encodeURIComponent(headSha)}/check-runs?per_page=100`),
+    { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
+  );
+  return restCheckPages(result.stdout, "check_runs", "check runs");
+}
+
+function restCheckPages(
+  stdout: string,
+  collection: "check_runs" | "statuses",
+  description: string,
+): GhStatusCheck[] {
+  return restObjectPages<GhRestCheckPage>(stdout).flatMap((page) => {
+    if (page.total_count === 0) return [];
+    const checks = page[collection];
+    if (!Array.isArray(checks)) {
+      throw new Error(`GitHub REST ${description} response did not include ${collection}`);
+    }
+    return checks;
+  });
 }
 
 export async function listGitHubRepositoriesWithRunner(
@@ -569,6 +713,25 @@ function normalizeReviewStatus(value: string | null | undefined): PullRequestRev
   return "unknown";
 }
 
+function restReviewDecision(
+  pullRequest: GhRestPullRequest,
+  reviews: readonly GhRestReview[],
+): string | null {
+  const latestReviews = new Map<string, string>();
+  for (const review of reviews) {
+    const reviewer = review.user?.login;
+    const state = review.state?.toUpperCase();
+    if (!reviewer || !state || !["APPROVED", "CHANGES_REQUESTED"].includes(state)) continue;
+    latestReviews.set(reviewer, state);
+  }
+  const states = [...latestReviews.values()];
+  if (states.includes("CHANGES_REQUESTED")) return "CHANGES_REQUESTED";
+  if (states.includes("APPROVED")) return "APPROVED";
+  if ((pullRequest.requested_reviewers?.length ?? 0) > 0) return "REVIEW_REQUIRED";
+  if ((pullRequest.requested_teams?.length ?? 0) > 0) return "REVIEW_REQUIRED";
+  return null;
+}
+
 function normalizeCheckStatus(checks: GhPullRequest["statusCheckRollup"]): PullRequestCheckStatus {
   const nodes = Array.isArray(checks) ? checks : (checks?.contexts?.nodes ?? checks?.nodes ?? []);
   const rollupState = Array.isArray(checks) ? undefined : checks?.state;
@@ -607,10 +770,53 @@ function splitOwnerRepo(repo: string): [string, string] {
   return [owner, name];
 }
 
+function restRepoPath(owner: string, repo: string): string {
+  return `repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+}
+
+function restPaginatedArgs(endpoint: string): string[] {
+  return ["gh", "api", "--paginate", "--slurp", endpoint];
+}
+
+function restArrayPages<T>(stdout: string): T[] {
+  const pages = JSON.parse(stdout) as unknown;
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+    throw new Error("Expected paginated GitHub REST response to contain arrays");
+  }
+  return pages.flat() as T[];
+}
+
+function restObjectPages<T extends object>(stdout: string): T[] {
+  const pages = JSON.parse(stdout) as unknown;
+  if (
+    !Array.isArray(pages) ||
+    pages.some((page) => !page || typeof page !== "object" || Array.isArray(page))
+  ) {
+    throw new Error("Expected paginated GitHub REST response to contain objects");
+  }
+  return pages as T[];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function pullRequestNodes(stdout: string): GhPullRequest[] {
   const parsed = JSON.parse(stdout) as GhPullRequestPage | GhPullRequestPage[];
   const pages = Array.isArray(parsed) ? parsed : [parsed];
-  return pages.flatMap((page) => page.data?.repository?.pullRequests?.nodes ?? []);
+  const errors = pages.flatMap((page) => page.errors ?? []);
+  if (errors.length > 0) {
+    throw new Error(
+      `GitHub GraphQL response contained errors: ${errors.map((error) => error.message ?? "unknown error").join("; ")}`,
+    );
+  }
+  return pages.flatMap((page) => {
+    const nodes = page.data?.repository?.pullRequests?.nodes;
+    if (!Array.isArray(nodes)) {
+      throw new Error("GitHub GraphQL response did not include pull request nodes");
+    }
+    return nodes;
+  });
 }
 
 function pullRequestQuery(): string {

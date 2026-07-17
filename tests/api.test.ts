@@ -403,6 +403,7 @@ exit 1
           expect.objectContaining({
             projectSlug: "frostney-broken-tool",
             repo: "frostney/broken-tool",
+            message: expect.stringContaining("GitHub REST fallback failed"),
           }),
         ]);
 

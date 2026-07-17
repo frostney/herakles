@@ -270,10 +270,7 @@ describe("github context wrappers", () => {
     const pullRequests = await listOpenPullRequestsForRepoWithRunner(
       "frostney/tool",
       async (argv, options) => {
-        calls.push({
-          argv: [...argv],
-          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-        });
+        recordGhCall(calls, argv, options);
         return {
           exitCode: 0,
           stderr: "",
@@ -314,6 +311,7 @@ describe("github context wrappers", () => {
     expect(calls[0]?.argv).toContain("name=tool");
     expect(calls[0]?.argv.find((arg) => arg.startsWith("query="))).toContain("pullRequests");
     expect(calls[0]?.timeoutMs).toBe(15_000);
+    expect(calls).toHaveLength(1);
     expect(pullRequests[0]).toMatchObject({
       owner: "frostney",
       repo: "tool",
@@ -324,6 +322,139 @@ describe("github context wrappers", () => {
       reviewStatus: "changes-requested",
       checkStatus: "failing",
     });
+  });
+
+  test("falls back to REST and preserves pull request review and check summaries", async () => {
+    const calls: Array<{ argv: string[]; timeoutMs?: number }> = [];
+    const pullRequests = await listOpenPullRequestsForRepoWithRunner(
+      "frostney/tool",
+      async (argv, options) => {
+        recordGhCall(calls, argv, options);
+        if (argv[2] === "graphql") throw new Error("GraphQL API rate limit exceeded");
+        const endpoint = argv.find((arg) => arg.startsWith("repos/"));
+        if (endpoint?.includes("/pulls?")) {
+          return ghStdout(
+            JSON.stringify([
+              [
+                {
+                  number: 7,
+                  title: "Add search",
+                  user: { login: "octo" },
+                  draft: true,
+                  state: "open",
+                  head: { ref: "feature/search", sha: "sha-7" },
+                  base: { ref: "main" },
+                  updated_at: "2026-06-24T09:00:00Z",
+                  html_url: "https://github.com/frostney/tool/pull/7",
+                  requested_reviewers: [],
+                  requested_teams: [],
+                },
+                {
+                  number: 8,
+                  title: "Add filters",
+                  user: { login: "hubot" },
+                  draft: false,
+                  state: "open",
+                  head: { ref: "feature/filters", sha: "sha-8" },
+                  base: { ref: "main" },
+                  updated_at: "2026-06-25T09:00:00Z",
+                  html_url: "https://github.com/frostney/tool/pull/8",
+                  requested_reviewers: [{ login: "reviewer" }],
+                  requested_teams: [],
+                },
+              ],
+            ]),
+          );
+        }
+        if (endpoint?.includes("/pulls/7/reviews?")) {
+          return ghStdout(
+            JSON.stringify([
+              [
+                { user: { login: "reviewer" }, state: "CHANGES_REQUESTED" },
+                { user: { login: "reviewer" }, state: "APPROVED" },
+                { user: { login: "commenter" }, state: "COMMENTED" },
+              ],
+            ]),
+          );
+        }
+        if (endpoint?.includes("/pulls/8/reviews?")) return ghStdout("[[]]");
+        if (endpoint?.includes("/commits/sha-7/status?")) {
+          return ghStdout(JSON.stringify([{ total_count: 1, statuses: [{ state: "failure" }] }]));
+        }
+        if (endpoint?.includes("/commits/sha-8/status?")) {
+          return ghStdout(JSON.stringify([{ state: "pending", total_count: 0, statuses: [] }]));
+        }
+        if (endpoint?.includes("/commits/sha-7/check-runs?")) {
+          return ghStdout(
+            JSON.stringify([
+              {
+                total_count: 1,
+                check_runs: [{ status: "completed", conclusion: "success" }],
+              },
+            ]),
+          );
+        }
+        if (endpoint?.includes("/commits/sha-8/check-runs?")) {
+          return ghStdout(
+            JSON.stringify([
+              {
+                total_count: 1,
+                check_runs: [{ status: "completed", conclusion: "success" }],
+              },
+            ]),
+          );
+        }
+        throw new Error(`Unexpected gh call: ${argv.join(" ")}`);
+      },
+    );
+
+    expect(calls[0]?.argv.slice(0, 5)).toEqual(["gh", "api", "graphql", "--paginate", "--slurp"]);
+    expect(
+      calls
+        .slice(1)
+        .every((call) => call.argv.slice(0, 4).join(" ") === "gh api --paginate --slurp"),
+    ).toBe(true);
+    expect(calls.every((call) => call.timeoutMs === 15_000)).toBe(true);
+    expect(pullRequests).toEqual([
+      expect.objectContaining({
+        number: 8,
+        branch: "feature/filters",
+        reviewStatus: "review-required",
+        checkStatus: "passing",
+      }),
+      expect.objectContaining({
+        owner: "frostney",
+        repo: "tool",
+        number: 7,
+        title: "Add search",
+        author: "octo",
+        isDraft: true,
+        state: "open",
+        branch: "feature/search",
+        baseBranch: "main",
+        updatedAt: "2026-06-24T09:00:00Z",
+        url: "https://github.com/frostney/tool/pull/7",
+        reviewStatus: "approved",
+        checkStatus: "failing",
+      }),
+    ]);
+  });
+
+  test("reports both GraphQL and REST failures", async () => {
+    const calls: string[][] = [];
+    await expect(
+      listOpenPullRequestsForRepoWithRunner("frostney/tool", async (argv) => {
+        calls.push([...argv]);
+        if (argv[2] === "graphql") {
+          return ghStdout(JSON.stringify([{ errors: [{ message: "GraphQL unavailable" }] }]));
+        }
+        throw new Error("REST unavailable");
+      }),
+    ).rejects.toThrow(
+      "GitHub GraphQL read failed for frostney/tool: GitHub GraphQL response contained errors: GraphQL unavailable\n" +
+        "GitHub REST fallback failed for frostney/tool: REST unavailable",
+    );
+    expect(calls).toHaveLength(2);
   });
 
   test("collects paginated open pull request pages", async () => {
@@ -382,6 +513,17 @@ describe("github context wrappers", () => {
 
 function ghStdout(stdout: string) {
   return { exitCode: 0, stderr: "", stdout };
+}
+
+function recordGhCall(
+  calls: Array<{ argv: string[]; timeoutMs?: number }>,
+  argv: readonly string[],
+  options: { timeoutMs?: number } | undefined,
+) {
+  calls.push({
+    argv: [...argv],
+    ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+  });
 }
 
 function githubRepo(owner: string, name: string) {

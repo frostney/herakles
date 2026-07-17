@@ -45,6 +45,12 @@ Workspace-derived assets such as project icons must be served only from validate
 
 Any operation that moves repositories or serves workspace files must validate containment against real filesystem paths, not only lexical path prefixes.
 
+## GitHub Reads
+
+GitHub GraphQL reads may be used as a preferred path, but each read must have a REST fallback that preserves the same Herakles data contract. If both paths fail, surface the failure through the owning service instead of silently returning incomplete fields.
+
+Tests for GraphQL-backed reads should prove that GraphQL remains preferred, REST fallback normalization is equivalent, and a failed fallback remains visible to the caller.
+
 ## Testing
 
 Add focused tests near the behavior surface being changed:
