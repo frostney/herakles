@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  BUN_VERSION: "1.3.14"
+
 jobs:
   build:
     name: Build macOS arm64 desktop
@@ -25,10 +28,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Validate stable release tag
+        if: github.ref_type == 'tag'
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Stable releases require a semantic version tag; got: $GITHUB_REF_NAME"
+            exit 1
+          fi
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -67,6 +78,9 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: desktop-nightly-release
+      cancel-in-progress: false
     permissions:
       contents: write
     defaults:
@@ -79,13 +93,41 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Check nightly release target
+        id: nightly-target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TARGET_SHA="$(git rev-parse HEAD)"
+          EXISTING_TARGET="$(gh release view nightly --json targetCommitish --jq '.targetCommitish' 2>/dev/null || true)"
+
+          if [ -z "$EXISTING_TARGET" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git cat-file -e "${EXISTING_TARGET}^{commit}" 2>/dev/null; then
+            if [ "$EXISTING_TARGET" = "$TARGET_SHA" ] || git merge-base --is-ancestor "$TARGET_SHA" "$EXISTING_TARGET"; then
+              echo "Nightly already targets $EXISTING_TARGET, which is current or newer than $TARGET_SHA; skipping publish."
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            echo "Existing nightly target $EXISTING_TARGET is not in fetched history; publishing current commit."
+          fi
+
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
       - name: Download desktop artifacts
+        if: steps.nightly-target.outputs.publish == 'true'
         uses: actions/download-artifact@v4
         with:
           name: herakles-desktop-macos
           path: artifacts/desktop/
 
       - name: Update nightly release
+        if: steps.nightly-target.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
