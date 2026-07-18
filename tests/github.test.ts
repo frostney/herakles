@@ -184,10 +184,12 @@ describe("github context wrappers", () => {
     const config = heraklesConfigSchema.parse({ github: { owners: ["frostney"] } });
 
     for (const payload of malformedPayloads) {
+      const calls: string[] = [];
       const repos = await listGitHubRepositoriesWithRunner(
         config,
         async (argv) => {
           const command = argv.join(" ");
+          calls.push(command);
           if (argv.slice(0, 4).join(" ") === "gh repo list frostney") {
             return ghStdout(payload);
           }
@@ -201,6 +203,10 @@ describe("github context wrappers", () => {
       );
 
       expect(repos.map((repo) => repo.nameWithOwner)).toEqual(["frostney/tool"]);
+      expect(calls.slice(0, 2)).toEqual([
+        expect.stringContaining("gh repo list frostney"),
+        "gh api users/frostney",
+      ]);
     }
   });
 
