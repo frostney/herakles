@@ -29,6 +29,7 @@ type GhRepo = {
   updatedAt?: string;
   pullRequests?: { totalCount?: number };
   issues?: { totalCount?: number };
+  draftPullRequests?: number;
 };
 
 type GhPullRequest = {
@@ -83,6 +84,34 @@ type GhRestPullRequest = {
 type GhRestReview = {
   user?: { login?: string } | null;
   state?: string | null;
+};
+
+type GhRestRepository = {
+  name?: string;
+  full_name?: string;
+  owner?: { login?: string };
+  ssh_url?: string;
+  html_url?: string;
+  visibility?: string;
+  private?: boolean;
+  archived?: boolean;
+  topics?: string[];
+  language?: string | null;
+  default_branch?: string;
+  description?: string | null;
+  homepage?: string | null;
+  pushed_at?: string;
+  updated_at?: string;
+  fork?: boolean;
+};
+
+type GhRestIssue = {
+  pull_request?: unknown;
+};
+
+type GhRestAccount = {
+  login?: string;
+  type?: string;
 };
 
 type GhRestCheckPage = {
@@ -177,6 +206,9 @@ function enrichRepositoryCounts(normalized: GitHubRepository, repo: GhRepo) {
     normalized.openPullRequests = repo.pullRequests.totalCount;
   }
   if (typeof repo.issues?.totalCount === "number") normalized.openIssues = repo.issues.totalCount;
+  if (typeof repo.draftPullRequests === "number") {
+    normalized.draftPullRequests = repo.draftPullRequests;
+  }
 }
 
 export async function listGitHubRepositories(config: HeraklesConfig): Promise<GitHubRepository[]> {
@@ -216,19 +248,11 @@ export async function listOpenPullRequestsForRepoWithRunner(
   Array<Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState">>
 > {
   const [owner, name] = splitOwnerRepo(repo);
-  let pullRequests: GhPullRequest[];
-  try {
-    pullRequests = await readGraphqlPullRequests(owner, name, runner);
-  } catch (graphqlError) {
-    try {
-      pullRequests = await readRestPullRequests(owner, name, runner);
-    } catch (restError) {
-      throw new Error(
-        `GitHub GraphQL read failed for ${repo}: ${errorMessage(graphqlError)}\n` +
-          `GitHub REST fallback failed for ${repo}: ${errorMessage(restError)}`,
-      );
-    }
-  }
+  const pullRequests = await readWithRestFallback(
+    repo,
+    () => readGraphqlPullRequests(owner, name, runner),
+    () => readRestPullRequests(owner, name, runner),
+  );
   return pullRequests
     .map((pullRequest) => normalizePullRequest(owner, name, pullRequest))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.number - b.number);
@@ -264,14 +288,18 @@ async function readRestPullRequests(
   runner: Runner,
 ): Promise<GhPullRequest[]> {
   const repoPath = restRepoPath(owner, name);
-  const result = await runner(
-    restPaginatedArgs(`${repoPath}/pulls?state=open&sort=updated&direction=desc&per_page=100`),
-    { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
-  );
   return mapWithLimit(
-    restArrayPages<GhRestPullRequest>(result.stdout),
+    await readRestOpenPullRequests(repoPath, runner),
     GH_ENRICH_CONCURRENCY,
     (pullRequest) => enrichRestPullRequest(repoPath, pullRequest, runner),
+  );
+}
+
+function readRestOpenPullRequests(repoPath: string, runner: Runner): Promise<GhRestPullRequest[]> {
+  return readRestPaginatedArray(
+    `${repoPath}/pulls?state=open&sort=updated&direction=desc&per_page=100`,
+    runner,
+    { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
   );
 }
 
@@ -309,11 +337,11 @@ async function readRestReviews(
   pullRequestNumber: number,
   runner: Runner,
 ): Promise<GhRestReview[]> {
-  const result = await runner(
-    restPaginatedArgs(`${repoPath}/pulls/${pullRequestNumber}/reviews?per_page=100`),
+  return readRestPaginatedArray(
+    `${repoPath}/pulls/${pullRequestNumber}/reviews?per_page=100`,
+    runner,
     { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
   );
-  return restArrayPages<GhRestReview>(result.stdout);
 }
 
 async function readRestStatusChecks(
@@ -479,21 +507,12 @@ async function addDraftPullRequestCounts(
   const owners = [...new Set([...repos.values()].map((repo) => repo.owner))].sort();
   const results = await mapWithLimit(owners, GH_ENRICH_CONCURRENCY, async (owner) => {
     try {
-      const result = await runner([
-        "gh",
-        "search",
-        "prs",
-        "--owner",
-        owner,
-        "--state",
-        "open",
-        "--draft",
-        "--json",
-        "repository",
-        "--limit",
-        "1000",
-      ]);
-      return parseDraftPullRequestCounts(result.stdout);
+      const ownerRepos = [...repos.values()].filter((repo) => repo.owner === owner);
+      return await readWithRestFallback(
+        `draft pull requests for ${owner}`,
+        () => readGraphqlBackedDraftPullRequestCounts(owner, runner),
+        () => readRestDraftPullRequestCounts(ownerRepos, runner),
+      );
     } catch {
       return new Map<string, number>();
     }
@@ -504,6 +523,45 @@ async function addDraftPullRequestCounts(
       if (repo) repo.draftPullRequests = count;
     }
   }
+}
+
+async function readGraphqlBackedDraftPullRequestCounts(
+  owner: string,
+  runner: Runner,
+): Promise<Map<string, number>> {
+  const result = await runner([
+    "gh",
+    "search",
+    "prs",
+    "--owner",
+    owner,
+    "--state",
+    "open",
+    "--draft",
+    "--json",
+    "repository",
+    "--limit",
+    "1000",
+  ]);
+  return parseDraftPullRequestCounts(result.stdout);
+}
+
+async function readRestDraftPullRequestCounts(
+  repos: readonly GitHubRepository[],
+  runner: Runner,
+): Promise<Map<string, number>> {
+  const entries = await mapWithLimit(repos, GH_ENRICH_CONCURRENCY, async (repo) => {
+    if (repo.draftPullRequests !== undefined) {
+      return [repo.nameWithOwner, repo.draftPullRequests] as const;
+    }
+    const [owner, name] = splitOwnerRepo(repo.nameWithOwner);
+    const pullRequests = await readRestOpenPullRequests(restRepoPath(owner, name), runner);
+    return [
+      repo.nameWithOwner,
+      pullRequests.filter((pullRequest) => pullRequest.draft).length,
+    ] as const;
+  });
+  return new Map(entries);
 }
 
 function parseDraftPullRequestCounts(stdout: string): Map<string, number> {
@@ -557,8 +615,13 @@ async function addOwnerRepositories(
   ownerFailures: string[],
 ): Promise<boolean> {
   try {
-    const result = await runner(repoListArgs(config, owner, options.fields ?? repoListFields()));
-    addRepositoryResults(repos, config, result.stdout);
+    const fields = options.fields ?? repoListFields();
+    const ownerRepos = await readWithRestFallback(
+      `repository list for ${owner}`,
+      () => readGraphqlBackedOwnerRepositories(config, owner, fields, runner),
+      () => readRestOwnerRepositories(config, owner, fields, runner),
+    );
+    addRepositoryResults(repos, config, ownerRepos);
     return true;
   } catch (error) {
     if (options.tolerateOwnerFailures) {
@@ -569,19 +632,134 @@ async function addOwnerRepositories(
   }
 }
 
+async function readGraphqlBackedOwnerRepositories(
+  config: HeraklesConfig,
+  owner: string,
+  fields: string[],
+  runner: Runner,
+): Promise<GhRepo[]> {
+  const result = await runner(repoListArgs(config, owner, fields));
+  return JSON.parse(result.stdout) as GhRepo[];
+}
+
+async function readRestOwnerRepositories(
+  config: HeraklesConfig,
+  owner: string,
+  fields: string[],
+  runner: Runner,
+): Promise<GhRepo[]> {
+  const accountResult = await runner(["gh", "api", `users/${encodeURIComponent(owner)}`]);
+  const account = JSON.parse(accountResult.stdout) as GhRestAccount;
+  const endpoint = await restOwnerRepositoriesEndpoint(owner, account, runner);
+  const repositories = await readRestPaginatedArray<GhRestRepository>(endpoint, runner);
+  const eligible = repositories.filter(
+    (repo) =>
+      (config.github.include_forks || repo.fork !== true) &&
+      (config.github.include_archived || repo.archived !== true),
+  );
+  return mapWithLimit(eligible, GH_ENRICH_CONCURRENCY, (repo) =>
+    enrichRestRepository(repo, fields, runner),
+  );
+}
+
+async function restOwnerRepositoriesEndpoint(
+  owner: string,
+  account: GhRestAccount,
+  runner: Runner,
+): Promise<string> {
+  const encodedOwner = encodeURIComponent(owner);
+  if (account.type?.toUpperCase() === "ORGANIZATION") {
+    return `orgs/${encodedOwner}/repos?type=all&sort=full_name&per_page=100`;
+  }
+  const authenticatedUser = await readAuthenticatedUserLogin(runner);
+  if (authenticatedUser.toLowerCase() === owner.toLowerCase()) {
+    return "user/repos?affiliation=owner&visibility=all&sort=full_name&per_page=100";
+  }
+  return `users/${encodedOwner}/repos?type=owner&sort=full_name&per_page=100`;
+}
+
 function addRepositoryResults(
   repos: Map<string, GitHubRepository>,
   config: HeraklesConfig,
-  stdout: string,
+  githubRepos: readonly GhRepo[],
 ) {
-  const parsed = JSON.parse(stdout) as GhRepo[];
-  for (const repo of parsed) {
+  for (const repo of githubRepos) {
     const normalized = normalizeRepository(repo);
     if (!config.github.include_archived && normalized.isArchived) {
       continue;
     }
     repos.set(normalized.nameWithOwner, normalized);
   }
+}
+
+async function enrichRestRepository(
+  repository: GhRestRepository,
+  fields: readonly string[],
+  runner: Runner,
+): Promise<GhRepo> {
+  const normalized = normalizeRestRepository(repository);
+  const [owner, name] = splitOwnerRepo(normalized.nameWithOwner);
+  const repoPath = restRepoPath(owner, name);
+  const [languages, pullRequests, issues] = await Promise.all([
+    fields.includes("languages") ? readRestLanguages(repoPath, runner) : undefined,
+    fields.includes("pullRequests") ? readRestOpenPullRequests(repoPath, runner) : undefined,
+    fields.includes("issues") ? readRestOpenIssues(repoPath, runner) : undefined,
+  ]);
+  if (languages) normalized.languages = languages;
+  if (pullRequests) {
+    normalized.pullRequests = { totalCount: pullRequests.length };
+    normalized.draftPullRequests = pullRequests.filter((pullRequest) => pullRequest.draft).length;
+  }
+  if (issues) {
+    normalized.issues = {
+      totalCount: issues.filter((issue) => issue.pull_request === undefined).length,
+    };
+  }
+  return normalized;
+}
+
+function normalizeRestRepository(repository: GhRestRepository): GhRepo {
+  const owner = repository.owner?.login;
+  if (!repository.name || !repository.full_name || !owner) {
+    throw new Error("GitHub REST repository response did not include its repository identity");
+  }
+  return {
+    name: repository.name,
+    nameWithOwner: repository.full_name,
+    owner,
+    ...(repository.ssh_url === undefined ? {} : { sshUrl: repository.ssh_url }),
+    ...(repository.html_url === undefined ? {} : { url: repository.html_url }),
+    ...(repository.visibility === undefined
+      ? {}
+      : { visibility: repository.visibility.toUpperCase() }),
+    ...(repository.private === undefined ? {} : { isPrivate: repository.private }),
+    ...(repository.archived === undefined ? {} : { isArchived: repository.archived }),
+    repositoryTopics: repository.topics ?? [],
+    ...(repository.language === undefined ? {} : { primaryLanguage: repository.language }),
+    ...(repository.default_branch === undefined
+      ? {}
+      : { defaultBranchRef: repository.default_branch }),
+    ...(repository.description ? { description: repository.description } : {}),
+    ...(repository.homepage ? { homepageUrl: repository.homepage } : {}),
+    ...(repository.pushed_at === undefined ? {} : { pushedAt: repository.pushed_at }),
+    ...(repository.updated_at === undefined ? {} : { updatedAt: repository.updated_at }),
+  };
+}
+
+async function readRestLanguages(repoPath: string, runner: Runner): Promise<GhLanguage[]> {
+  const result = await runner(["gh", "api", `${repoPath}/languages`]);
+  const parsed = JSON.parse(result.stdout) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("GitHub REST languages response was not an object");
+  }
+  return Object.entries(parsed)
+    .filter((entry): entry is [string, number] => typeof entry[1] === "number")
+    .map(([name, size]) => ({ name, size }))
+    .sort((a, b) => b.size - a.size || a.name.localeCompare(b.name));
+}
+
+function readRestOpenIssues(repoPath: string, runner: Runner): Promise<GhRestIssue[]> {
+  return readRestPaginatedArray(`${repoPath}/issues?state=open&per_page=100`, runner);
 }
 
 function trackedHostedRepos(config: HeraklesConfig): string[] {
@@ -601,8 +779,14 @@ async function readRepository(
   fields: string[] = repoListFields(),
 ): Promise<GitHubRepository | undefined> {
   try {
-    const result = await runner(["gh", "repo", "view", repo, "--json", fields.join(",")]);
-    const parsed = JSON.parse(result.stdout) as GhRepo;
+    const parsed = await readWithRestFallback(
+      repo,
+      async () => {
+        const result = await runner(["gh", "repo", "view", repo, "--json", fields.join(",")]);
+        return JSON.parse(result.stdout) as GhRepo;
+      },
+      () => readRestRepository(repo, fields, runner),
+    );
     const normalized = normalizeRepository(parsed);
     if (!config.github.include_archived && normalized.isArchived) return undefined;
     return normalized;
@@ -611,24 +795,53 @@ async function readRepository(
   }
 }
 
+async function readRestRepository(
+  repo: string,
+  fields: readonly string[],
+  runner: Runner,
+): Promise<GhRepo> {
+  const [owner, name] = splitOwnerRepo(repo);
+  const result = await runner(["gh", "api", restRepoPath(owner, name)]);
+  return enrichRestRepository(JSON.parse(result.stdout) as GhRestRepository, fields, runner);
+}
+
 async function discoverAuthenticatedOwners(runner: Runner): Promise<string[]> {
   const owners = new Set<string>();
   try {
-    const user = (await runner(["gh", "api", "user", "--jq", ".login"])).stdout.trim();
+    const user = await readAuthenticatedUserLogin(runner);
     if (user) owners.add(user);
   } catch {
     return [];
   }
   try {
-    const orgs = (await runner(["gh", "org", "list", "--limit", "1000"])).stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
+    const orgs = await readWithRestFallback(
+      "authenticated organizations",
+      async () =>
+        (await runner(["gh", "org", "list", "--limit", "1000"])).stdout
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean),
+      () => readRestAuthenticatedOrganizations(runner),
+    );
     for (const org of orgs) owners.add(org);
   } catch {
     // Organization visibility can fail independently of user lookup; keep user-owned imports.
   }
   return [...owners];
+}
+
+async function readAuthenticatedUserLogin(runner: Runner): Promise<string> {
+  return (await runner(["gh", "api", "user", "--jq", ".login"])).stdout.trim();
+}
+
+async function readRestAuthenticatedOrganizations(runner: Runner): Promise<string[]> {
+  const organizations = await readRestPaginatedArray<GhRestAccount>(
+    "user/orgs?per_page=100",
+    runner,
+  );
+  return organizations
+    .map((organization) => organization.login)
+    .filter((login): login is string => Boolean(login));
 }
 
 function repoListArgs(config: HeraklesConfig, owner: string, fields: string[]): string[] {
@@ -778,6 +991,15 @@ function restPaginatedArgs(endpoint: string): string[] {
   return ["gh", "api", "--paginate", "--slurp", endpoint];
 }
 
+async function readRestPaginatedArray<T>(
+  endpoint: string,
+  runner: Runner,
+  options?: Parameters<Runner>[1],
+): Promise<T[]> {
+  const result = await runner(restPaginatedArgs(endpoint), options);
+  return restArrayPages<T>(result.stdout);
+}
+
 function restArrayPages<T>(stdout: string): T[] {
   const pages = JSON.parse(stdout) as unknown;
   if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
@@ -799,6 +1021,25 @@ function restObjectPages<T extends object>(stdout: string): T[] {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function readWithRestFallback<T>(
+  subject: string,
+  graphqlRead: () => Promise<T>,
+  restRead: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await graphqlRead();
+  } catch (graphqlError) {
+    try {
+      return await restRead();
+    } catch (restError) {
+      throw new Error(
+        `GitHub GraphQL read failed for ${subject}: ${errorMessage(graphqlError)}\n` +
+          `GitHub REST fallback failed for ${subject}: ${errorMessage(restError)}`,
+      );
+    }
+  }
 }
 
 function pullRequestNodes(stdout: string): GhPullRequest[] {

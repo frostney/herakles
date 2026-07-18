@@ -47,7 +47,7 @@ Any operation that moves repositories or serves workspace files must validate co
 
 ## GitHub Reads
 
-GitHub GraphQL reads may be used as a preferred path, but each read must have a REST fallback that preserves the same Herakles data contract. If both paths fail, surface the failure through the owning service instead of silently returning incomplete fields.
+GitHub GraphQL reads may be used as a preferred path, but each read must have a REST fallback that preserves the same Herakles data contract. This includes higher-level `gh` commands whose implementation is GraphQL-backed, not only explicit `gh api graphql` calls. If both paths fail, surface the failure through the owning service instead of silently returning incomplete fields.
 
 Tests for GraphQL-backed reads should prove that GraphQL remains preferred, REST fallback normalization is equivalent, and a failed fallback remains visible to the caller.
 

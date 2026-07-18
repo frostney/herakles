@@ -110,6 +110,80 @@ describe("github context wrappers", () => {
     });
   });
 
+  test("falls back to REST repository discovery without degrading repository fields", async () => {
+    const calls: string[][] = [];
+    const config = heraklesConfigSchema.parse({
+      github: { owners: ["frostney"], include_archived: false },
+    });
+    const repos = await listGitHubRepositoriesWithRunner(config, async (argv) => {
+      calls.push([...argv]);
+      const command = argv.join(" ");
+      const endpoint = argv.find((arg) => arg.includes("/") || arg.startsWith("user/"));
+      if (argv.slice(0, 4).join(" ") === "gh repo list frostney") {
+        throw new Error("GraphQL unavailable");
+      }
+      if (command === "gh api users/frostney") {
+        return ghStdout(JSON.stringify({ login: "frostney", type: "User" }));
+      }
+      if (command === "gh api user --jq .login") return ghStdout("frostney\n");
+      if (endpoint?.startsWith("user/repos?")) {
+        return ghStdout(
+          JSON.stringify([
+            [
+              restGithubRepo("frostney", "tool"),
+              { ...restGithubRepo("frostney", "fork"), fork: true },
+              { ...restGithubRepo("frostney", "archived"), archived: true },
+            ],
+          ]),
+        );
+      }
+      if (endpoint === "repos/frostney/tool/languages") {
+        return ghStdout(JSON.stringify({ TypeScript: 120, CSS: 30 }));
+      }
+      if (endpoint?.startsWith("repos/frostney/tool/pulls?")) {
+        return ghStdout(JSON.stringify([[{ draft: true }, { draft: false }]]));
+      }
+      if (endpoint?.startsWith("repos/frostney/tool/issues?state=open")) {
+        return ghStdout(JSON.stringify([[{}, { pull_request: {} }, {}]]));
+      }
+      if (argv.slice(0, 3).join(" ") === "gh search prs") {
+        throw new Error("GraphQL unavailable");
+      }
+      throw new Error(`Optional enrichment unavailable: ${command}`);
+    });
+
+    expect(repos).toEqual([
+      expect.objectContaining({
+        name: "tool",
+        nameWithOwner: "frostney/tool",
+        owner: "frostney",
+        sshUrl: "git@github.com:frostney/tool.git",
+        url: "https://github.com/frostney/tool",
+        visibility: "PUBLIC",
+        isPrivate: false,
+        isArchived: false,
+        repositoryTopics: ["bun"],
+        primaryLanguage: "TypeScript",
+        languages: ["TypeScript", "CSS"],
+        languageBreakdown: [
+          { name: "TypeScript", size: 120 },
+          { name: "CSS", size: 30 },
+        ],
+        defaultBranchRef: "main",
+        description: "A tool",
+        homepageUrl: "https://example.com/tool",
+        pushedAt: "2026-06-22T10:00:00Z",
+        updatedAt: "2026-06-23T10:00:00Z",
+        openPullRequests: 2,
+        draftPullRequests: 1,
+        openIssues: 2,
+      }),
+    ]);
+    expect(
+      calls.filter((call) => call.some((arg) => arg.startsWith("repos/frostney/tool/pulls?"))),
+    ).toHaveLength(1);
+  });
+
   test("discovers authenticated user and organization repositories for imports", async () => {
     const calls: string[][] = [];
     const config = heraklesConfigSchema.parse({
@@ -163,6 +237,31 @@ describe("github context wrappers", () => {
     ]);
   });
 
+  test("falls back to REST organization discovery", async () => {
+    const calls: string[][] = [];
+    const config = heraklesConfigSchema.parse({ github: { owners: [] } });
+    const repos = await listImportableGitHubRepositoriesWithRunner(config, async (argv) => {
+      calls.push([...argv]);
+      if (argv.some((arg) => arg === "user/orgs?per_page=100")) {
+        return ghStdout(JSON.stringify([[{ login: "herakles-labs" }]]));
+      }
+      const command = argv.join(" ");
+      if (command === "gh api user --jq .login") return ghStdout("frostney\n");
+      if (command === "gh org list --limit 1000") throw new Error("GraphQL unavailable");
+      if (argv.slice(0, 3).join(" ") === "gh repo list") {
+        const owner = argv[3] ?? "";
+        return ghStdout(JSON.stringify([githubRepo(owner, "tool")]));
+      }
+      throw new Error(`Unexpected GitHub command: ${command}`);
+    });
+
+    expect(repos.map((repo) => repo.nameWithOwner)).toEqual([
+      "frostney/tool",
+      "herakles-labs/tool",
+    ]);
+    expect(calls.some((call) => call.includes("user/orgs?per_page=100"))).toBe(true);
+  });
+
   test("uses lightweight personal repository discovery for imports", async () => {
     const calls: string[][] = [];
     const config = heraklesConfigSchema.parse({ github: { include_archived: false } });
@@ -193,12 +292,7 @@ describe("github context wrappers", () => {
 
   test("reads explicitly tracked repositories outside configured owners", async () => {
     const calls: string[][] = [];
-    const config = heraklesConfigSchema.parse({
-      github: { owners: [] },
-      project: {
-        "frostney-tool": { source: "github", repo: "frostney/tool" },
-      },
-    });
+    const config = trackedToolConfig();
     const repos = await listGitHubRepositoriesWithRunner(config, async (argv) => {
       calls.push([...argv]);
       return {
@@ -221,6 +315,54 @@ describe("github context wrappers", () => {
       nameWithOwner: "frostney/tool",
       visibility: "PUBLIC",
     });
+  });
+
+  test("falls back to REST for explicitly tracked repository reads", async () => {
+    const calls: string[][] = [];
+    const config = trackedToolConfig();
+    const repos = await listGitHubRepositoriesWithRunner(
+      config,
+      async (argv) => {
+        calls.push([...argv]);
+        if (argv.slice(0, 4).join(" ") === "gh repo view frostney/tool") {
+          throw new Error("GraphQL unavailable");
+        }
+        if (argv.join(" ") === "gh api repos/frostney/tool") {
+          return ghStdout(JSON.stringify(restGithubRepo("frostney", "tool")));
+        }
+        throw new Error(`Unexpected GitHub command: ${argv.join(" ")}`);
+      },
+      { enrichProjectMetrics: false, fields: ["name", "nameWithOwner", "owner", "url"] },
+    );
+
+    expect(repos[0]).toMatchObject({
+      nameWithOwner: "frostney/tool",
+      url: "https://github.com/frostney/tool",
+      visibility: "PUBLIC",
+    });
+    expect(calls.map((call) => call.join(" "))).toEqual([
+      "gh repo view frostney/tool --json name,nameWithOwner,owner,url",
+      "gh api repos/frostney/tool",
+    ]);
+  });
+
+  test("falls back to REST for draft pull request counts", async () => {
+    const config = heraklesConfigSchema.parse({ github: { owners: ["frostney"] } });
+    const repos = await listGitHubRepositoriesWithRunner(config, async (argv) => {
+      const endpoint = argv.find((arg) => arg.startsWith("repos/"));
+      if (argv.slice(0, 4).join(" ") === "gh repo list frostney") {
+        return ghStdout(JSON.stringify([githubRepo("frostney", "tool")]));
+      }
+      if (argv.slice(0, 3).join(" ") === "gh search prs") {
+        throw new Error("GraphQL unavailable");
+      }
+      if (endpoint?.startsWith("repos/frostney/tool/pulls?")) {
+        return ghStdout(JSON.stringify([[{ draft: true }, { draft: false }, { draft: true }]]));
+      }
+      throw new Error(`Optional enrichment unavailable: ${argv.join(" ")}`);
+    });
+
+    expect(repos[0]?.draftPullRequests).toBe(2);
   });
 
   test("reports owner failures even when tracked repositories can be read", async () => {
@@ -535,4 +677,34 @@ function githubRepo(owner: string, name: string) {
     isArchived: false,
     repositoryTopics: [],
   };
+}
+
+function restGithubRepo(owner: string, name: string) {
+  return {
+    name,
+    full_name: `${owner}/${name}`,
+    owner: { login: owner },
+    ssh_url: `git@github.com:${owner}/${name}.git`,
+    html_url: `https://github.com/${owner}/${name}`,
+    visibility: "public",
+    private: false,
+    archived: false,
+    topics: ["bun"],
+    language: "TypeScript",
+    default_branch: "main",
+    description: "A tool",
+    homepage: `https://example.com/${name}`,
+    pushed_at: "2026-06-22T10:00:00Z",
+    updated_at: "2026-06-23T10:00:00Z",
+    fork: false,
+  };
+}
+
+function trackedToolConfig() {
+  return heraklesConfigSchema.parse({
+    github: { owners: [] },
+    project: {
+      "frostney-tool": { source: "github", repo: "frostney/tool" },
+    },
+  });
 }
