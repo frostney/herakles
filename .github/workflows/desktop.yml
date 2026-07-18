@@ -31,7 +31,7 @@ jobs:
       - name: Validate stable release tag
         if: github.ref_type == 'tag'
         run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "Stable releases require a semantic version tag; got: $GITHUB_REF_NAME"
             exit 1
           fi
@@ -100,7 +100,15 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           TARGET_SHA="$(git rev-parse HEAD)"
-          EXISTING_TARGET="$(gh release view nightly --json targetCommitish --jq '.targetCommitish' 2>/dev/null || true)"
+          LOOKUP_ERROR="${RUNNER_TEMP}/nightly-release-view.err"
+          if EXISTING_TARGET="$(gh release view nightly --json targetCommitish --jq '.targetCommitish' 2>"$LOOKUP_ERROR")"; then
+            :
+          elif grep -Eiq "(not found|HTTP 404)" "$LOOKUP_ERROR"; then
+            EXISTING_TARGET=""
+          else
+            cat "$LOOKUP_ERROR" >&2
+            exit 1
+          fi
 
           if [ -z "$EXISTING_TARGET" ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
