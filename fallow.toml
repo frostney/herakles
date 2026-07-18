@@ -1,3 +1,10 @@
+entry = [
+  "electrobun.config.ts",
+  "src/cli/main.ts",
+  "src/ui/desktop/main.ts",
+  "src/ui/server/main.ts",
+]
+
 ignoreDependencies = ["bun-plugin-tailwind"]
 
 [health]

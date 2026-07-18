@@ -10,6 +10,9 @@
   "scripts": {
     "herakles": "bun run src/cli/main.ts",
     "ui": "bun run src/ui/server/main.ts",
+    "desktop": "electrobun dev",
+    "desktop:build": "electrobun build --env=stable",
+    "desktop:build:nightly": "electrobun build --env=canary",
     "test": "bun test",
     "format": "biome format --write .",
     "lint": "biome check .",
@@ -42,6 +45,7 @@
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.2",
     "bun-plugin-tailwind": "^0.1.2",
+    "electrobun": "1.18.1",
     "fallow": "^2.32.0",
     "tailwindcss": "^4.3.1",
     "typescript": "^5.7.2"

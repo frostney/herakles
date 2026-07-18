@@ -10,7 +10,23 @@ export type UiServerOptions = {
   openBrowser?: boolean;
 };
 
+export type UiServerSession = {
+  url: string;
+  stop: () => void;
+};
+
 export async function startUiServer(options: UiServerOptions) {
+  const session = await startUiServerSession(options);
+
+  process.on("SIGINT", () => {
+    session.stop();
+    process.exit(0);
+  });
+
+  await new Promise(() => {});
+}
+
+export async function startUiServerSession(options: UiServerOptions): Promise<UiServerSession> {
   const loaded = await loadConfig(options.workspaceRoot);
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 4783;
@@ -43,13 +59,16 @@ export async function startUiServer(options: UiServerOptions) {
     openUrl(url);
   }
 
-  process.on("SIGINT", () => {
-    cron.stop();
-    server.stop();
-    process.exit(0);
-  });
-
-  await new Promise(() => {});
+  let stopped = false;
+  return {
+    url,
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      cron.stop();
+      server.stop();
+    },
+  };
 }
 
 function openUrl(url: string) {

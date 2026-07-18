@@ -1,0 +1,193 @@
+name: Desktop
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "[0-9]*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: "1.3.14"
+
+jobs:
+  build:
+    name: Build macOS arm64 desktop
+    runs-on: macos-26
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate stable release tag
+        if: github.ref_type == 'tag'
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Stable releases require a semantic version tag; got: $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run lint
+        run: bun run lint
+
+      - name: Run typecheck
+        run: bunx tsc --noEmit
+
+      - name: Run tests
+        run: bun test
+
+      - name: Run quality gate
+        run: bun run quality
+
+      - name: Build desktop artifacts
+        env:
+          HERAKLES_DESKTOP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-nightly.{0}', github.run_number) }}
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            bun run desktop:build
+          else
+            bun run desktop:build:nightly
+          fi
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: herakles-desktop-macos
+          if-no-files-found: error
+          path: artifacts/desktop/*
+
+  nightly:
+    name: Publish nightly desktop release
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: desktop-nightly-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check nightly release target
+        id: nightly-target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TARGET_SHA="$(git rev-parse HEAD)"
+          LOOKUP_ERROR="${RUNNER_TEMP}/nightly-release-view.err"
+          if EXISTING_TARGET="$(gh release view nightly --json targetCommitish --jq '.targetCommitish' 2>"$LOOKUP_ERROR")"; then
+            :
+          elif grep -Eiq "(not found|HTTP 404)" "$LOOKUP_ERROR"; then
+            EXISTING_TARGET=""
+          else
+            cat "$LOOKUP_ERROR" >&2
+            exit 1
+          fi
+
+          if [ -z "$EXISTING_TARGET" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git cat-file -e "${EXISTING_TARGET}^{commit}" 2>/dev/null; then
+            if [ "$EXISTING_TARGET" = "$TARGET_SHA" ] || git merge-base --is-ancestor "$TARGET_SHA" "$EXISTING_TARGET"; then
+              echo "Nightly already targets $EXISTING_TARGET, which is current or newer than $TARGET_SHA; skipping publish."
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            echo "Existing nightly target $EXISTING_TARGET is not in fetched history; publishing current commit."
+          fi
+
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Download desktop artifacts
+        if: steps.nightly-target.outputs.publish == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: herakles-desktop-macos
+          path: artifacts/desktop/
+
+      - name: Update nightly release
+        if: steps.nightly-target.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          COMMIT="$(git rev-parse --short HEAD)"
+          TARGET_SHA="$(git rev-parse HEAD)"
+          DATE="$(date -u +'%Y-%m-%d')"
+
+          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+
+          gh release create nightly \
+            --title "Nightly Build (${DATE})" \
+            --notes "$(cat <<EOF
+          Automated Herakles desktop nightly from \`main\` at [\`${COMMIT}\`](https://github.com/${{ github.repository }}/commit/${COMMIT}).
+
+          Built on ${DATE}. This unsigned macOS pre-release is replaced by each new main build.
+          EOF
+          )" \
+            --prerelease \
+            --target "$TARGET_SHA" \
+            artifacts/desktop/*
+
+  release:
+    name: Publish stable desktop release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: herakles-desktop-macos
+          path: artifacts/desktop/
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          NOTES="Unsigned macOS Herakles desktop artifacts for ${VERSION}."
+
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" artifacts/desktop/* --clobber
+          else
+            gh release create "$VERSION" \
+              --title "$VERSION" \
+              --notes "$NOTES" \
+              artifacts/desktop/*
+          fi
