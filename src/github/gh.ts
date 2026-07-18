@@ -160,7 +160,13 @@ function languageBreakdown(languages: GhRepo["languages"]): ProjectLanguage[] {
 }
 
 function normalizeRepository(repo: GhRepo): GitHubRepository {
-  const owner = typeof repo.owner === "string" ? repo.owner : repo.owner.login;
+  if (!repo || typeof repo !== "object") {
+    throw new Error("GitHub repository response was not an object");
+  }
+  const owner = typeof repo.owner === "string" ? repo.owner : repo.owner?.login;
+  if (!repo.name || !repo.nameWithOwner || !owner) {
+    throw new Error("GitHub repository response did not include its repository identity");
+  }
   const languages = languageBreakdown(repo.languages);
   const normalized: GitHubRepository = {
     name: repo.name,
@@ -566,11 +572,15 @@ async function readRestDraftPullRequestCounts(
 
 function parseDraftPullRequestCounts(stdout: string): Map<string, number> {
   const parsed = JSON.parse(stdout) as unknown;
-  if (!Array.isArray(parsed)) return new Map();
+  if (!Array.isArray(parsed)) {
+    throw new Error("GitHub GraphQL-backed draft pull request response was not an array");
+  }
   const counts = new Map<string, number>();
   for (const item of parsed as GhSearchPullRequest[]) {
     const nameWithOwner = item.repository?.nameWithOwner;
-    if (!nameWithOwner) continue;
+    if (!nameWithOwner) {
+      throw new Error("GitHub GraphQL-backed draft pull request response omitted a repository");
+    }
     counts.set(nameWithOwner, (counts.get(nameWithOwner) ?? 0) + 1);
   }
   return counts;
@@ -637,9 +647,13 @@ async function readGraphqlBackedOwnerRepositories(
   owner: string,
   fields: string[],
   runner: Runner,
-): Promise<GhRepo[]> {
+): Promise<GitHubRepository[]> {
   const result = await runner(repoListArgs(config, owner, fields));
-  return JSON.parse(result.stdout) as GhRepo[];
+  const parsed = JSON.parse(result.stdout) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error("GitHub GraphQL-backed repository list response was not an array");
+  }
+  return parsed.map((repo) => normalizeRepository(repo as GhRepo));
 }
 
 async function readRestOwnerRepositories(
@@ -647,7 +661,7 @@ async function readRestOwnerRepositories(
   owner: string,
   fields: string[],
   runner: Runner,
-): Promise<GhRepo[]> {
+): Promise<GitHubRepository[]> {
   const accountResult = await runner(["gh", "api", `users/${encodeURIComponent(owner)}`]);
   const account = JSON.parse(accountResult.stdout) as GhRestAccount;
   const endpoint = await restOwnerRepositoriesEndpoint(owner, account, runner);
@@ -657,8 +671,8 @@ async function readRestOwnerRepositories(
       (config.github.include_forks || repo.fork !== true) &&
       (config.github.include_archived || repo.archived !== true),
   );
-  return mapWithLimit(eligible, GH_ENRICH_CONCURRENCY, (repo) =>
-    enrichRestRepository(repo, fields, runner),
+  return mapWithLimit(eligible, GH_ENRICH_CONCURRENCY, async (repo) =>
+    normalizeRepository(await enrichRestRepository(repo, fields, runner)),
   );
 }
 
@@ -681,14 +695,13 @@ async function restOwnerRepositoriesEndpoint(
 function addRepositoryResults(
   repos: Map<string, GitHubRepository>,
   config: HeraklesConfig,
-  githubRepos: readonly GhRepo[],
+  githubRepos: readonly GitHubRepository[],
 ) {
   for (const repo of githubRepos) {
-    const normalized = normalizeRepository(repo);
-    if (!config.github.include_archived && normalized.isArchived) {
+    if (!config.github.include_archived && repo.isArchived) {
       continue;
     }
-    repos.set(normalized.nameWithOwner, normalized);
+    repos.set(repo.nameWithOwner, repo);
   }
 }
 
@@ -779,15 +792,14 @@ async function readRepository(
   fields: string[] = repoListFields(),
 ): Promise<GitHubRepository | undefined> {
   try {
-    const parsed = await readWithRestFallback(
+    const normalized = await readWithRestFallback(
       repo,
       async () => {
         const result = await runner(["gh", "repo", "view", repo, "--json", fields.join(",")]);
-        return JSON.parse(result.stdout) as GhRepo;
+        return normalizeRepository(JSON.parse(result.stdout) as GhRepo);
       },
       () => readRestRepository(repo, fields, runner),
     );
-    const normalized = normalizeRepository(parsed);
     if (!config.github.include_archived && normalized.isArchived) return undefined;
     return normalized;
   } catch {
@@ -799,10 +811,12 @@ async function readRestRepository(
   repo: string,
   fields: readonly string[],
   runner: Runner,
-): Promise<GhRepo> {
+): Promise<GitHubRepository> {
   const [owner, name] = splitOwnerRepo(repo);
   const result = await runner(["gh", "api", restRepoPath(owner, name)]);
-  return enrichRestRepository(JSON.parse(result.stdout) as GhRestRepository, fields, runner);
+  return normalizeRepository(
+    await enrichRestRepository(JSON.parse(result.stdout) as GhRestRepository, fields, runner),
+  );
 }
 
 async function discoverAuthenticatedOwners(runner: Runner): Promise<string[]> {

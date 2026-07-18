@@ -122,21 +122,12 @@ describe("github context wrappers", () => {
       if (argv.slice(0, 4).join(" ") === "gh repo list frostney") {
         throw new Error("GraphQL unavailable");
       }
-      if (command === "gh api users/frostney") {
-        return ghStdout(JSON.stringify({ login: "frostney", type: "User" }));
-      }
-      if (command === "gh api user --jq .login") return ghStdout("frostney\n");
-      if (endpoint?.startsWith("user/repos?")) {
-        return ghStdout(
-          JSON.stringify([
-            [
-              restGithubRepo("frostney", "tool"),
-              { ...restGithubRepo("frostney", "fork"), fork: true },
-              { ...restGithubRepo("frostney", "archived"), archived: true },
-            ],
-          ]),
-        );
-      }
+      const discoveryResponse = restOwnerDiscoveryResponse(argv, [
+        restGithubRepo("frostney", "tool"),
+        { ...restGithubRepo("frostney", "fork"), fork: true },
+        { ...restGithubRepo("frostney", "archived"), archived: true },
+      ]);
+      if (discoveryResponse) return discoveryResponse;
       if (endpoint === "repos/frostney/tool/languages") {
         return ghStdout(JSON.stringify({ TypeScript: 120, CSS: 30 }));
       }
@@ -182,6 +173,35 @@ describe("github context wrappers", () => {
     expect(
       calls.filter((call) => call.some((arg) => arg.startsWith("repos/frostney/tool/pulls?"))),
     ).toHaveLength(1);
+  });
+
+  test("falls back to REST when repository discovery returns malformed data", async () => {
+    const malformedPayloads = [
+      "null",
+      "{}",
+      JSON.stringify([{ name: "tool", nameWithOwner: "frostney/tool", owner: {} }]),
+    ];
+    const config = heraklesConfigSchema.parse({ github: { owners: ["frostney"] } });
+
+    for (const payload of malformedPayloads) {
+      const repos = await listGitHubRepositoriesWithRunner(
+        config,
+        async (argv) => {
+          const command = argv.join(" ");
+          if (argv.slice(0, 4).join(" ") === "gh repo list frostney") {
+            return ghStdout(payload);
+          }
+          const discoveryResponse = restOwnerDiscoveryResponse(argv, [
+            restGithubRepo("frostney", "tool"),
+          ]);
+          if (discoveryResponse) return discoveryResponse;
+          throw new Error(`Unexpected GitHub command: ${command}`);
+        },
+        { enrichProjectMetrics: false, fields: ["name", "nameWithOwner", "owner", "url"] },
+      );
+
+      expect(repos.map((repo) => repo.nameWithOwner)).toEqual(["frostney/tool"]);
+    }
   });
 
   test("discovers authenticated user and organization repositories for imports", async () => {
@@ -325,7 +345,9 @@ describe("github context wrappers", () => {
       async (argv) => {
         calls.push([...argv]);
         if (argv.slice(0, 4).join(" ") === "gh repo view frostney/tool") {
-          throw new Error("GraphQL unavailable");
+          return ghStdout(
+            JSON.stringify({ name: "tool", nameWithOwner: "frostney/tool", owner: {} }),
+          );
         }
         if (argv.join(" ") === "gh api repos/frostney/tool") {
           return ghStdout(JSON.stringify(restGithubRepo("frostney", "tool")));
@@ -354,7 +376,7 @@ describe("github context wrappers", () => {
         return ghStdout(JSON.stringify([githubRepo("frostney", "tool")]));
       }
       if (argv.slice(0, 3).join(" ") === "gh search prs") {
-        throw new Error("GraphQL unavailable");
+        return ghStdout("{}");
       }
       if (endpoint?.startsWith("repos/frostney/tool/pulls?")) {
         return ghStdout(JSON.stringify([[{ draft: true }, { draft: false }, { draft: true }]]));
@@ -698,6 +720,18 @@ function restGithubRepo(owner: string, name: string) {
     updated_at: "2026-06-23T10:00:00Z",
     fork: false,
   };
+}
+
+function restOwnerDiscoveryResponse(argv: readonly string[], repositories: readonly unknown[]) {
+  const command = argv.join(" ");
+  if (command === "gh api users/frostney") {
+    return ghStdout(JSON.stringify({ login: "frostney", type: "User" }));
+  }
+  if (command === "gh api user --jq .login") return ghStdout("frostney\n");
+  if (argv.some((arg) => arg.startsWith("user/repos?"))) {
+    return ghStdout(JSON.stringify([repositories]));
+  }
+  return undefined;
 }
 
 function trackedToolConfig() {
