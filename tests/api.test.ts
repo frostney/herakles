@@ -29,6 +29,14 @@ owners = []
   return root;
 }
 
+async function waitForFile(path: string) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (existsSync(path)) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`Timed out waiting for ${path}`);
+}
+
 async function addLocalGitProject(workspaceRoot: string, name: string) {
   const projectPath = join(workspaceRoot, "experiment", name);
   await mkdir(join(projectPath, ".git"), { recursive: true });
@@ -870,6 +878,113 @@ owners = ["frostney"]
 
     expect(response?.status).toBe(400);
     expect(body.error).toBe("invalid JSON body");
+  });
+
+  test("reloads an in-flight workspace read after adding a hosted project", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await configureGithubOwner(workspaceRoot);
+    const discoveryStarted = join(workspaceRoot, "discovery-started");
+    const releaseDiscovery = join(workspaceRoot, "release-discovery");
+    const fakeRepo = fakeGhRepositoryJson({ name: "frostney.github.io" });
+
+    await withFakeGhScript(
+      "herakles-gh-stale-projects-",
+      `#!/bin/sh
+touch ${JSON.stringify(discoveryStarted)}
+while [ ! -f ${JSON.stringify(releaseDiscovery)} ]; do
+  sleep 0.05
+done
+cat <<'JSON'
+${fakeRepo}
+JSON
+`,
+      async () => {
+        const inFlightProjects = routeApi(new Request("http://x/api/projects"), { workspaceRoot });
+        await waitForFile(discoveryStarted);
+
+        const add = await routeApi(
+          new Request("http://x/api/projects/add", {
+            method: "POST",
+            body: JSON.stringify({
+              source: "github",
+              repo: "frostney/frostney.github.io",
+              state: "open-source",
+            }),
+          }),
+          { workspaceRoot },
+        );
+        const added = await add?.json();
+        const up = projectUpDryRun(workspaceRoot, added.projectId);
+        await writeFile(releaseDiscovery, "continue");
+
+        const projectsResponse = await inFlightProjects;
+        const projects = await projectsResponse?.json();
+        const upResult = await up;
+
+        expect(add?.status).toBe(200);
+        expect(added.projectId).toBe("frostney-frostney.github.io");
+        expect(projectsResponse?.status).toBe(200);
+        expect(projects.map((project: { id: string }) => project.id)).toContain(
+          "github:frostney/frostney.github.io",
+        );
+        expect(upResult.response?.status).toBe(200);
+        expect(upResult.body[0].item.project.id).toBe("github:frostney/frostney.github.io");
+        expect(upResult.body[0].status).toBe("planned");
+      },
+    );
+  });
+
+  test("reloads an in-flight workspace read after applying Config Exchange", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await configureGithubOwner(workspaceRoot);
+    const discoveryStarted = join(workspaceRoot, "exchange-discovery-started");
+    const releaseDiscovery = join(workspaceRoot, "release-exchange-discovery");
+    const fakeRepo = fakeGhRepositoryJson({ name: "exchange.github.io" });
+
+    await withFakeGhScript(
+      "herakles-gh-stale-exchange-",
+      `#!/bin/sh
+touch ${JSON.stringify(discoveryStarted)}
+while [ ! -f ${JSON.stringify(releaseDiscovery)} ]; do
+  sleep 0.05
+done
+cat <<'JSON'
+${fakeRepo}
+JSON
+`,
+      async () => {
+        const inFlightProjects = routeApi(new Request("http://x/api/projects"), { workspaceRoot });
+        await waitForFile(discoveryStarted);
+
+        const apply = await routeApi(
+          new Request("http://x/api/config/toml/apply", {
+            method: "POST",
+            body: JSON.stringify({
+              toml: `version = 2
+[github]
+owners = ["frostney"]
+
+[project."frostney-exchange.github.io"]
+source = "github"
+repo = "frostney/exchange.github.io"
+state = "open-source"
+`,
+            }),
+          }),
+          { workspaceRoot },
+        );
+        await writeFile(releaseDiscovery, "continue");
+
+        const projectsResponse = await inFlightProjects;
+        const projects = await projectsResponse?.json();
+
+        expect(apply?.status).toBe(200);
+        expect(projectsResponse?.status).toBe(200);
+        expect(projects.map((project: { id: string }) => project.id)).toContain(
+          "github:frostney/exchange.github.io",
+        );
+      },
+    );
   });
 
   test("adds, imports, and removes tracked projects through the API", async () => {
