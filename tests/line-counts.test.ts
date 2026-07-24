@@ -30,4 +30,18 @@ describe("project line counts", () => {
 
     expect(countProjectLines(root)).toEqual({ loc: 1, sloc: 1 });
   });
+
+  test("excludes hidden files and nested hidden directories", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-line-counts-hidden-"));
+    await mkdir(join(root, "src"), { recursive: true });
+    await mkdir(join(root, ".claude", "worktrees", "copy"), { recursive: true });
+    await writeFile(join(root, "src", "index.ts"), "const visible = true;\n");
+    await writeFile(join(root, ".hidden.ts"), "const hiddenFile = true;\n");
+    await writeFile(
+      join(root, ".claude", "worktrees", "copy", "index.ts"),
+      "const hiddenDirectory = true;\n",
+    );
+
+    expect(countProjectLines(root)).toEqual({ loc: 1, sloc: 1 });
+  });
 });

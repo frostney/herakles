@@ -69,11 +69,11 @@ const countedBasenames = new Set(["Dockerfile", "Makefile"]);
 export function countProjectLines(projectPath: string): ProjectLineCounts | undefined {
   if (!existsSync(projectPath)) return undefined;
   const totals: ProjectLineCounts = { loc: 0, sloc: 0 };
-  visit(projectPath, totals);
+  visit(projectPath, totals, true);
   return totals;
 }
 
-function visit(path: string, totals: ProjectLineCounts) {
+function visit(path: string, totals: ProjectLineCounts, isRoot = false) {
   let stat: ReturnType<typeof lstatSync>;
   try {
     stat = lstatSync(path);
@@ -81,6 +81,7 @@ function visit(path: string, totals: ProjectLineCounts) {
     return;
   }
   if (stat.isSymbolicLink()) return;
+  if (!isRoot && basename(path).startsWith(".")) return;
   if (stat.isDirectory()) {
     if (ignoredDirectories.has(basename(path))) return;
     let entries: string[];
