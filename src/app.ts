@@ -13,6 +13,7 @@ import { type LoadedConfig, loadConfig } from "./config/load";
 import { resolveUnder } from "./config/paths";
 import {
   type ProjectConfigChanges,
+  type ProjectConfigPlan,
   applyProjectConfigPlan,
   createProjectConfigPlan,
   createRemoveProjectConfigPlan,
@@ -64,6 +65,11 @@ type WorkspaceState = {
   validation: ValidationResult;
 };
 
+type WorkspaceLoad = {
+  generation: number;
+  promise: Promise<WorkspaceState>;
+};
+
 type PullRequestCacheEntry = {
   expiresAt: number;
   key: string;
@@ -84,19 +90,50 @@ export class InvalidProjectOpenDestinationError extends Error {
   }
 }
 
-const workspaceLoads = new Map<string, Promise<WorkspaceState>>();
+const workspaceLoads = new Map<string, WorkspaceLoad>();
+const workspaceGenerations = new Map<string, number>();
 const pullRequestCacheTtlMs = 60_000;
 const pullRequestCacheVersion = 3;
 const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
 
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
+  const generation = workspaceGeneration(workspaceRoot);
   const existing = workspaceLoads.get(workspaceRoot);
-  if (existing) return existing;
-  const loading = loadWorkspaceFresh(workspaceRoot).finally(() => {
-    if (workspaceLoads.get(workspaceRoot) === loading) workspaceLoads.delete(workspaceRoot);
-  });
-  workspaceLoads.set(workspaceRoot, loading);
+  if (existing?.generation === generation) return existing.promise;
+  const loading = loadWorkspaceFresh(workspaceRoot)
+    .then(
+      (state) =>
+        workspaceGeneration(workspaceRoot) === generation ? state : loadWorkspace(workspaceRoot),
+      (error) =>
+        workspaceGeneration(workspaceRoot) === generation
+          ? Promise.reject(error)
+          : loadWorkspace(workspaceRoot),
+    )
+    .finally(() => {
+      if (workspaceLoads.get(workspaceRoot)?.promise === loading) {
+        workspaceLoads.delete(workspaceRoot);
+      }
+    });
+  workspaceLoads.set(workspaceRoot, { generation, promise: loading });
   return loading;
+}
+
+function workspaceGeneration(workspaceRoot: string): number {
+  return workspaceGenerations.get(workspaceRoot) ?? 0;
+}
+
+function invalidateWorkspace(workspaceRoot: string) {
+  workspaceGenerations.set(workspaceRoot, workspaceGeneration(workspaceRoot) + 1);
+  workspaceLoads.delete(workspaceRoot);
+}
+
+async function applyWorkspaceConfigMutation<T>(
+  workspaceRoot: string,
+  mutation: () => Promise<T>,
+): Promise<T> {
+  const result = await mutation();
+  invalidateWorkspace(workspaceRoot);
+  return result;
 }
 
 async function loadWorkspaceFresh(workspaceRoot: string): Promise<WorkspaceState> {
@@ -413,8 +450,7 @@ export async function applyProjectConfig(
     changes,
     options,
   );
-  const result = await applyProjectConfigPlan(plan);
-  return result;
+  return applyTrackedProjectConfigPlan(workspaceRoot, plan);
 }
 
 export async function setProjectState(
@@ -438,8 +474,7 @@ export async function addProject(
   const id = inputProjectConfigId(input);
   const loaded = await loadConfig(workspaceRoot);
   const plan = createProjectConfigPlan(loaded, id, projectConfigChangesFromInput(input));
-  const result = await applyProjectConfigPlan(plan);
-  return result;
+  return applyTrackedProjectConfigPlan(workspaceRoot, plan);
 }
 
 function projectConfigChangesFromInput(
@@ -462,8 +497,7 @@ export async function removeProject(workspaceRoot: string, projectId: string) {
   const id = loaded.config.project[projectId] ? projectId : findProject(resolved, projectId)?.slug;
   if (!id) throw new Error(`Unknown tracked project: ${projectId}`);
   const plan = createRemoveProjectConfigPlan(loaded, id);
-  const result = await applyProjectConfigPlan(plan);
-  return result;
+  return applyTrackedProjectConfigPlan(workspaceRoot, plan);
 }
 
 export async function resolveProjectCanonicalPath(workspaceRoot: string, projectId: string) {
@@ -511,7 +545,8 @@ export async function importHostedProjects(
   const results = [];
   for (const input of inputs) {
     const id = input.id ?? projectIdFromRepo(input.repo);
-    const result = await applyProjectConfigPlan(
+    const result = await applyTrackedProjectConfigPlan(
+      workspaceRoot,
       createProjectConfigPlan(loaded, id, {
         source: "github",
         repo: input.repo,
@@ -524,6 +559,13 @@ export async function importHostedProjects(
     results.push(result);
   }
   return results;
+}
+
+async function applyTrackedProjectConfigPlan(
+  workspaceRoot: string,
+  plan: ProjectConfigPlan,
+): Promise<ProjectConfigPlan> {
+  return applyWorkspaceConfigMutation(workspaceRoot, () => applyProjectConfigPlan(plan));
 }
 
 export async function upProject(
@@ -674,7 +716,9 @@ export async function applyConfigToml(workspaceRoot: string, toml: string) {
   if (!validation.valid) {
     throw new Error(validation.issues.map((issue) => issue.message).join("; "));
   }
-  await writeFile(loaded.paths.syncedConfigPath, toml);
+  await applyWorkspaceConfigMutation(workspaceRoot, () =>
+    writeFile(loaded.paths.syncedConfigPath, toml),
+  );
   return {
     path: loaded.paths.syncedConfigPath,
     toml,
@@ -766,10 +810,9 @@ export async function applyAutomationJobConfig(
   changes: AutomationJobConfigChanges,
 ) {
   const loaded = await loadConfig(workspaceRoot);
-  const result = await applyAutomationJobConfigPlan(
-    createAutomationJobConfigPlan(loaded, jobId, changes),
+  return applyWorkspaceConfigMutation(workspaceRoot, () =>
+    applyAutomationJobConfigPlan(createAutomationJobConfigPlan(loaded, jobId, changes)),
   );
-  return result;
 }
 
 function findProject(projects: readonly Project[], id: string): Project | undefined {
