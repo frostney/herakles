@@ -1,9 +1,10 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import type { Project, ProjectSource, ProjectState, ValidationResult } from "../domain";
 import { type ProjectStateTransition, planProjectStateTransition } from "../lifecycle/transitions";
 import type { LoadedConfig } from "./load";
 import { configKeySchema, projectConfigSchema } from "./schema";
-import { renderTomlDiff, renderTomlRemovalDiff, replaceTomlBlock } from "./toml-block";
+import { renderTomlDiff, replaceTomlBlock } from "./toml-block";
+import { normalizeProjectConfigOrder, writeConfigToml } from "./write";
 
 export type ProjectConfigChanges = {
   source?: ProjectSource | undefined;
@@ -24,6 +25,7 @@ export type ProjectConfigPlan = {
   transition?: ProjectStateTransition;
   validation?: ValidationResult;
   toml: string;
+  configToml: string;
   diff: string;
   action: "append" | "replace" | "remove";
 };
@@ -44,6 +46,11 @@ export function createProjectConfigPlan(
     current && changes.state
       ? planProjectStateTransition(current.state, changes.state, options)
       : undefined;
+  const action = before === undefined ? "append" : "replace";
+  const toml = renderProjectConfig(projectId, after);
+  const configToml = normalizeProjectConfigOrder(
+    replaceTomlBlock(loaded.rawToml, `[project.${JSON.stringify(projectId)}]`, toml, action),
+  );
   return {
     configPath: loaded.paths.syncedConfigPath,
     projectId,
@@ -51,12 +58,10 @@ export function createProjectConfigPlan(
     ...(beforeConfig === undefined ? {} : { before: beforeConfig }),
     after,
     ...(transition === undefined ? {} : { transition }),
-    toml: renderProjectConfig(projectId, after),
-    diff: renderTomlDiff(
-      renderProjectConfigBlock(projectId, beforeConfig),
-      renderProjectConfig(projectId, after),
-    ),
-    action: before === undefined ? "append" : "replace",
+    toml,
+    configToml,
+    diff: renderTomlDiff(loaded.rawToml, configToml),
+    action,
   };
 }
 
@@ -81,6 +86,9 @@ export function createRemoveProjectConfigPlan(
   const before = loaded.config.project[projectId];
   if (!before) throw new Error(`Project is not tracked in config: ${projectId}`);
   const beforeConfig = compactProjectConfig(before);
+  const configToml = normalizeProjectConfigOrder(
+    replaceTomlBlock(loaded.rawToml, `[project.${JSON.stringify(projectId)}]`, "", "remove"),
+  );
   return {
     configPath: loaded.paths.syncedConfigPath,
     projectId,
@@ -88,15 +96,16 @@ export function createRemoveProjectConfigPlan(
     before: beforeConfig,
     after: {},
     toml: "",
-    diff: renderTomlRemovalDiff(renderProjectConfig(projectId, beforeConfig)),
+    configToml,
+    diff: renderTomlDiff(loaded.rawToml, configToml),
     action: "remove",
   };
 }
 
 export async function applyProjectConfigPlan(plan: ProjectConfigPlan): Promise<ProjectConfigPlan> {
   const content = await readFile(plan.configPath, "utf8");
-  await writeFile(plan.configPath, replaceProjectConfig(content, plan));
-  return plan;
+  const configToml = await writeConfigToml(plan.configPath, replaceProjectConfig(content, plan));
+  return { ...plan, configToml };
 }
 
 function compactProjectConfig(values: ProjectConfigChanges): ProjectConfigChanges {
@@ -122,13 +131,6 @@ function renderProjectConfig(projectId: string, values: ProjectConfigChanges): s
   if (values.learning) lines.push(`learning = ${JSON.stringify(values.learning)}`);
   if (values.pinned) lines.push("pinned = true");
   return `${lines.join("\n")}\n`;
-}
-
-function renderProjectConfigBlock(
-  projectId: string,
-  values: ProjectConfigChanges | undefined,
-): string | undefined {
-  return values === undefined ? undefined : renderProjectConfig(projectId, values);
 }
 
 function replaceProjectConfig(content: string, plan: ProjectConfigPlan): string {

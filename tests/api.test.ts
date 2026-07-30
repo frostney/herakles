@@ -880,6 +880,41 @@ owners = ["frostney"]
     expect(body.error).toBe("invalid JSON body");
   });
 
+  test("Config Exchange previews and applies the same sorted project config", async () => {
+    const workspaceRoot = await tempWorkspace();
+    const toml = `version = 2
+
+[project.zebra]
+source = "local"
+
+[project.alpha]
+source = "local"
+`;
+    const preview = await routeApi(
+      new Request("http://x/api/config/toml/plan", {
+        method: "POST",
+        body: JSON.stringify({ toml }),
+      }),
+      { workspaceRoot },
+    );
+    const previewBody = await preview?.json();
+    const apply = await routeApi(
+      new Request("http://x/api/config/toml/apply", {
+        method: "POST",
+        body: JSON.stringify({ toml }),
+      }),
+      { workspaceRoot },
+    );
+    const applyBody = await apply?.json();
+    const written = await readFile(join(workspaceRoot, "_herakles", "herakles.toml"), "utf8");
+
+    expect(preview?.status).toBe(200);
+    expect(apply?.status).toBe(200);
+    expect(previewBody.toml).toBe(applyBody.toml);
+    expect(written).toBe(previewBody.toml);
+    expect(written.indexOf("[project.alpha]")).toBeLessThan(written.indexOf("[project.zebra]"));
+  });
+
   test("reloads an in-flight workspace read after adding a hosted project", async () => {
     const workspaceRoot = await tempWorkspace();
     await configureGithubOwner(workspaceRoot);
@@ -1122,6 +1157,17 @@ group = "clients"
 
   test("automation job apply route writes prompt text into synced TOML", async () => {
     const workspaceRoot = await tempWorkspace();
+    await writeFile(
+      join(workspaceRoot, "_herakles", "herakles.toml"),
+      `version = 2
+
+[project.zebra]
+source = "local"
+
+[project.alpha]
+source = "local"
+`,
+    );
     const response = await routeApi(
       new Request("http://x/api/automation/job-apply", {
         method: "POST",
@@ -1153,6 +1199,7 @@ group = "clients"
     expect(config).toContain("Review all tracked projects.");
     expect(config).toContain('repo_filter = "not archived"');
     expect(config).not.toContain("issue_labels");
+    expect(config.indexOf("[project.alpha]")).toBeLessThan(config.indexOf("[project.zebra]"));
   });
 
   test("plans local promotion through the API", async () => {

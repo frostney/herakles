@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ensureConfigScaffold } from "./load";
+import { writeConfigToml } from "./write";
 
 const sampleConfig = `version = 2
 
@@ -118,7 +119,7 @@ const schemaFiles = {
 export async function initConfig(workspaceRoot: string) {
   const paths = await ensureConfigScaffold(workspaceRoot);
   if (!existsSync(paths.syncedConfigPath)) {
-    await writeFile(paths.syncedConfigPath, sampleConfig);
+    await writeConfigToml(paths.syncedConfigPath, sampleConfig);
   }
   const gitignorePath = join(paths.configDir, ".gitignore");
   if (!existsSync(gitignorePath)) {

@@ -7,15 +7,22 @@ import { type HeraklesConfig, heraklesConfigSchema } from "./schema";
 
 export type LoadedConfig = {
   config: HeraklesConfig;
+  rawToml: string;
   paths: WorkspacePaths;
   source: {
     syncedConfigPath: string;
   };
 };
 
-async function readToml(path: string): Promise<Record<string, unknown>> {
+async function readToml(path: string): Promise<{
+  config: Record<string, unknown>;
+  rawToml: string;
+}> {
   const content = await readFile(path, "utf8");
-  return TOML.parse(content) as Record<string, unknown>;
+  return {
+    config: TOML.parse(content) as Record<string, unknown>,
+    rawToml: content,
+  };
 }
 
 export async function loadConfig(workspaceRoot: string): Promise<LoadedConfig> {
@@ -24,12 +31,13 @@ export async function loadConfig(workspaceRoot: string): Promise<LoadedConfig> {
     throw new Error(`Missing synced configuration at ${paths.syncedConfigPath}`);
   }
   const synced = await readToml(paths.syncedConfigPath);
-  const config = heraklesConfigSchema.parse(synced);
+  const config = heraklesConfigSchema.parse(synced.config);
   const source: LoadedConfig["source"] = {
     syncedConfigPath: paths.syncedConfigPath,
   };
   return {
     config,
+    rawToml: synced.rawToml,
     paths,
     source,
   };
