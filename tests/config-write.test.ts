@@ -97,6 +97,28 @@ source = "local"
 `);
   });
 
+  test("does not treat a bare project table as a tracked project entry", () => {
+    const unsorted = `[project]
+
+[project."1-zebra"]
+source = "local"
+
+[project."0-alpha"]
+source = "local"
+`;
+    const normalized = `[project]
+
+[project."0-alpha"]
+source = "local"
+
+[project."1-zebra"]
+source = "local"
+`;
+
+    expect(normalizeProjectConfigOrder(unsorted)).toBe(normalized);
+    expect(TOML.parse(normalized)).toEqual(TOML.parse(unsorted));
+  });
+
   test("ignores table-shaped text inside multiline and single-line strings", () => {
     const unsorted = `[job.example]
 prompt = """

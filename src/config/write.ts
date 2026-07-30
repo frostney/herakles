@@ -87,7 +87,9 @@ function isBlankLine(line: string): boolean {
 
 function projectIdFromHeader(line: string): string | undefined {
   try {
-    const parsed = TOML.parse(`${line.replace(/\r?\n$/, "")}\n__herakles_sort_marker = true`) as {
+    const parsed = TOML.parse(
+      `${line.replace(/\r?\n$/, "")}\n[__herakles_sort_probe]\nvalue = true`,
+    ) as {
       project?: Record<string, unknown>;
     };
     const projectIds = Object.keys(parsed.project ?? {});
