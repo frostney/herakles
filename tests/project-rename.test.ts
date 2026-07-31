@@ -101,7 +101,7 @@ function fakeRunner(
     if (command === "git remote get-url origin") {
       return { exitCode: 0, stdout: `${remote}\n`, stderr: "" };
     }
-    if (command.startsWith("git remote set-url origin ")) {
+    if (command.includes("remote set-url origin ")) {
       if (failRemote) {
         failRemote = false;
         return { exitCode: 1, stdout: "", stderr: "remote update failed" };
@@ -238,6 +238,9 @@ describe("project rename apply", () => {
     expect(fake.calls).toContain(
       "gh api --method PATCH repos/frostney/paid-api -f name=paid-api-sdk",
     );
+    expect(fake.calls).toContain(
+      `git -C ${project.path} remote set-url origin git@github.com:frostney/paid-api-sdk.git`,
+    );
     expect(fake.remote()).toBe("git@github.com:frostney/paid-api-sdk.git");
     expect(existsSync(project.path)).toBe(false);
     expect(existsSync(newPath)).toBe(true);
@@ -313,5 +316,32 @@ describe("project rename apply", () => {
     expect(
       fake.calls.filter((call) => call.includes("--method PATCH repos/frostney/paid-api")),
     ).toHaveLength(1);
+  });
+
+  test("does not write config when the planned source block was removed", async () => {
+    const root = await tempWorkspace();
+    const project = hostedProject(root);
+    const configPath = join(root, "_herakles", "herakles.toml");
+    const loaded = await loadConfig(root);
+    const fake = fakeRunner();
+    await writeFile(
+      configPath,
+      loaded.rawToml.replace(
+        /# Billing system\n\[project\."paid-api"\][\s\S]*?(?=\n\[project\.zebra\])/,
+        "",
+      ),
+    );
+
+    const result = await renameProjectWithRunner(
+      loaded,
+      project,
+      "frostney/paid-api-sdk",
+      fake.runner,
+    );
+    const config = await readFile(configPath, "utf8");
+
+    expect(result.status).toBe("failed");
+    expect(result.steps.at(-1)?.message).toContain("no longer present");
+    expect(config).not.toContain('[project."frostney-paid-api-sdk"]');
   });
 });

@@ -41,7 +41,7 @@ async function withFakeRenameCommands(
     `#!/usr/bin/env bash
 set -euo pipefail
 host_state=${JSON.stringify(hostState)}
-if [[ "$1 $2" == "repo list" ]]; then
+if [[ "\${1:-} \${2:-}" == "repo list" ]]; then
   if [[ -f "$host_state" ]]; then
     cat <<'JSON'
 ${fakeGhRepositoryJson({ name: "new-tool" })}
@@ -53,7 +53,7 @@ JSON
   fi
   exit 0
 fi
-if [[ "$1 $2" == "api repos/frostney/old-tool" ]]; then
+if [[ "\${1:-} \${2:-}" == "api repos/frostney/old-tool" ]]; then
   if [[ -f "$host_state" ]]; then
     echo '{"node_id":"repo-1","full_name":"frostney/new-tool"}'
   else
@@ -61,7 +61,7 @@ if [[ "$1 $2" == "api repos/frostney/old-tool" ]]; then
   fi
   exit 0
 fi
-if [[ "$1 $2" == "api repos/frostney/new-tool" ]]; then
+if [[ "\${1:-} \${2:-}" == "api repos/frostney/new-tool" ]]; then
   if [[ -f "$host_state" ]]; then
     echo '{"node_id":"repo-1","full_name":"frostney/new-tool"}'
     exit 0
@@ -69,7 +69,7 @@ if [[ "$1 $2" == "api repos/frostney/new-tool" ]]; then
   echo 'HTTP 404: Not Found' >&2
   exit 1
 fi
-if [[ "$1 $2 $3 $4" == "api --method PATCH repos/frostney/old-tool" ]]; then
+if [[ "\${1:-} \${2:-} \${3:-} \${4:-}" == "api --method PATCH repos/frostney/old-tool" ]]; then
   touch "$host_state"
   echo '{"node_id":"repo-1","full_name":"frostney/new-tool"}'
   exit 0
@@ -83,14 +83,17 @@ exit 2
     `#!/usr/bin/env bash
 set -euo pipefail
 remote_state=${JSON.stringify(remoteState)}
-if [[ "$1 $2" == "status --porcelain" ]]; then
+if [[ "\${1:-}" == "-C" ]]; then
+  shift 2
+fi
+if [[ "\${1:-} \${2:-}" == "status --porcelain" ]]; then
   exit 0
 fi
-if [[ "$1 $2 $3" == "remote get-url origin" ]]; then
+if [[ "\${1:-} \${2:-} \${3:-}" == "remote get-url origin" ]]; then
   cat "$remote_state"
   exit 0
 fi
-if [[ "$1 $2 $3" == "remote set-url origin" ]]; then
+if [[ "\${1:-} \${2:-} \${3:-}" == "remote set-url origin" ]]; then
   printf '%s\\n' "$4" > "$remote_state"
   exit 0
 fi

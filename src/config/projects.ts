@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { TOML } from "bun";
 import type { Project, ProjectSource, ProjectState, ValidationResult } from "../domain";
 import { type ProjectStateTransition, planProjectStateTransition } from "../lifecycle/transitions";
 import type { LoadedConfig } from "./load";
@@ -152,6 +153,10 @@ export async function applyProjectConfigRenamePlan(
   plan: ProjectConfigRenamePlan,
 ): Promise<ProjectConfigRenamePlan> {
   const content = await readFile(plan.configPath, "utf8");
+  const parsed = TOML.parse(content) as { project?: Record<string, unknown> };
+  if (!Object.hasOwn(parsed.project ?? {}, plan.oldProjectId)) {
+    throw new Error(`Project block is no longer present in config: ${plan.oldProjectId}`);
+  }
   const configToml = await writeConfigToml(
     plan.configPath,
     renamedProjectConfigToml(content, plan.oldProjectId, plan.newProjectId, plan.after),

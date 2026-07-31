@@ -34,8 +34,6 @@ type PreparedProjectRename = {
   plan: ProjectRenamePlan;
   configPlan: ProjectConfigRenamePlan;
   workspaceRoot: string;
-  checkoutPath?: string;
-  newRemote?: string;
 };
 
 export class InvalidProjectRenameError extends Error {
@@ -225,8 +223,6 @@ async function prepareProjectRename(
     },
     configPlan,
     workspaceRoot: loaded.paths.workspaceRoot,
-    ...(checkout.path === undefined ? {} : { checkoutPath: checkout.path }),
-    ...(checkout.newRemote === undefined ? {} : { newRemote: checkout.newRemote }),
   };
 }
 
@@ -246,13 +242,7 @@ async function applyRenameStep(
     if (step.kind === "update-remote") {
       return commandStepResult(
         step,
-        await runner(
-          ["git", "remote", "set-url", "origin", required(prepared.newRemote, "new remote")],
-          {
-            cwd: required(prepared.checkoutPath, "checkout path"),
-            allowFailure: true,
-          },
-        ),
+        await runner(required(step.command, "update remote command"), { allowFailure: true }),
         "origin remote updated",
       );
     }
@@ -266,8 +256,12 @@ async function applyRenameStep(
       await rename(prepared.plan.oldPath, prepared.plan.newPath);
       return { kind: step.kind, status: "done", message: "checkout moved" };
     }
-    await applyProjectConfigRenamePlan(prepared.configPlan);
-    return { kind: step.kind, status: "done", message: "tracked project config re-keyed" };
+    if (step.kind === "rekey-config") {
+      await applyProjectConfigRenamePlan(prepared.configPlan);
+      return { kind: step.kind, status: "done", message: "tracked project config re-keyed" };
+    }
+    const unexpected: never = step.kind;
+    throw new Error(`Unsupported rename step: ${String(unexpected)}`);
   } catch (error) {
     return {
       kind: step.kind,

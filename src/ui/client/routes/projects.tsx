@@ -2294,7 +2294,12 @@ function ProjectSettingsPanel({
       <h2 className={ui.panelTitle}>Project Settings</h2>
       <ProjectStateControls key={`state-${project.id}`} project={project} onApplied={onApplied} />
       {project.source === "github" && project.owner && (
-        <ProjectRenamePanel owner={project.owner} project={project} onRenamed={onRenamed} />
+        <ProjectRenamePanel
+          key={`rename-${project.id}`}
+          owner={project.owner}
+          project={project}
+          onRenamed={onRenamed}
+        />
       )}
       {project.source === "local" && (
         <LocalPromotionPanel project={project} onPromoted={onApplied} />
