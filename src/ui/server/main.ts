@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 import { buildApplication, buildCommand, run } from "@stricli/core";
+import { heraklesApplicationText } from "../../cli/text";
+import { selectHeraklesWorkspace } from "../../config/workspace";
 import { startUiServer } from "./server";
 
 type UiFlags = {
@@ -52,7 +54,7 @@ const uiCommand = buildCommand<UiFlags>({
   },
   async func(flags) {
     await startUiServer({
-      workspaceRoot: flags.root ?? process.cwd(),
+      workspaceRoot: selectHeraklesWorkspace(flags.root),
       ...(flags.host === undefined ? {} : { host: flags.host }),
       ...(flags.port === undefined ? {} : { port: flags.port }),
       ...(flags.noOpen === true
@@ -69,6 +71,7 @@ const app = buildApplication(uiCommand, {
   versionInfo: { currentVersion: "2.0.0" },
   scanner: { caseStyle: "allow-kebab-for-camel" },
   documentation: { caseStyle: "convert-camel-to-kebab" },
+  localization: { text: heraklesApplicationText },
 });
 
 await run(app, Bun.argv.slice(2), { process: process as never });

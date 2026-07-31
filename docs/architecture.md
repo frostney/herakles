@@ -15,6 +15,12 @@ The canonical configuration is `_herakles/herakles.toml`. It describes hosted re
 
 `--root` identifies the Herakles Workspace: the folder containing `_herakles` and the mandatory lifecycle folders `open-source/`, `commercial/`, `experiment/`, `candidate/`, and `archived/`. Generated Herakles state lives inside `_herakles/cache`, `_herakles/reports`, `_herakles/worktrees`, and `_herakles/state`; `_herakles/.gitignore` keeps those folders out of synced configuration.
 
+When `--root` is omitted, the CLI and UI discover the Herakles Workspace by
+looking for `_herakles/herakles.toml` in the current directory and its
+ancestors. An explicit `--root` remains exact, and `herakles init` creates a
+workspace at the explicit path or current directory instead of discovering an
+ancestor.
+
 For setup commands, see [Quick Start](quick-start.md). For development commands and quality gates, see [Tooling](tooling.md). For implementation conventions, see [Code Style](code-style.md).
 
 `herakles init` creates the workspace scaffold, lifecycle folders, `.gitignore`, schemas, and default report-only automation jobs with inline prompts in `herakles.toml`. Existing config is left untouched so setup can be rerun safely.
