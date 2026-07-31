@@ -3,6 +3,11 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
+import {
+  HeraklesWorkspaceNotFoundError,
+  discoverHeraklesWorkspace,
+  selectHeraklesWorkspace,
+} from "../src/config/workspace";
 
 async function tempConfigWorkspace(config: string) {
   const root = await mkdtemp(join(tmpdir(), "herakles-config-"));
@@ -12,6 +17,46 @@ async function tempConfigWorkspace(config: string) {
 }
 
 describe("configuration loading", () => {
+  test("discovers the Herakles Workspace from an ancestor directory", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+`,
+    );
+    const nested = join(root, "open-source", "frostney", "herakles");
+    await mkdir(nested, { recursive: true });
+
+    expect(discoverHeraklesWorkspace(nested)).toBe(root);
+    expect(selectHeraklesWorkspace(undefined, nested)).toBe(root);
+  });
+
+  test("keeps an explicit Herakles Workspace exact", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+`,
+    );
+    const nested = join(root, "open-source", "herakles");
+    await mkdir(nested, { recursive: true });
+
+    expect(selectHeraklesWorkspace(nested, root)).toBe(nested);
+    await expect(loadConfig(nested)).rejects.toEqual(HeraklesWorkspaceNotFoundError.at(nested));
+  });
+
+  test("reports when no Herakles Workspace exists in the ancestor chain", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-missing-workspace-"));
+    const nested = join(root, "open-source", "herakles");
+    await mkdir(nested, { recursive: true });
+
+    expect(() => discoverHeraklesWorkspace(nested)).toThrow(
+      `no Herakles workspace found from ${nested}; pass --root or run inside a Herakles Workspace`,
+    );
+  });
+
   test("loads only the canonical Herakles Workspace config", async () => {
     const root = await tempConfigWorkspace(
       `version = 2

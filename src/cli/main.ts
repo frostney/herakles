@@ -1,12 +1,14 @@
 #!/usr/bin/env bun
 import { buildApplication, run } from "@stricli/core";
 import { rootRoute } from "./commands";
+import { heraklesApplicationText } from "./text";
 
 const app = buildApplication(rootRoute, {
   name: "herakles",
   versionInfo: { currentVersion: "2.0.0" },
   scanner: { caseStyle: "allow-kebab-for-camel" },
   documentation: { caseStyle: "convert-camel-to-kebab" },
+  localization: { text: heraklesApplicationText },
 });
 
 await run(app, normalizeGlobalArgs(Bun.argv.slice(2)), { process: process as never });

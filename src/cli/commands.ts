@@ -5,6 +5,7 @@ import * as app from "../app";
 import { installOsCron } from "../automation/cron";
 import { initConfig } from "../config/init";
 import { loadConfig } from "../config/load";
+import { selectHeraklesWorkspace } from "../config/workspace";
 import type { ProjectState } from "../domain";
 import { startUiServer } from "../ui/server/server";
 import { printJson, printTable } from "./output";
@@ -44,7 +45,7 @@ const looseBooleanParser = (value: string) => {
 };
 
 function root(flags: CommonFlags) {
-  return flags.root ?? process.cwd();
+  return selectHeraklesWorkspace(flags.root);
 }
 
 function shouldJson(flags: CommonFlags) {
@@ -104,7 +105,7 @@ const initCommand = buildCommand<{ root?: string }>({
     },
   },
   async func(flags) {
-    const paths = await initConfig(root(flags));
+    const paths = await initConfig(flags.root ?? process.cwd());
     console.log(`Initialized ${paths.configDir}`);
   },
 });
