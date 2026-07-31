@@ -29,6 +29,22 @@ bun run herakles init --root ~/Code
 - `candidate/`
 - `archived/`
 
+## Run From Inside A Workspace
+
+After initialization, Herakles discovers the Herakles Workspace by looking for
+`_herakles/herakles.toml` in the current directory and its ancestors. CLI
+commands and the UI can therefore be started from a managed project without
+passing `--root`:
+
+```sh
+cd ~/Code/open-source/tool
+herakles projects show tool
+```
+
+Pass `--root <workspace>` to select an exact Herakles Workspace explicitly.
+`herakles init` does not search ancestors; it initializes the explicit
+`--root` path or the current directory.
+
 ## Add Projects
 
 Add an existing GitHub repository:
