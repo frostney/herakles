@@ -48,6 +48,11 @@ import {
   promoteLocalProject,
 } from "./local/promote";
 import { syncDefaultBranch } from "./project/gitStatus";
+import {
+  InvalidProjectRenameError,
+  createProjectRenamePlan,
+  renameProject as executeProjectRename,
+} from "./project/rename";
 import { resolveProjects } from "./project/resolve";
 import {
   createReportNote,
@@ -96,6 +101,8 @@ const workspaceGenerations = new Map<string, number>();
 const pullRequestCacheTtlMs = 60_000;
 const pullRequestCacheVersion = 3;
 const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
+
+export { InvalidProjectRenameError };
 
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
   const generation = workspaceGeneration(workspaceRoot);
@@ -499,6 +506,35 @@ export async function removeProject(workspaceRoot: string, projectId: string) {
   if (!id) throw new Error(`Unknown tracked project: ${projectId}`);
   const plan = createRemoveProjectConfigPlan(loaded, id);
   return applyTrackedProjectConfigPlan(workspaceRoot, plan);
+}
+
+export async function projectRenamePlan(
+  workspaceRoot: string,
+  projectId: string,
+  targetRepo: string,
+) {
+  const { state, target } = await projectRenameTarget(workspaceRoot, projectId);
+  return createProjectRenamePlan(state.loaded, target, targetRepo);
+}
+
+export async function renameTrackedProject(
+  workspaceRoot: string,
+  projectId: string,
+  targetRepo: string,
+) {
+  const { state, target } = await projectRenameTarget(workspaceRoot, projectId);
+  try {
+    return await executeProjectRename(state.loaded, target, targetRepo);
+  } finally {
+    invalidateWorkspace(workspaceRoot);
+  }
+}
+
+async function projectRenameTarget(workspaceRoot: string, projectId: string) {
+  const state = await loadWorkspace(workspaceRoot);
+  const target = findProject(state.projects, projectId);
+  if (!target) throw new InvalidProjectRenameError(`Unknown tracked project: ${projectId}`);
+  return { state, target };
 }
 
 export async function resolveProjectCanonicalPath(workspaceRoot: string, projectId: string) {

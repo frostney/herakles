@@ -30,7 +30,7 @@ Run automation explicitly:
 bun run herakles automate tick --root ~/Code
 ```
 
-See [Quick Start](docs/quick-start.md) for add/import, drift, UI, and automation flows.
+See [Quick Start](docs/quick-start.md) for add/import, rename, drift, UI, and automation flows.
 
 ## Background
 

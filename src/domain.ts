@@ -274,6 +274,51 @@ export type LocalPromotionResult = {
   stderr: string;
 };
 
+export type ProjectRenameStepKind =
+  | "rename-host"
+  | "update-remote"
+  | "move-checkout"
+  | "rekey-config";
+
+export type ProjectRenamePlanStep = {
+  kind: ProjectRenameStepKind;
+  status: "pending" | "already-satisfied" | "not-applicable";
+  label: string;
+  from?: string;
+  to?: string;
+  command?: string[];
+};
+
+export type ProjectRenamePlan = {
+  projectId: string;
+  owner: string;
+  oldName: string;
+  newName: string;
+  oldRepo: string;
+  newRepo: string;
+  oldConfigKey: string;
+  newConfigKey: string;
+  oldPath: string;
+  newPath: string;
+  configPath: string;
+  configDiff: string;
+  steps: ProjectRenamePlanStep[];
+  notes: string[];
+};
+
+export type ProjectRenameStepResult = {
+  kind: ProjectRenameStepKind;
+  status: "done" | "already-satisfied" | "not-applicable" | "failed";
+  message: string;
+};
+
+export type ProjectRenameResult = {
+  plan: ProjectRenamePlan;
+  status: "renamed" | "failed";
+  message: string;
+  steps: ProjectRenameStepResult[];
+};
+
 export type ReportSummary = {
   id: string;
   path: string;

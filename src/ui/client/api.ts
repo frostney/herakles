@@ -19,6 +19,8 @@ import type {
   ProjectDefaultBranchSyncResult,
   ProjectDetail,
   ProjectOpenTarget,
+  ProjectRenamePlan,
+  ProjectRenameResult,
   ProjectState,
   PullRequestCollection,
   ReportDetail,
@@ -219,6 +221,20 @@ export async function postLocalPromotion(
   options: { owner?: string; repo?: string; visibility?: "public" | "private" },
 ): Promise<LocalPromotionResult> {
   return post("/api/projects/promote", { projectId, ...options });
+}
+
+export async function postProjectRenamePlan(
+  projectId: string,
+  targetRepo: string,
+): Promise<ProjectRenamePlan> {
+  return post("/api/projects/rename-plan", { projectId, targetRepo });
+}
+
+export async function postProjectRename(
+  projectId: string,
+  targetRepo: string,
+): Promise<ProjectRenameResult> {
+  return post("/api/projects/rename", { projectId, targetRepo });
 }
 
 export function subscribeToEvents(onEvent: (event: HeraklesEvent) => void): () => void {

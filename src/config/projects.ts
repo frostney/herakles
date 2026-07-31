@@ -30,6 +30,16 @@ export type ProjectConfigPlan = {
   action: "append" | "replace" | "remove";
 };
 
+export type ProjectConfigRenamePlan = {
+  configPath: string;
+  oldProjectId: string;
+  newProjectId: string;
+  before: ProjectConfigChanges;
+  after: ProjectConfigChanges;
+  configToml: string;
+  diff: string;
+};
+
 export function createProjectConfigPlan(
   loaded: LoadedConfig,
   projectId: string,
@@ -102,9 +112,50 @@ export function createRemoveProjectConfigPlan(
   };
 }
 
+export function createRenameProjectConfigPlan(
+  loaded: LoadedConfig,
+  oldProjectId: string,
+  newProjectId: string,
+  repo: string,
+): ProjectConfigRenamePlan {
+  configKeySchema.parse(oldProjectId);
+  configKeySchema.parse(newProjectId);
+  const existing = loaded.config.project[oldProjectId];
+  if (!existing) throw new Error(`Project is not tracked in config: ${oldProjectId}`);
+  if (existing.source !== "github") {
+    throw new Error("Only tracked hosted projects can be renamed.");
+  }
+  if (oldProjectId !== newProjectId && loaded.config.project[newProjectId]) {
+    throw new Error(`Tracked project config key already exists: ${newProjectId}`);
+  }
+  const before = compactProjectConfig(existing);
+  const after = compactProjectConfig(projectConfigSchema.parse({ ...existing, repo }));
+  const configToml = renamedProjectConfigToml(loaded.rawToml, oldProjectId, newProjectId, after);
+  return {
+    configPath: loaded.paths.syncedConfigPath,
+    oldProjectId,
+    newProjectId,
+    before,
+    after,
+    configToml,
+    diff: renderTomlDiff(loaded.rawToml, configToml),
+  };
+}
+
 export async function applyProjectConfigPlan(plan: ProjectConfigPlan): Promise<ProjectConfigPlan> {
   const content = await readFile(plan.configPath, "utf8");
   const configToml = await writeConfigToml(plan.configPath, replaceProjectConfig(content, plan));
+  return { ...plan, configToml };
+}
+
+export async function applyProjectConfigRenamePlan(
+  plan: ProjectConfigRenamePlan,
+): Promise<ProjectConfigRenamePlan> {
+  const content = await readFile(plan.configPath, "utf8");
+  const configToml = await writeConfigToml(
+    plan.configPath,
+    renamedProjectConfigToml(content, plan.oldProjectId, plan.newProjectId, plan.after),
+  );
   return { ...plan, configToml };
 }
 
@@ -139,5 +190,21 @@ function replaceProjectConfig(content: string, plan: ProjectConfigPlan): string 
     `[project.${JSON.stringify(plan.projectId)}]`,
     plan.toml,
     plan.action,
+  );
+}
+
+function renamedProjectConfigToml(
+  content: string,
+  oldProjectId: string,
+  newProjectId: string,
+  values: ProjectConfigChanges,
+): string {
+  return normalizeProjectConfigOrder(
+    replaceTomlBlock(
+      content,
+      `[project.${JSON.stringify(oldProjectId)}]`,
+      renderProjectConfig(newProjectId, values),
+      "replace",
+    ),
   );
 }

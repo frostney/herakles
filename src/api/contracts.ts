@@ -61,6 +61,13 @@ export const projectConfigBodySchema = z
   })
   .strict();
 
+export const projectRenameBodySchema = z
+  .object({
+    projectId: nonEmptyStringSchema,
+    targetRepo: nonEmptyStringSchema,
+  })
+  .strict();
+
 export type AutomationJobConfigInput = z.infer<typeof automationJobBodySchema>;
 export type ProjectConfigPayload = z.infer<typeof projectConfigBodySchema>;
 export type ProjectConfigValues = ProjectConfigChanges;
