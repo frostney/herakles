@@ -176,6 +176,7 @@ function ConfigExchangePanel({ onApplied }: { onApplied: () => void }) {
     setMessage("");
     try {
       const result = await postConfigToml(toml, { apply });
+      setToml(result.toml);
       setValidation(result.validation);
       setMessageKind("success");
       setMessage(result.applied ? "Configuration applied." : "Configuration parsed.");

@@ -19,6 +19,7 @@ import {
   createRemoveProjectConfigPlan,
 } from "./config/projects";
 import { heraklesConfigSchema } from "./config/schema";
+import { normalizeProjectConfigOrder, writeConfigToml } from "./config/write";
 import { type ProjectDiscovery, normalizeRemote, refreshProjectDiscovery } from "./discovery";
 import { runDoctor } from "./doctor";
 import type {
@@ -556,6 +557,7 @@ export async function importHostedProjects(
       }),
     );
     loaded.config.project[id] = result.after as (typeof loaded.config.project)[string];
+    loaded.rawToml = result.configToml;
     results.push(result);
   }
   return results;
@@ -702,26 +704,28 @@ export async function configToml(workspaceRoot: string) {
 
 export async function configTomlPlan(workspaceRoot: string, toml: string) {
   const loaded = await loadConfig(workspaceRoot);
+  const normalizedToml = normalizeProjectConfigOrder(toml);
   return {
     path: loaded.paths.syncedConfigPath,
-    toml,
-    validation: validateConfigToml(toml),
+    toml: normalizedToml,
+    validation: validateConfigToml(normalizedToml),
     applied: false,
   };
 }
 
 export async function applyConfigToml(workspaceRoot: string, toml: string) {
   const loaded = await loadConfig(workspaceRoot);
-  const validation = validateConfigToml(toml);
+  const normalizedToml = normalizeProjectConfigOrder(toml);
+  const validation = validateConfigToml(normalizedToml);
   if (!validation.valid) {
     throw new Error(validation.issues.map((issue) => issue.message).join("; "));
   }
-  await applyWorkspaceConfigMutation(workspaceRoot, () =>
-    writeFile(loaded.paths.syncedConfigPath, toml),
+  const writtenToml = await applyWorkspaceConfigMutation(workspaceRoot, () =>
+    writeConfigToml(loaded.paths.syncedConfigPath, normalizedToml),
   );
   return {
     path: loaded.paths.syncedConfigPath,
-    toml,
+    toml: writtenToml,
     validation,
     applied: true,
   };

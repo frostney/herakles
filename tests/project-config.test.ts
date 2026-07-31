@@ -92,6 +92,39 @@ describe("project config plans", () => {
     expect(plan.diff).toContain('+ state = "candidate"');
     expect(content).toContain('[project."frostney-new-tool"]');
     expect(content).toContain('state = "candidate"');
+    expect(content.indexOf('[project."frostney-new-tool"]')).toBeLessThan(
+      content.indexOf('[project."paid-api"]'),
+    );
+    expect(plan.configToml.indexOf('[project."frostney-new-tool"]')).toBeLessThan(
+      plan.configToml.indexOf('[project."paid-api"]'),
+    );
+  });
+
+  test("normalizes existing project order when replacing a project", async () => {
+    const root = await tempWorkspace();
+    const path = join(root, "_herakles", "herakles.toml");
+    await writeFile(
+      path,
+      `version = 2
+
+# Zebra note
+[project.zebra]
+source = "local"
+
+[project.alpha]
+source = "local"
+`,
+    );
+    const loaded = await loadConfig(root);
+    const plan = createProjectConfigPlan(loaded, "zebra", { state: "candidate" });
+
+    await applyProjectConfigPlan(plan);
+    const content = await readFile(path, "utf8");
+
+    expect(plan.diff).toContain("- [project.zebra]");
+    expect(plan.diff).toContain("+ [project.alpha]");
+    expect(content.indexOf("[project.alpha]")).toBeLessThan(content.indexOf("[project.zebra]"));
+    expect(content.indexOf("# Zebra note")).toBeLessThan(content.indexOf("[project.zebra]"));
   });
 
   test("persists pinned project config only when starred", async () => {

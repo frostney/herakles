@@ -1,7 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import type { LoadedConfig } from "./load";
 import { configKeySchema, jobConfigSchema } from "./schema";
 import { renderTomlDiff, replaceTomlBlock } from "./toml-block";
+import { normalizeProjectConfigOrder, writeConfigToml } from "./write";
 
 export type AutomationJobConfigChanges = {
   schedule: string;
@@ -21,6 +22,7 @@ export type AutomationJobConfigPlan = {
   before?: AutomationJobConfigChanges;
   after: AutomationJobConfigChanges;
   toml: string;
+  configToml: string;
   diff: string;
   action: "append" | "replace";
 };
@@ -34,17 +36,20 @@ export function createAutomationJobConfigPlan(
   const before = loaded.config.job[jobId];
   const beforeConfig = before === undefined ? undefined : compactJobConfig(before);
   const after = compactJobConfig(jobConfigSchema.parse({ ...(before ?? {}), ...changes }));
+  const action = before === undefined ? "append" : "replace";
+  const toml = renderAutomationJobConfig(jobId, after);
+  const configToml = normalizeProjectConfigOrder(
+    replaceTomlBlock(loaded.rawToml, `[job.${JSON.stringify(jobId)}]`, toml, action),
+  );
   return {
     configPath: loaded.paths.syncedConfigPath,
     jobId,
     ...(beforeConfig === undefined ? {} : { before: beforeConfig }),
     after,
-    toml: renderAutomationJobConfig(jobId, after),
-    diff: renderTomlDiff(
-      renderAutomationJobConfigBlock(jobId, beforeConfig),
-      renderAutomationJobConfig(jobId, after),
-    ),
-    action: before === undefined ? "append" : "replace",
+    toml,
+    configToml,
+    diff: renderTomlDiff(loaded.rawToml, configToml),
+    action,
   };
 }
 
@@ -52,8 +57,11 @@ export async function applyAutomationJobConfigPlan(
   plan: AutomationJobConfigPlan,
 ): Promise<AutomationJobConfigPlan> {
   const content = await readFile(plan.configPath, "utf8");
-  await writeFile(plan.configPath, replaceAutomationJobConfig(content, plan));
-  return plan;
+  const configToml = await writeConfigToml(
+    plan.configPath,
+    replaceAutomationJobConfig(content, plan),
+  );
+  return { ...plan, configToml };
 }
 
 function compactJobConfig(values: Record<string, unknown>): AutomationJobConfigChanges {
@@ -107,13 +115,6 @@ function renderAutomationJobConfig(jobId: string, values: AutomationJobConfigCha
 function renderTomlString(value: string): string {
   if (!value.includes("\n") || value.includes("'''")) return JSON.stringify(value);
   return `'''\n${value}\n'''`;
-}
-
-function renderAutomationJobConfigBlock(
-  jobId: string,
-  values: AutomationJobConfigChanges | undefined,
-): string | undefined {
-  return values === undefined ? undefined : renderAutomationJobConfig(jobId, values);
 }
 
 function replaceAutomationJobConfig(content: string, plan: AutomationJobConfigPlan): string {

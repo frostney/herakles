@@ -31,6 +31,8 @@ Use project language from `CONTEXT.md`. In particular:
 
 `_herakles/herakles.toml` is the canonical configuration. Config writes should be typed, minimal, and plan-first when they affect existing projects.
 
+Tracked project config tables are written in case-insensitive alphabetical order by project key, with the exact key as a deterministic tie-breaker. Comments immediately attached to a project table move with that table; unrelated sections and meaningful array order are preserved.
+
 Generated state belongs under ignored `_herakles/cache`, `_herakles/reports`, `_herakles/worktrees`, or `_herakles/state` paths. Do not store generated ledgers, locks, reports, or caches in synced TOML.
 
 ## UI And API
