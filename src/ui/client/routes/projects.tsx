@@ -27,6 +27,8 @@ import type {
   Project,
   ProjectDetail,
   ProjectOpenTarget,
+  ProjectRenamePlan,
+  ProjectRenameResult,
   ProjectState,
   ReportSummary,
   UpPlan,
@@ -46,6 +48,8 @@ import {
   postOpenProject,
   postProjectConfigApply,
   postProjectConfigPlan,
+  postProjectRename,
+  postProjectRenamePlan,
   postProjectUp,
   postRemoveProject,
   postResolveProjectCanonicalPath,
@@ -275,6 +279,10 @@ export function Projects() {
             <ProjectSettingsPanel
               projects={effectiveProjects}
               selectedProjectId={selectedProjectId}
+              onRenamed={(projectId) => {
+                refreshProjects();
+                setSelectedProjectId(projectId);
+              }}
               onApplied={() => {
                 refreshProjects();
                 setSelectedProjectId("");
@@ -2271,10 +2279,12 @@ function ProjectSettingsPanel({
   projects,
   selectedProjectId,
   onApplied,
+  onRenamed,
 }: {
   projects: Project[];
   selectedProjectId: string;
   onApplied: () => void;
+  onRenamed: (projectId: string) => void;
 }) {
   const project = projects.find((candidate) => candidate.id === selectedProjectId);
   if (!project) return null;
@@ -2283,6 +2293,14 @@ function ProjectSettingsPanel({
     <section className={ui.panel}>
       <h2 className={ui.panelTitle}>Project Settings</h2>
       <ProjectStateControls key={`state-${project.id}`} project={project} onApplied={onApplied} />
+      {project.source === "github" && project.owner && (
+        <ProjectRenamePanel
+          key={`rename-${project.id}`}
+          owner={project.owner}
+          project={project}
+          onRenamed={onRenamed}
+        />
+      )}
       {project.source === "local" && (
         <LocalPromotionPanel project={project} onPromoted={onApplied} />
       )}
@@ -2522,6 +2540,174 @@ function ProjectConfigPlanPreview({ plan }: { plan: ProjectConfigPlan | undefine
       )}
     </>
   );
+}
+
+function ProjectRenamePanel({
+  owner,
+  project,
+  onRenamed,
+}: {
+  owner: string;
+  project: Project;
+  onRenamed: (projectId: string) => void;
+}) {
+  const [newName, setNewName] = useState(project.repo);
+  const [plan, setPlan] = useState<ProjectRenamePlan>();
+  const [result, setResult] = useState<ProjectRenameResult>();
+  const [previewKey, setPreviewKey] = useState("");
+  const [message, setMessage] = useState<PromotionMessage>({ kind: "success", text: "" });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setNewName(project.repo);
+    setPlan(undefined);
+    setResult(undefined);
+    setPreviewKey("");
+    setMessage({ kind: "success", text: "" });
+  }, [project.repo]);
+
+  const trimmedName = newName.trim();
+  const currentKey = `${project.id}:${trimmedName}`;
+  const canPreview = trimmedName.length > 0 && trimmedName !== project.repo;
+  const canApply = plan !== undefined && previewKey === currentKey;
+  const targetRepo = `${owner}/${trimmedName}`;
+
+  const run = async (operation: "preview" | "apply") => {
+    setBusy(true);
+    setMessage({ kind: "success", text: "" });
+    setResult(undefined);
+    try {
+      if (operation === "preview") {
+        const nextPlan = await postProjectRenamePlan(project.id, targetRepo);
+        setPlan(nextPlan);
+        setPreviewKey(currentKey);
+        return;
+      }
+      const nextResult = await postProjectRename(project.id, targetRepo);
+      setResult(nextResult);
+      setPlan(nextResult.plan);
+      setMessage({
+        kind: nextResult.status === "renamed" ? "success" : "error",
+        text: nextResult.message,
+      });
+      if (nextResult.status === "renamed") {
+        onRenamed(`github:${nextResult.plan.newRepo}`);
+      }
+    } catch (error) {
+      setMessage({ kind: "error", text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className={ui.panel}>
+      <h2 className={ui.panelTitle}>Rename Project</h2>
+      <p className={ui.muted}>
+        Rename the GitHub repository and update its derived checkout path and tracked config.
+        Repository transfers are not supported.
+      </p>
+      <div className={ui.formGrid}>
+        <div className="grid gap-[var(--space-1_5)]">
+          <span className={ui.labelText}>Owner</span>
+          <strong className={ui.mono}>{owner}</strong>
+        </div>
+        <label className={ui.label}>
+          <span className={ui.labelText}>Repository name</span>
+          <input
+            className={ui.input}
+            value={newName}
+            onChange={(event) => {
+              setNewName(event.target.value);
+              setPreviewKey("");
+              setPlan(undefined);
+              setResult(undefined);
+              setMessage({ kind: "success", text: "" });
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          className={ui.buttonGhost}
+          onClick={() => void run("preview")}
+          disabled={busy || !canPreview}
+        >
+          Preview Rename
+        </button>
+        <button
+          type="button"
+          className={ui.buttonPrimary}
+          onClick={() => void run("apply")}
+          disabled={busy || !canApply}
+        >
+          Apply Rename
+        </button>
+      </div>
+      <ProjectRenameOutput plan={plan} result={result} />
+      {message.text && (
+        <p
+          className={feedbackToneClass(message.kind)}
+          role={message.kind === "error" ? "alert" : "status"}
+        >
+          {message.text}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function ProjectRenameOutput({
+  plan,
+  result,
+}: {
+  plan: ProjectRenamePlan | undefined;
+  result: ProjectRenameResult | undefined;
+}) {
+  if (!plan) return null;
+  const resultByKind = new Map(result?.steps.map((step) => [step.kind, step]));
+  return (
+    <div className="mt-[var(--space-4)] grid gap-[var(--space-3)]" aria-live="polite">
+      <ol className={ui.list}>
+        {plan.steps.map((step) => {
+          const applied = resultByKind.get(step.kind);
+          return (
+            <li className={ui.listRow} key={step.kind}>
+              <span className={ui.listRowMain}>
+                <strong className={ui.listTitle}>{step.label}</strong>
+                <span className={ui.mono}>
+                  {[step.from, step.to].filter(Boolean).join(" → ") || "No local action"}
+                </span>
+              </span>
+              <Badge tone={renameStepTone(applied?.status ?? step.status)}>
+                {applied?.status ?? step.status}
+              </Badge>
+            </li>
+          );
+        })}
+      </ol>
+      <pre className={ui.codeBlock}>{plan.configDiff}</pre>
+      <ul className="grid gap-1 pl-[var(--space-5)] text-[var(--text-sm)] text-[var(--text-muted)]">
+        {plan.notes.map((note) => (
+          <li key={note}>{note}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function renameStepTone(
+  status:
+    | ProjectRenamePlan["steps"][number]["status"]
+    | ProjectRenameResult["steps"][number]["status"],
+): "neutral" | "success" | "warning" | "danger" {
+  if (status === "done" || status === "already-satisfied") return "success";
+  if (status === "failed") return "danger";
+  if (status === "pending") return "warning";
+  return "neutral";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function LocalPromotionPanel({

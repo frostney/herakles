@@ -6,7 +6,7 @@ import { installOsCron } from "../automation/cron";
 import { initConfig } from "../config/init";
 import { loadConfig } from "../config/load";
 import { selectHeraklesWorkspace } from "../config/workspace";
-import type { ProjectState } from "../domain";
+import type { ProjectRenamePlan, ProjectRenameResult, ProjectState } from "../domain";
 import { startUiServer } from "../ui/server/server";
 import { printJson, printTable } from "./output";
 
@@ -511,6 +511,58 @@ function visibilityParser(value: string): "public" | "private" {
   throw new Error(`Unknown visibility: ${value}`);
 }
 
+const projectRenameCommand = buildCommand<CommonFlags & { apply?: boolean }, [string, string]>({
+  docs: { brief: "Plan or apply a same-owner tracked project rename." },
+  parameters: {
+    flags: {
+      ...commonFlags,
+      apply: {
+        kind: "boolean",
+        optional: true,
+        brief: "Apply the validated GitHub, local checkout, and config rename plan.",
+      },
+    },
+    positional: {
+      kind: "tuple",
+      parameters: [
+        { parse: String, brief: "Project, slug, or repository name.", placeholder: "project" },
+        {
+          parse: String,
+          brief: "Same-owner GitHub repository as owner/new-name.",
+          placeholder: "owner/new-name",
+        },
+      ],
+    },
+  },
+  async func(flags, id, targetRepo) {
+    const result =
+      flags.apply === true
+        ? await app.renameTrackedProject(root(flags), id, targetRepo)
+        : await app.projectRenamePlan(root(flags), id, targetRepo);
+    if (shouldJson(flags)) {
+      printJson(result);
+    } else {
+      printProjectRename(result);
+    }
+    if ("status" in result && result.status === "failed") process.exitCode = 1;
+  },
+});
+
+function printProjectRename(result: ProjectRenamePlan | ProjectRenameResult) {
+  const plan = "plan" in result ? result.plan : result;
+  printTable(
+    ("plan" in result ? result.steps : plan.steps).map((step) => ({
+      step: step.kind,
+      status: step.status,
+      message: "message" in step ? step.message : step.label,
+      from: plan.steps.find((candidate) => candidate.kind === step.kind)?.from ?? "",
+      to: plan.steps.find((candidate) => candidate.kind === step.kind)?.to ?? "",
+    })),
+  );
+  console.log(plan.configDiff);
+  if ("message" in result) console.log(result.message);
+}
+
 const projectPromoteCommand = buildCommand<
   CommonFlags & {
     owner?: string;
@@ -947,6 +999,7 @@ export const rootRoute = buildRouteMap({
         "set-state": repoSetStateCommand,
         archive: repoArchiveCommand,
         promote: projectPromoteCommand,
+        rename: projectRenameCommand,
       },
     }),
     up: upCommand,

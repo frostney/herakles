@@ -35,6 +35,10 @@ Archived hosted repositories suggest `archived`; public non-archived hosted repo
 The primary Herakles flow for stopping tracking of a project. Removal requires confirmation and removes the Herakles project entry without deleting local files or hosted repositories by default.
 _Avoid_: Delete project
 
+**Rename Project**:
+The primary Herakles flow for changing the name of a tracked hosted repository within its existing owner while preserving the project's tracked state and derived workspace identity.
+_Avoid_: Transfer Project, Remove and re-add
+
 **Spin Up Workspace**:
 The Herakles flow that makes a local Herakles Workspace match its configuration by creating required folders, checking out missing projects, safely updating existing projects, and reporting conflicts without destructive cleanup.
 _Avoid_: File sync, apply config, slay
@@ -69,7 +73,7 @@ The local graphical surface for inspecting and operating a Herakles Workspace, i
 _Avoid_: Console, Dashboard as the whole-app name, terminal console
 
 **Project Settings**:
-The user-facing place for changing a project's connection and interpretation, including lifecycle state, project group, project tags, archive evidence, up behavior, and promotion from a local experiment to a hosted repository.
+The user-facing place for changing a project's connection and interpretation, including lifecycle state, project group, project tags, archive evidence, up behavior, promotion from a local experiment to a hosted repository, and same-owner hosted repository renames.
 _Avoid_: Separate promotion workflow
 
 **Starred Project**:

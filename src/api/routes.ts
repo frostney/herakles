@@ -8,6 +8,7 @@ import {
   nonEmptyStringSchema,
   projectConfigBodySchema,
   projectConfigChangesFromPayload,
+  projectRenameBodySchema,
   projectStateSchema,
 } from "./contracts";
 import { createEventStream, emitApiEvent } from "./events";
@@ -129,6 +130,8 @@ const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/sync-default-branch": (context) => routeSyncDefaultBranch(context),
   "/api/projects/promote-plan": (context) => routeProjectPromotionAction(context, false),
   "/api/projects/promote": (context) => routeProjectPromotionAction(context, true),
+  "/api/projects/rename-plan": (context) => routeProjectRenameAction(context, false),
+  "/api/projects/rename": (context) => routeProjectRenameAction(context, true),
   "/api/config/toml/plan": (context) =>
     routeConfigToml(context, context.options.workspaceRoot, false),
   "/api/config/toml/apply": (context) =>
@@ -167,6 +170,9 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
       return json({ error: error.message, transition: error.transition }, { status: 400 });
     }
     if (error instanceof app.InvalidProjectOpenDestinationError) {
+      return json({ error: error.message }, { status: 400 });
+    }
+    if (error instanceof app.InvalidProjectRenameError) {
       return json({ error: error.message }, { status: 400 });
     }
     if (error instanceof InvalidRequestPathError) {
@@ -513,6 +519,30 @@ async function routeProjectPromotionAction(context: ApiContext, apply: boolean):
       ? await app.promoteLocal(context.options.workspaceRoot, body.data.projectId, options)
       : await app.localPromotionPlan(context.options.workspaceRoot, body.data.projectId, options),
   );
+}
+
+async function routeProjectRenameAction(context: ApiContext, apply: boolean): Promise<Response> {
+  const body = await readJsonBody(context, projectRenameBodySchema);
+  if (!body.ok) return body.response;
+  const result = apply
+    ? await app.renameTrackedProject(
+        context.options.workspaceRoot,
+        body.data.projectId,
+        body.data.targetRepo,
+      )
+    : await app.projectRenamePlan(
+        context.options.workspaceRoot,
+        body.data.projectId,
+        body.data.targetRepo,
+      );
+  if ("status" in result) {
+    emitApiEvent("projects-refresh-finished", `project rename ${result.status}`, {
+      projectId: body.data.projectId,
+      targetRepo: body.data.targetRepo,
+      status: result.status,
+    });
+  }
+  return json(result);
 }
 
 function localPromotionOptions(body: LocalPromotionBody) {

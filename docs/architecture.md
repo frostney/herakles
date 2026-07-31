@@ -37,6 +37,8 @@ Project discovery reads GitHub repositories with `gh repo list` for configured o
 
 Lifecycle changes are checked against Herakles's transition table. Unusual transitions require an explicit force option so deliberate exceptions are visible.
 
+Same-owner hosted repository renames use one typed plan/apply service shared by the CLI and UI. The plan validates the hosted identity, local checkout, destination, and config key before applying the GitHub rename, origin update, Canonical Checkout Path move, and alphabetized tracked-project config re-key. Completed steps are recognized on retry rather than rolled back automatically.
+
 ## Spin Up Workspace
 
 `herakles up --dry-run` and `herakles up` make the local Herakles Workspace match `herakles.toml` by creating required folders, cloning missing hosted projects, fetching and fast-forwarding clean existing clones, and reporting validation-only items.
@@ -55,7 +57,7 @@ GitHub bulk import opens as a dialog. It lists accessible repositories for confi
 
 The Pull Requests screen reviews open pull requests across tracked hosted projects. It uses the resolved project model for lifecycle, starred-project ordering, repository labels, and partial failure reporting; pull request and repository links lead back to GitHub. Pull request reads are cached briefly under `_herakles/cache` as generated local state, and explicit refresh bypasses that cache.
 
-Settings exposes project refresh, validation, doctor checks, and Config Exchange. Config Exchange is a copy-paste editor for `_herakles/herakles.toml`; it validates TOML with Bun's parser and the Herakles schema before applying.
+Settings exposes project refresh, validation, doctor checks, and Config Exchange. Project Settings provides preview-before-apply lifecycle, metadata, promotion, and same-owner rename actions through shared services. Config Exchange is a copy-paste editor for `_herakles/herakles.toml`; it validates TOML with Bun's parser and the Herakles schema before applying.
 
 The Reports screen lists generated Markdown reports under `_herakles/reports` and can create local Markdown notes through a typed service. Reports are local generated records, not synced configuration.
 

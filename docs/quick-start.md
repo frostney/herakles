@@ -5,6 +5,7 @@
 - Install dependencies with Bun.
 - Run `herakles init` once for a Herakles Workspace.
 - Add or import projects, then let `herakles up` scaffold missing hosted project folders.
+- Preview and apply same-owner hosted project renames through one coordinated flow.
 - Use the UI for add/import, pull request review, project settings, drift checks, automation, reports, and config exchange.
 - Run automation manually with `automate tick` or a named `automate run`.
 
@@ -65,6 +66,22 @@ bun run herakles projects import --root ~/Code --repo frostney/tool --repo frost
 ```
 
 Hosted add/import writes the minimal project config and runs workspace spin-up for the new project. GitHub is implied for hosted repositories.
+
+## Rename Projects
+
+Preview a same-owner hosted repository rename:
+
+```sh
+bun run herakles projects rename frostney-tool frostney/new-tool --root ~/Code
+```
+
+Apply the validated plan:
+
+```sh
+bun run herakles projects rename frostney-tool frostney/new-tool --root ~/Code --apply
+```
+
+The plan shows the GitHub rename, local origin update, Canonical Checkout Path move, and alphabetized tracked-project config re-key. Apply refuses dirty worktrees and can resume safely when an earlier attempt completed only some steps. Project Settings exposes the same preview-before-apply flow in the Workbench.
 
 ## Spin Up
 
