@@ -1,7 +1,4 @@
 import type {
-  AutomationJobConfigInput,
-  AutomationJobConfigPlan,
-  AutomationPayload,
   ProjectConfigPlan,
   ProjectConfigValues,
   ProjectDiscoveryRefreshResult,
@@ -9,7 +6,6 @@ import type {
   UpRunResult,
 } from "../../api/contracts";
 import type {
-  AutomationRun,
   DoctorResult,
   HeraklesEvent,
   HostedImportCandidate,
@@ -23,17 +19,12 @@ import type {
   ProjectRenameResult,
   ProjectState,
   PullRequestCollection,
-  ReportDetail,
-  ReportSummary,
   UpPlan,
   ValidationResult,
 } from "../../domain";
 
 export type { HeraklesEvent, LocalPromotionResult };
 export type {
-  AutomationJobConfigInput,
-  AutomationJobConfigPlan,
-  AutomationPayload,
   ProjectConfigPlan,
   ProjectConfigValues,
   ProjectDiscoveryRefreshResult,
@@ -61,26 +52,6 @@ export async function getPullRequests(
 
 export function projectIconUrl(id: string): string {
   return `/api/project-icons/${encodeURIComponent(id)}`;
-}
-
-export async function getReports(): Promise<ReportSummary[]> {
-  return get("/api/reports");
-}
-
-export async function getReport(id: string): Promise<ReportDetail> {
-  return get(`/api/reports/${encodeURIComponent(id)}`);
-}
-
-export async function postReportNote(input: {
-  title: string;
-  body: string;
-  projectId?: string;
-}): Promise<ReportDetail> {
-  return post("/api/reports/note", input);
-}
-
-export async function getAutomations(): Promise<AutomationPayload> {
-  return get("/api/automation/jobs");
 }
 
 export async function getHostedImportCandidates(): Promise<HostedImportCandidate[]> {
@@ -171,26 +142,6 @@ export async function postValidate(options: { strict?: boolean } = {}): Promise<
 
 export async function postUp(options: { dryRun?: boolean } = {}): Promise<UpRunResult> {
   return post(options.dryRun ? "/api/up/plan" : "/api/up");
-}
-
-export async function postAutomationTick() {
-  return post("/api/automation/tick");
-}
-
-export async function postAutomationRun(jobId: string): Promise<AutomationRun> {
-  return post("/api/automation/run", { jobId, slot: "now" });
-}
-
-export async function postAutomationJobPlan(
-  input: AutomationJobConfigInput,
-): Promise<AutomationJobConfigPlan> {
-  return post("/api/automation/job-plan", input);
-}
-
-export async function postAutomationJobApply(
-  input: AutomationJobConfigInput,
-): Promise<AutomationJobConfigPlan> {
-  return post("/api/automation/job-apply", input);
 }
 
 export async function postProjectConfigPlan(

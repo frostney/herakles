@@ -1,8 +1,6 @@
 import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
-import { Automation } from "./routes/automation";
 import { ProjectDetailScreen, Projects } from "./routes/projects";
 import { PullRequests } from "./routes/pullRequests";
-import { ReportDetailScreen, Reports } from "./routes/reports";
 import { SettingsScreen } from "./routes/settings";
 import { WorkspaceScreen } from "./routes/workspace";
 import { Shell } from "./shell";
@@ -26,28 +24,10 @@ const projectsDetailRoute = createRoute({
     return <ProjectDetailScreen projectId={projectId} />;
   },
 });
-const reportsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/reports",
-  component: Reports,
-});
 const pullRequestsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/pull-requests",
   component: PullRequests,
-});
-const reportsDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/reports/$reportId",
-  component: function ReportDetailRoute() {
-    const { reportId } = reportsDetailRoute.useParams();
-    return <ReportDetailScreen reportId={reportId} />;
-  },
-});
-const automationRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/automation",
-  component: Automation,
 });
 const workspaceRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -65,10 +45,7 @@ export const router = createRouter({
     homeRoute,
     projectsRoute,
     projectsDetailRoute,
-    reportsRoute,
     pullRequestsRoute,
-    reportsDetailRoute,
-    automationRoute,
     workspaceRoute,
     settingsRoute,
   ]),

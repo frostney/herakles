@@ -5,7 +5,6 @@ import { resolveUnder } from "../config/paths";
 import type { HeraklesConfig } from "../config/schema";
 import type { ProjectDiscovery } from "../discovery";
 import type { GitHubRepository, LocalRepository, Project, ProjectState } from "../domain";
-import { matchesProjectFilter } from "../filters/project";
 import { readDefaultBranchBehind } from "./gitStatus";
 import { countProjectLines } from "./lineCounts";
 
@@ -119,11 +118,9 @@ function resolveGitHubProject(
     ...(lineCounts === undefined ? {} : { lineCounts }),
     hasRoadmap: hasAnyFile(projectPath, loaded.config.defaults.roadmap_files),
     up: false,
-    automationEnabled: false,
   };
   enrichGitHubProject(project, loaded, repo, learningPath);
   project.up = upEnabled(loaded, project);
-  project.automationEnabled = automationEnabled(loaded, project, repo);
   return project;
 }
 
@@ -132,25 +129,6 @@ function upEnabled(loaded: LoadedConfig, project: Project): boolean {
     return false;
   }
   return !project.archived;
-}
-
-function automationEnabled(
-  loaded: LoadedConfig,
-  project: Project,
-  repo: GitHubRepository,
-): boolean {
-  return (
-    loaded.config.automation.enabled &&
-    project.up &&
-    !automationExcluded(loaded, repo) &&
-    matchesProjectFilter(project, loaded.config.automation.include)
-  );
-}
-
-function automationExcluded(loaded: LoadedConfig, repo: GitHubRepository): boolean {
-  return loaded.config.automation.exclude_topics.some((topic) =>
-    repo.repositoryTopics.includes(topic),
-  );
 }
 
 function enrichGitHubProject(
@@ -218,7 +196,6 @@ function resolveLocalProject(
     ...(lineCounts === undefined ? {} : { lineCounts }),
     hasRoadmap: hasAnyFile(repo.path, loaded.config.defaults.roadmap_files),
     up: false,
-    automationEnabled: false,
   };
   if (repo.remote) project.remote = repo.remote;
   if (learningPath) {

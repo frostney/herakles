@@ -7,13 +7,12 @@
 - Project paths are derived from lifecycle, optional group, and repository name.
 - CLI and UI call the same core services rather than owning separate behavior.
 - Herakles Workbench surfaces cross-project review, including open pull requests for tracked hosted projects.
-- Automation schedules prompt-driven agent runtime runs; Herakles owns scheduling and reports, not implementation workflows.
 
-Herakles v2 is a Bun-first TypeScript orchestrator for a personal Herakles Workspace. The CLI and UI call the same core services for configuration, project discovery, project resolution, validation, workspace spin-up, reports, and automation ticks.
+Herakles v2 is a Bun-first TypeScript orchestrator for a personal Herakles Workspace. The CLI and UI call the same core services for configuration, project discovery, project resolution, validation, and workspace spin-up.
 
-The canonical configuration is `_herakles/herakles.toml`. It describes hosted repository discovery, tracked projects, lifecycle defaults, automation jobs, and agent runtime settings. Herakles does not support project-local config, machine profiles, `herakles.local.toml`, or a remote sync API.
+The canonical configuration is `_herakles/herakles.toml`. It describes hosted repository discovery, tracked projects, and lifecycle defaults. Herakles does not support project-local config, machine profiles, `herakles.local.toml`, or a remote sync API.
 
-`--root` identifies the Herakles Workspace: the folder containing `_herakles` and the mandatory lifecycle folders `open-source/`, `commercial/`, `experiment/`, `candidate/`, and `archived/`. Generated Herakles state lives inside `_herakles/cache`, `_herakles/reports`, `_herakles/worktrees`, and `_herakles/state`; `_herakles/.gitignore` keeps those folders out of synced configuration.
+`--root` identifies the Herakles Workspace: the folder containing `_herakles` and the mandatory lifecycle folders `open-source/`, `commercial/`, `experiment/`, `candidate/`, and `archived/`. Generated Herakles state lives inside `_herakles/cache` and `_herakles/worktrees`; `_herakles/.gitignore` keeps those folders out of synced configuration.
 
 When `--root` is omitted, the CLI and UI discover the Herakles Workspace by
 looking for `_herakles/herakles.toml` in the current directory and its
@@ -23,11 +22,11 @@ ancestor.
 
 For setup commands, see [Quick Start](quick-start.md). For development commands and quality gates, see [Tooling](tooling.md). For implementation conventions, see [Code Style](code-style.md).
 
-`herakles init` creates the workspace scaffold, lifecycle folders, `.gitignore`, schemas, and default report-only automation jobs with inline prompts in `herakles.toml`. Existing config is left untouched so setup can be rerun safely.
+`herakles init` creates the workspace scaffold, lifecycle folders, `.gitignore`, and minimal `herakles.toml`. Existing config is left untouched so setup can be rerun safely.
 
 ## Core Model
 
-A repository is a Git or GitHub source-control unit. A project is Herakles's resolved model over a repository or local experiment, including lifecycle state, derived local path, group, tags, workspace-up eligibility, automation eligibility, reports, and validation.
+A repository is a Git or GitHub source-control unit. A project is Herakles's resolved model over a repository or local experiment, including lifecycle state, derived local path, group, tags, workspace-up eligibility, and validation.
 
 Tracked hosted projects identify their repository with `repo = "owner/name"`. Tracked local projects use only minimal project config such as `source = "local"`, lifecycle, group, tags, or learning evidence. Arbitrary per-project paths are not supported. A project's local path is derived as `<workspace>/<lifecycle>/<group?>/<repo>`.
 
@@ -59,20 +58,6 @@ The Pull Requests screen reviews open pull requests across tracked hosted projec
 
 Settings exposes project refresh, validation, doctor checks, and Config Exchange. Project Settings provides preview-before-apply lifecycle, metadata, promotion, and same-owner rename actions through shared services. Config Exchange is a copy-paste editor for `_herakles/herakles.toml`; it validates TOML with Bun's parser and the Herakles schema before applying.
 
-The Reports screen lists generated Markdown reports under `_herakles/reports` and can create local Markdown notes through a typed service. Reports are local generated records, not synced configuration.
-
-The UI server exposes `/api/events` as a server-sent event stream. Events are emitted around typed Herakles operations such as project refresh, up, validation, automation runs, and report creation. The stream is a live status surface, not a command channel or persistence layer.
+The UI server exposes `/api/events` as a server-sent event stream. Events are emitted around typed Herakles operations such as project refresh, up, and validation. The stream is a live status surface, not a command channel or persistence layer.
 
 Project cards may expose narrow repository maintenance actions, such as fetching and fast-forwarding the local default branch. These actions report typed success, skipped, or failed results and emit terminal UI status events; they are not substitutes for Spin Up Workspace and do not broaden the UI into a generic shell surface.
-
-## Automation
-
-`herakles automate tick` is the unit of scheduling. The UI server runs in-process Bun cron ticks while it is open and runs a bounded catch-up tick on startup. OS-level Bun cron registration is available from the CLI but must be explicit. The generated worker lives under `_herakles/cache` and calls the shared Herakles automation service for the current workspace.
-
-Cron matching uses the local machine timezone of the Herakles process that runs the automation tick. Timezone is runtime context and is not stored in synced configuration.
-
-Automation eligibility uses project filters and tag filters. The default automation filter is `not archived`, then automation-level excluded topics are applied. Automation jobs live in `_herakles/herakles.toml` and can declare `runtime`, `repo_filter`, `include_tags`, `exclude_tags`, `skill`, `output`, and inline prompts. Herakles owns scheduling, project selection, locks, GitHub lookup, and report recording; the configured agent runtime owns the work performed from the prepared prompt and context.
-
-Prompt-driven agent runtime jobs receive a Herakles-authored context block on stdin after the configured prompt. That context includes slot metadata, eligible project evidence, detected package managers, roadmap presence, and recent generated reports. Herakles does not model runtime-specific implementation branches, review resolution, or publishing. The UI leads with human-readable schedule summaries while keeping the cron expression as the precise editable form.
-
-Automation locks are local file claims under `_herakles/state/locks` and honor their expiry before a slot can be claimed again. Run ledgers live under `_herakles/cache/runs`. Herakles does not coordinate automation through a config repository, remote sync endpoint, or branch-lock protocol.

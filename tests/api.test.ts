@@ -3,17 +3,9 @@ import { existsSync } from "node:fs";
 import { appendFile, chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import {
-  automationJobBodySchema,
-  automationJobConfigChangesFromPayload,
-  projectConfigBodySchema,
-  projectConfigChangesFromPayload,
-} from "../src/api/contracts";
+import { projectConfigBodySchema, projectConfigChangesFromPayload } from "../src/api/contracts";
 import { routeApi } from "../src/api/routes";
-import { loadConfig } from "../src/config/load";
 import type { HeraklesEvent } from "../src/domain";
-import { writeReportFile } from "../src/reports";
-import { withFakeCodex } from "./helpers/codex";
 import { fakeGhRepositoryJson, withFakeGhScript } from "./helpers/gh";
 
 async function tempWorkspace() {
@@ -79,17 +71,6 @@ JSON
     run,
   );
 }
-
-const fakeCodexWritesReport = `out=""
-previous=""
-for arg in "$@"; do
-  if [ "$previous" = "--output-last-message" ]; then
-    out="$arg"
-  fi
-  previous="$arg"
-done
-cat > "$out"
-`;
 
 async function postProjectConfigPlan(workspaceRoot: string, body: Record<string, unknown>) {
   const response = await routeApi(
@@ -223,28 +204,6 @@ describe("api routes", () => {
     expect(body.config.syncedConfigPath).toBe(join(workspaceRoot, "_herakles", "herakles.toml"));
   });
 
-  test("creates local report notes through the API", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const response = await routeApi(
-      new Request("http://x/api/reports/note", {
-        method: "POST",
-        body: JSON.stringify({
-          title: "Investigate workspace up",
-          body: "Check dry-run output before workspace up.",
-          projectId: "github:frostney/public-tool",
-        }),
-      }),
-      { workspaceRoot },
-    );
-    const body = await response?.json();
-    const content = await readFile(body.path, "utf8");
-
-    expect(response?.status).toBe(200);
-    expect(body.id).toStartWith("notes/github-frostney-public-tool/");
-    expect(content).toContain("# Investigate workspace up");
-    expect(content).toContain("Check dry-run output");
-  });
-
   test("serves strict validation with hosted archive evidence from GitHub archives", async () => {
     const workspaceRoot = await tempWorkspace();
     await writeFile(
@@ -272,51 +231,9 @@ owners = ["frostney"]
     });
   });
 
-  test("serves project detail and manual automation run", async () => {
-    const workspaceRoot = await tempWorkspace();
-    await writeFile(
-      join(workspaceRoot, "_herakles", "herakles.toml"),
-      `version = 2
-[github]
-owners = []
-
-[job.daily]
-schedule = "0 8 * * *"
-runtime = "codex"
-prompt = "Summarize the workspace."
-`,
-    );
-    await mkdir(join(workspaceRoot, "spike", ".git"), { recursive: true });
-    await writeFile(join(workspaceRoot, "spike", ".git", "HEAD"), "ref: refs/heads/main\n");
-    await addLocalGitProject(workspaceRoot, "spike");
-
-    const project = await routeApi(new Request("http://x/api/projects/spike"), { workspaceRoot });
-    expect(project?.status).toBe(200);
-    const projectBody = await project?.json();
-    expect(projectBody.project.slug).toBe("spike");
-    expect(projectBody.reports).toEqual([]);
-    await withFakeCodex(fakeCodexWritesReport, async () => {
-      const run = await routeApi(
-        new Request("http://x/api/automation/run", {
-          method: "POST",
-          body: JSON.stringify({ jobId: "daily", date: "2026-06-12" }),
-        }),
-        { workspaceRoot },
-      );
-      expect(run?.status).toBe(200);
-      const runBody = await run?.json();
-      expect(runBody.status).toBe("succeeded");
-    });
-  });
-
-  test("serves enriched project detail with related reports", async () => {
+  test("serves enriched project detail", async () => {
     const workspaceRoot = await tempWorkspace();
     await addLocalGitProject(workspaceRoot, "spike");
-    await writeReportFile(
-      await loadConfig(workspaceRoot),
-      "notes/spike.md",
-      "Report for local:spike and project spike.\n",
-    );
 
     const response = await routeApi(new Request("http://x/api/projects/local%3Aspike"), {
       workspaceRoot,
@@ -325,7 +242,6 @@ prompt = "Summarize the workspace."
 
     expect(response?.status).toBe(200);
     expect(body.project.id).toBe("local:spike");
-    expect(body.reports.map((report: { id: string }) => report.id)).toEqual(["notes/spike.md"]);
     expect(body.validationIssues).toEqual([]);
   });
 
@@ -711,21 +627,7 @@ exit 1
         }),
         { workspaceRoot },
       );
-      const automationResponse = await routeApi(
-        new Request("http://x/api/automation/job-plan", {
-          method: "POST",
-          body: JSON.stringify({
-            jobId: "weekly-review",
-            schedule: "0 9 * * *",
-            runtime: "codex",
-            output: "../outside.md",
-          }),
-        }),
-        { workspaceRoot },
-      );
-
       expect(projectResponse?.status).toBe(400);
-      expect(automationResponse?.status).toBe(400);
     });
   });
 
@@ -811,19 +713,6 @@ owners = ["frostney"]
     });
   });
 
-  test("automation run route rejects invalid body types", async () => {
-    const workspaceRoot = await tempWorkspace();
-    const response = await routeApi(
-      new Request("http://x/api/automation/run", {
-        method: "POST",
-        body: JSON.stringify({ jobId: 123 }),
-      }),
-      { workspaceRoot },
-    );
-
-    await expectInvalidBody(response, "jobId");
-  });
-
   test("shared API contract maps config payloads to core config changes", () => {
     const projectPayload = projectConfigBodySchema.parse({
       projectId: "public-tool",
@@ -833,35 +722,11 @@ owners = ["frostney"]
       pinned: true,
       force: true,
     });
-    const automationPayload = automationJobBodySchema.parse({
-      jobId: "weekly-review",
-      schedule: "0 9 * * 1",
-      runtime: "codex",
-      prompt: "Review all tracked projects.",
-      output: "automation/weekly.md",
-      repoFilter: "not archived",
-      includeTags: ["weekly"],
-      excludeTags: ["paused"],
-      skill: "review-pr",
-      enabled: false,
-    });
-
     expect(projectConfigChangesFromPayload(projectPayload)).toEqual({
       state: "commercial",
       group: "clients",
       tags: ["paid"],
       pinned: true,
-    });
-    expect(automationJobConfigChangesFromPayload(automationPayload)).toEqual({
-      schedule: "0 9 * * 1",
-      runtime: "codex",
-      prompt: "Review all tracked projects.",
-      output: "automation/weekly.md",
-      repo_filter: "not archived",
-      include_tags: ["weekly"],
-      exclude_tags: ["paused"],
-      skill: "review-pr",
-      enabled: false,
     });
   });
 
@@ -1153,53 +1018,6 @@ group = "clients"
         join(workspaceRoot, "commercial", "clients", "public-tool"),
       );
     });
-  });
-
-  test("automation job apply route writes prompt text into synced TOML", async () => {
-    const workspaceRoot = await tempWorkspace();
-    await writeFile(
-      join(workspaceRoot, "_herakles", "herakles.toml"),
-      `version = 2
-
-[project.zebra]
-source = "local"
-
-[project.alpha]
-source = "local"
-`,
-    );
-    const response = await routeApi(
-      new Request("http://x/api/automation/job-apply", {
-        method: "POST",
-        body: JSON.stringify({
-          jobId: "weekly-review",
-          schedule: "0 9 * * 1",
-          runtime: "codex",
-          prompt: "Review all tracked projects.\nReturn a short report.",
-          output: "automation/weekly.md",
-          repoFilter: "not archived",
-          includeTags: ["weekly"],
-          excludeTags: ["paused"],
-          skill: "review-pr",
-          enabled: true,
-        }),
-      }),
-      { workspaceRoot },
-    );
-    const body = await response?.json();
-    const config = await readFile(join(workspaceRoot, "_herakles", "herakles.toml"), "utf8");
-
-    expect(response?.status).toBe(200);
-    expect(body.toml).toContain('[job."weekly-review"]');
-    expect(config).toContain('[job."weekly-review"]');
-    expect(config).toContain('runtime = "codex"');
-    expect(config).toContain('include_tags = ["weekly"]');
-    expect(config).not.toContain("slot_timezone");
-    expect(config).toContain("prompt = '''");
-    expect(config).toContain("Review all tracked projects.");
-    expect(config).toContain('repo_filter = "not archived"');
-    expect(config).not.toContain("issue_labels");
-    expect(config.indexOf("[project.alpha]")).toBeLessThan(config.indexOf("[project.zebra]"));
   });
 
   test("plans local promotion through the API", async () => {

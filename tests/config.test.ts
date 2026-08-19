@@ -90,21 +90,21 @@ owners = []
     expect(loaded.paths.workspaceRoot).toBe(root);
   });
 
-  test("rejects legacy harness automation job config", async () => {
-    const root = await tempConfigWorkspace(
-      `version = 2
+  test("rejects removed scheduling and reporting configuration", async () => {
+    for (const removedTable of ["automation", "codex", "job.legacy"]) {
+      const root = await tempConfigWorkspace(
+        `version = 2
 
 [github]
 owners = []
 
-[job.legacy]
-schedule = "0 9 * * *"
-harness = "codex"
-prompt = "Summarize."
+[${removedTable}]
+enabled = true
 `,
-    );
+      );
 
-    await expect(loadConfig(root)).rejects.toThrow("harness");
+      await expect(loadConfig(root)).rejects.toThrow(removedTable.split(".")[0]!);
+    }
   });
 
   test("rejects obsolete layout path configuration", async () => {
@@ -137,36 +137,5 @@ group = ".."
     );
 
     await expect(loadConfig(root)).rejects.toThrow("Project group");
-  });
-
-  test("rejects automation job keys and outputs that would escape local state", async () => {
-    const badKeyRoot = await tempConfigWorkspace(
-      `version = 2
-
-[github]
-owners = []
-
-[job."../bad"]
-schedule = "0 9 * * *"
-runtime = "codex"
-prompt = "Summarize."
-`,
-    );
-    const badOutputRoot = await tempConfigWorkspace(
-      `version = 2
-
-[github]
-owners = []
-
-[job.bad_output]
-schedule = "0 9 * * *"
-runtime = "codex"
-prompt = "Summarize."
-output = "../outside.md"
-`,
-    );
-
-    await expect(loadConfig(badKeyRoot)).rejects.toThrow("Config keys");
-    await expect(loadConfig(badOutputRoot)).rejects.toThrow("traversal");
   });
 });

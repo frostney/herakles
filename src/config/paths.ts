@@ -14,9 +14,7 @@ export type WorkspacePaths = {
   configDir: string;
   syncedConfigPath: string;
   cacheDir: string;
-  reportsDir: string;
   worktreesDir: string;
-  stateDir: string;
 };
 
 function expandHome(value: string): string {
@@ -37,9 +35,7 @@ export function resolveWorkspacePaths(workspaceRoot: string): WorkspacePaths {
     configDir,
     syncedConfigPath: join(configDir, "herakles.toml"),
     cacheDir: join(configDir, "cache"),
-    reportsDir: join(configDir, "reports"),
     worktreesDir: join(configDir, "worktrees"),
-    stateDir: join(configDir, "state"),
   };
 }
 

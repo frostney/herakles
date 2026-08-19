@@ -75,7 +75,6 @@ export type Project = {
   learningPath?: string;
   archiveNote?: string;
   up: boolean;
-  automationEnabled: boolean;
   description?: string;
   latestActivityAt?: string;
   mainlineCommittedAt?: string;
@@ -194,11 +193,7 @@ export type HeraklesEventType =
   | "up-started"
   | "up-progress"
   | "up-finished"
-  | "automation-started"
-  | "automation-log"
-  | "automation-finished"
-  | "validation-updated"
-  | "report-created";
+  | "validation-updated";
 
 export type HeraklesEvent = {
   id: number;
@@ -206,51 +201,6 @@ export type HeraklesEvent = {
   generatedAt: string;
   message: string;
   payload?: Record<string, unknown>;
-};
-
-export type AgentRuntimeRunResult = {
-  status: "succeeded" | "failed";
-  reportPath: string;
-  exitCode: number;
-  message: string;
-};
-
-export type AutomationJob = {
-  id: string;
-  schedule: string;
-  runtime: string;
-  prompt?: string;
-  output?: string;
-  repoFilter?: string;
-  includeTags: string[];
-  excludeTags: string[];
-  skill?: string;
-  enabled: boolean;
-};
-
-export type AutomationDueSlot = {
-  jobId: string;
-  slotId: string;
-  dueAt: string;
-};
-
-export type AutomationRun = {
-  jobId: string;
-  slotId: string;
-  status: "planned" | "claimed" | "skipped" | "succeeded" | "failed";
-  reportPath?: string;
-  message: string;
-  startedAt: string;
-  finishedAt?: string;
-};
-
-export type AutomationLock = {
-  jobId: string;
-  slotId: string;
-  machine: string;
-  startedAt: string;
-  expiresAt: string;
-  backend: "local-file";
 };
 
 export type LocalPromotionPlan = {
@@ -319,20 +269,7 @@ export type ProjectRenameResult = {
   steps: ProjectRenameStepResult[];
 };
 
-export type ReportSummary = {
-  id: string;
-  path: string;
-  title: string;
-  kind: string;
-  updatedAt: string;
-};
-
-export type ReportDetail = ReportSummary & {
-  content: string;
-};
-
 export type ProjectDetail = {
   project: Project;
-  reports: ReportSummary[];
   validationIssues: ValidationIssue[];
 };

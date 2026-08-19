@@ -1,5 +1,4 @@
 import { routeApi } from "../../api/routes";
-import { startUiCron } from "../../automation/cron";
 import { loadConfig } from "../../config/load";
 import index from "../client/index.html";
 
@@ -31,8 +30,6 @@ export async function startUiServerSession(options: UiServerOptions): Promise<Ui
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 4783;
   const openBrowser = options.openBrowser ?? true;
-  const cron = startUiCron(loaded);
-
   const server = Bun.serve({
     hostname: host,
     port,
@@ -42,10 +39,7 @@ export async function startUiServerSession(options: UiServerOptions): Promise<Ui
       "/": index,
       "/projects": index,
       "/projects/:projectId": index,
-      "/reports": index,
-      "/reports/*": index,
       "/pull-requests": index,
-      "/automation": index,
       "/workspace": index,
       "/settings": index,
       "/favicon.ico": () => new Response(null, { status: 204 }),
@@ -65,7 +59,6 @@ export async function startUiServerSession(options: UiServerOptions): Promise<Ui
     stop() {
       if (stopped) return;
       stopped = true;
-      cron.stop();
       server.stop();
     },
   };

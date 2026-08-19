@@ -25,9 +25,3 @@ repo = "frostney/old-tool"
 
 [project."local-spike"]
 source = "local"
-
-[job.friday_summary]
-schedule = "00 16 * * FRI"
-runtime = "codex"
-prompt = "Summarize the workspace."
-output = "weekly/{iso_week}.md"

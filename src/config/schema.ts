@@ -68,20 +68,6 @@ export const projectConfigSchema = z
   })
   .strict();
 
-export const jobConfigSchema = z
-  .object({
-    schedule: z.string().default("*/5 * * * *"),
-    runtime: z.string().default("codex"),
-    prompt: z.string().optional(),
-    output: relativePathSchema.optional(),
-    repo_filter: z.string().optional(),
-    include_tags: z.array(z.string()).default([]),
-    exclude_tags: z.array(z.string()).default([]),
-    skill: z.string().optional(),
-    enabled: z.boolean().default(true),
-  })
-  .strict();
-
 export const heraklesConfigSchema = z
   .object({
     version: z.number().default(2),
@@ -106,30 +92,11 @@ export const heraklesConfigSchema = z
       })
       .default({}),
     up: z.object({ exclude_topics: z.array(z.string()).default(["no-up"]) }).default({}),
-    automation: z
-      .object({
-        enabled: z.boolean().default(true),
-        include: z.string().default("not archived"),
-        exclude_topics: z.array(z.string()).default(["no-agent", "manual-only"]),
-        catch_up_window_minutes: z
-          .number()
-          .int()
-          .positive()
-          .default(24 * 60),
-      })
-      .default({}),
     ui: z
       .object({
         enabled: z.boolean().default(true),
       })
       .default({}),
-    codex: z
-      .object({
-        profile: z.string().default("herakles-automation"),
-        sandbox: z.string().default("workspace-write"),
-      })
-      .default({}),
-    job: z.record(configKeySchema, jobConfigSchema).default({}),
     project: z.record(configKeySchema, projectConfigSchema).default({}),
   })
   .strict();

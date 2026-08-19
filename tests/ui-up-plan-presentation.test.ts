@@ -21,7 +21,6 @@ const project = {
   languages: [],
   hasRoadmap: false,
   up: true,
-  automationEnabled: true,
 } satisfies Project;
 
 function item(action: UpPlan["items"][number]["action"]): UpPlan["items"][number] {

@@ -14,8 +14,6 @@
 - `src/cli/` contains Stricli command wiring only.
 - `src/api/` contains typed API routing and event streaming.
 - `src/project/`, `src/up/`, `src/lifecycle/`, and `src/config/` own project resolution, workspace spin-up, validation, and config writes.
-- `src/automation/` owns scheduling, locks, ledgers, and run context.
-- `src/agent-runtime/` owns runtime dispatch.
 - `src/ui/client/` renders the browser UI over API client calls.
 
 ## Naming
@@ -23,7 +21,6 @@
 Use project language from `CONTEXT.md`. In particular:
 
 - Use `project`, not `inventory`, for the resolved Herakles model.
-- Use `agent runtime`, not `harness`, for the configured tool that receives automation prompts.
 - Use `up` or `spin up workspace`, not checkout, for workspace-level setup.
 - Use `Config Exchange`, not sync, for copy-paste TOML exchange.
 
@@ -33,11 +30,11 @@ Use project language from `CONTEXT.md`. In particular:
 
 Tracked project config tables are written in case-insensitive alphabetical order by project key, with the exact key as a deterministic tie-breaker. Comments immediately attached to a project table move with that table; unrelated sections and meaningful array order are preserved.
 
-Generated state belongs under ignored `_herakles/cache`, `_herakles/reports`, `_herakles/worktrees`, or `_herakles/state` paths. Do not store generated ledgers, locks, reports, or caches in synced TOML.
+Generated state belongs under ignored `_herakles/cache` or `_herakles/worktrees` paths. Do not store generated caches in synced TOML.
 
 ## UI And API
 
-The UI should call typed API routes and shared services. It should not duplicate project resolution, workspace up planning, validation, scheduling, or config mutation logic.
+The UI should call typed API routes and shared services. It should not duplicate project resolution, workspace up planning, validation, or config mutation logic.
 
 API routes should expose Herakles operations, not generic shell execution.
 
@@ -62,4 +59,4 @@ Add focused tests near the behavior surface being changed:
 - Service tests for domain behavior.
 - UI helper tests for deterministic client logic.
 
-Prefer fake `git`, `gh`, and `codex` binaries or injected loaders over live network or tool mutation in tests.
+Prefer fake `git` and `gh` binaries or injected loaders over live network or tool mutation in tests.

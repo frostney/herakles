@@ -14,7 +14,7 @@ async function tempWorkspace() {
 owners = []
 `,
   );
-  await writeFile(join(root, "_herakles", ".gitignore"), "cache/\nreports/\nworktrees/\nstate/\n");
+  await writeFile(join(root, "_herakles", ".gitignore"), "cache/\nworktrees/\n");
   return root;
 }
 
@@ -30,8 +30,6 @@ describe("doctor", () => {
       expect(checks.bun?.message).toBe("1.3.0-test");
       expect(checks.git?.message).toBe("git version 2.50.0-test");
       expect(checks.gh?.message).toBe("gh version 2.70.0-test");
-      expect(checks.codex?.message).toBe("codex 0.1.0-test");
-      expect(checks["codex-profile"]?.status).toBe("ok");
     });
   });
 });
@@ -56,17 +54,6 @@ echo "git version 2.50.0-test"
 echo "gh version 2.70.0-test"
 `,
   );
-  await writeExecutable(
-    join(bin, "codex"),
-    `#!/usr/bin/env bash
-if [[ "$1 $2" == "exec --help" ]]; then
-  echo "Usage: codex exec --profile <profile>"
-  exit 0
-fi
-echo "codex 0.1.0-test"
-`,
-  );
-
   const previousPath = process.env.PATH ?? "";
   process.env.PATH = `${bin}${delimiter}${previousPath}`;
   try {

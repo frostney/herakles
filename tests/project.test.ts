@@ -110,7 +110,7 @@ source = "local"
     expect(plan.items.some((item) => item.project.source === "local")).toBe(false);
   });
 
-  test("up and automation filters evaluate against resolved project fields", async () => {
+  test("up exclusions evaluate against resolved project topics", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-filters-"));
     await mkdir(join(root, "_herakles"), { recursive: true });
     await writeFile(
@@ -122,9 +122,6 @@ owners = ["frostney"]
 
 [up]
 exclude_topics = ["no-up"]
-
-[automation]
-include = 'has_language("TypeScript") and not has_topic("manual-only")'
 
 [project."public-ts"]
 source = "github"
@@ -158,7 +155,6 @@ repo = "frostney/private-hidden"
     });
 
     expect(projects.find((project) => project.repo === "public-ts")?.up).toBe(true);
-    expect(projects.find((project) => project.repo === "public-ts")?.automationEnabled).toBe(true);
     expect(projects.find((project) => project.repo === "private-hidden")?.up).toBe(false);
   });
 

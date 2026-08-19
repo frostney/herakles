@@ -23,7 +23,6 @@ function project(path: string): Project {
     languages: [],
     hasRoadmap: false,
     up: true,
-    automationEnabled: true,
   };
 }
 
