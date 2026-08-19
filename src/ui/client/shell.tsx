@@ -1,16 +1,5 @@
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
-import {
-  Boxes,
-  ClipboardCheck,
-  FileText,
-  GitPullRequest,
-  Moon,
-  Search,
-  Server,
-  Settings,
-  Sun,
-  Workflow,
-} from "lucide-react";
+import { Boxes, GitPullRequest, Moon, Search, Server, Settings, Sun, Workflow } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Project } from "../../domain";
 import type { HeraklesEvent } from "./api";
@@ -67,10 +56,6 @@ export function Shell() {
             <Boxes size={18} aria-hidden />
             Projects
           </Link>
-          <Link to="/reports" className={ui.navLink} activeProps={{ className: ui.navLinkActive }}>
-            <FileText size={18} aria-hidden />
-            Reports
-          </Link>
           <Link
             to="/pull-requests"
             className={ui.navLink}
@@ -78,14 +63,6 @@ export function Shell() {
           >
             <GitPullRequest size={18} aria-hidden />
             Pull Requests
-          </Link>
-          <Link
-            to="/automation"
-            className={ui.navLink}
-            activeProps={{ className: ui.navLinkActive }}
-          >
-            <ClipboardCheck size={18} aria-hidden />
-            Automation
           </Link>
           <Link
             to="/workspace"
@@ -156,13 +133,7 @@ export function Shell() {
   );
 }
 
-type PaletteRoute =
-  | "/"
-  | "/reports"
-  | "/pull-requests"
-  | "/automation"
-  | "/workspace"
-  | "/settings";
+type PaletteRoute = "/" | "/pull-requests" | "/workspace" | "/settings";
 
 function CommandPalette({
   projects,
@@ -193,25 +164,11 @@ function CommandPalette({
       run: () => onNavigate("/"),
     },
     {
-      id: "reports",
-      label: "Open Reports",
-      meta: "surface",
-      icon: <FileText size={16} />,
-      run: () => onNavigate("/reports"),
-    },
-    {
       id: "pull-requests",
       label: "Open Pull Requests",
       meta: "surface",
       icon: <GitPullRequest size={16} />,
       run: () => onNavigate("/pull-requests"),
-    },
-    {
-      id: "automation",
-      label: "Open Automation",
-      meta: "surface",
-      icon: <ClipboardCheck size={16} />,
-      run: () => onNavigate("/automation"),
     },
     {
       id: "workspace",

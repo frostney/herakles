@@ -31,8 +31,8 @@ async function runCli(cwd: string, args: string[]) {
   });
 }
 
-async function runReportsList(cwd: string, args: string[] = []) {
-  return runCli(cwd, ["reports", "list", "--json", ...args]);
+async function runStatus(cwd: string, args: string[] = []) {
+  return runCli(cwd, ["status", "--json", ...args]);
 }
 
 describe("CLI workspace discovery", () => {
@@ -56,7 +56,7 @@ describe("CLI workspace discovery", () => {
     const nested = join(root, "open-source", "herakles");
     await mkdir(nested, { recursive: true });
 
-    const result = await runReportsList(nested);
+    const result = await runStatus(nested);
     const physicalNested = await realpath(nested);
 
     expect(result.exitCode).toBe(1);
@@ -71,7 +71,7 @@ describe("CLI workspace discovery", () => {
     const nested = join(root, "open-source", "herakles");
     await mkdir(nested, { recursive: true });
 
-    const result = await runReportsList(root, ["--root", nested]);
+    const result = await runStatus(root, ["--root", nested]);
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");

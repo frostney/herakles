@@ -36,7 +36,6 @@ function localProject(root: string): Project {
     languages: [],
     hasRoadmap: false,
     up: false,
-    automationEnabled: false,
   };
 }
 

@@ -59,7 +59,6 @@ function hostedProject(root: string): Project {
     languages: [],
     hasRoadmap: false,
     up: true,
-    automationEnabled: true,
   };
 }
 

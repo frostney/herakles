@@ -48,9 +48,7 @@ export async function ensureConfigScaffold(workspaceRoot: string): Promise<Works
   const paths = resolveWorkspacePaths(workspaceRoot);
   await mkdir(paths.configDir, { recursive: true });
   await mkdir(paths.cacheDir, { recursive: true });
-  await mkdir(paths.reportsDir, { recursive: true });
   await mkdir(paths.worktreesDir, { recursive: true });
-  await mkdir(paths.stateDir, { recursive: true });
   for (const folder of lifecycleFolders) {
     await mkdir(join(paths.workspaceRoot, folder), { recursive: true });
   }

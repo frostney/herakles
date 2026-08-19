@@ -5,8 +5,7 @@
 - Herakles currently runs from source with Bun.
 - The UI is a local Bun fullstack server, not a hosted SaaS deployment.
 - The first packaged target is an unsigned macOS arm64 Electrobun desktop app.
-- OS-level automation cron is explicit local machine state.
-- Generated reports, caches, worktrees, ledgers, and locks stay under ignored `_herakles` folders.
+- Generated caches and worktrees stay under ignored `_herakles` folders.
 - Stable releases are tag-driven, and nightly builds are a rolling prerelease from `main`.
 - Auto-update, signing, and notarization are out of scope for the first desktop packaging pass.
 
@@ -20,7 +19,7 @@ bun run ui -- --root <workspace> --no-open
 bun run desktop
 ```
 
-The UI server uses Bun's fullstack server model and serves the local Herakles Workspace. It can run in-process automation ticks while it is open.
+The UI server uses Bun's fullstack server model and serves the local Herakles Workspace.
 
 ## Desktop Distribution
 
@@ -50,12 +49,6 @@ The CLI and Bun UI server continue to accept `--root <workspace>`. The Electrobu
 - Keep the saved root out of `_herakles/herakles.toml` and other synced configuration.
 
 This preference is a local desktop convenience only. Config Exchange and workspace spin-up still operate on the selected Herakles Workspace and do not introduce machine profiles or remote sync.
-
-## Scheduled Automation
-
-OS-level cron registration is available from the CLI and must be explicit. The generated worker is local machine state under `_herakles/cache` and calls the shared automation service for the workspace.
-
-Automation schedules are synced configuration, but locks, run ledgers, reports, and generated worker files are local artifacts.
 
 ## Continuous Integration
 

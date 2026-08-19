@@ -18,7 +18,6 @@ function project(partial: Partial<Project> & Pick<Project, "repo">): Project {
     languages: [],
     hasRoadmap: false,
     up: true,
-    automationEnabled: true,
     ...partial,
   };
 }

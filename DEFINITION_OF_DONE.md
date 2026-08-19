@@ -6,7 +6,7 @@ Use this gate before handoff, review, or PR creation. A change is not done until
 
 - The delivered behavior matches the issue, confirmed mini-spec, or requested documentation change without hidden scope changes.
 - The change follows the project language in [CONTEXT.md](CONTEXT.md) and the relevant boundaries in [Architecture](docs/architecture.md) and [Code Style](docs/code-style.md).
-- CLI, API, and UI changes call the shared core services instead of duplicating project resolution, workspace spin-up planning, validation, scheduling, or config mutation logic.
+- CLI, API, and UI changes call the shared core services instead of duplicating project resolution, workspace spin-up planning, validation, or config mutation logic.
 - `_herakles/herakles.toml` remains the canonical synced configuration; generated state remains under ignored `_herakles` folders.
 - Repository operations stay explicit, typed, and non-destructive. Herakles must not silently move, delete, prune, push, publish, or duplicate repositories.
 

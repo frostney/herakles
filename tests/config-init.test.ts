@@ -17,31 +17,21 @@ describe("config init", () => {
     expect(existsSync(join(root, "candidate"))).toBe(true);
     expect(existsSync(join(root, "archived"))).toBe(true);
     expect(existsSync(join(paths.configDir, "cache"))).toBe(true);
-    expect(existsSync(join(paths.configDir, "reports"))).toBe(true);
     expect(existsSync(join(paths.configDir, "worktrees"))).toBe(true);
-    expect(existsSync(join(paths.configDir, "state"))).toBe(true);
-    expect(existsSync(join(paths.configDir, "schemas", "automation-result.schema.json"))).toBe(
-      true,
-    );
+    expect(existsSync(join(paths.configDir, "reports"))).toBe(false);
+    expect(existsSync(join(paths.configDir, "state"))).toBe(false);
+    expect(existsSync(join(paths.configDir, "schemas"))).toBe(false);
 
     const synced = await readFile(paths.syncedConfigPath, "utf8");
     const gitignore = await readFile(join(paths.configDir, ".gitignore"), "utf8");
-    const automationSchema = await Bun.file(
-      join(paths.configDir, "schemas", "automation-result.schema.json"),
-    ).json();
-    expect(synced).toContain("[job.morning_next_work]");
-    expect(synced).toContain("# Morning Next Work");
-    expect(synced).toContain('runtime = "codex"');
-    expect(synced).not.toContain("issue_labels");
-    expect(synced).not.toContain("harness =");
-    expect(synced).not.toContain("mode =");
-    expect(synced).not.toContain("slot_timezone");
-    expect(synced).not.toContain("timezone =");
+    expect(synced).toContain("[github]");
+    expect(synced).not.toContain("[job.");
+    expect(synced).not.toContain("[automation]");
+    expect(synced).not.toContain("[codex]");
     expect(gitignore).toContain("cache/");
-    expect(gitignore).toContain("reports/");
     expect(gitignore).toContain("worktrees/");
-    expect(gitignore).toContain("state/");
-    expect(automationSchema.properties.status.enum).toContain("succeeded");
+    expect(gitignore).not.toContain("reports/");
+    expect(gitignore).not.toContain("state/");
   });
 
   test("does not overwrite existing config files", async () => {
@@ -49,19 +39,15 @@ describe("config init", () => {
     const paths = await initConfig(root);
     await writeFile(paths.syncedConfigPath, "version = 2\n");
     await writeFile(join(paths.configDir, ".gitignore"), "custom\n");
-    await mkdir(join(paths.configDir, "prompts"), { recursive: true });
-    await writeFile(join(paths.configDir, "prompts", "morning-next-work.md"), "custom prompt\n");
-    await writeFile(join(paths.configDir, "schemas", "automation-result.schema.json"), "{}\n");
+    await mkdir(join(paths.configDir, "existing"), { recursive: true });
+    await writeFile(join(paths.configDir, "existing", "user-file.md"), "keep me\n");
 
     await initConfig(root);
 
     expect(await readFile(paths.syncedConfigPath, "utf8")).toBe("version = 2\n");
     expect(await readFile(join(paths.configDir, ".gitignore"), "utf8")).toBe("custom\n");
-    expect(await readFile(join(paths.configDir, "prompts", "morning-next-work.md"), "utf8")).toBe(
-      "custom prompt\n",
+    expect(await readFile(join(paths.configDir, "existing", "user-file.md"), "utf8")).toBe(
+      "keep me\n",
     );
-    expect(
-      await readFile(join(paths.configDir, "schemas", "automation-result.schema.json"), "utf8"),
-    ).toBe("{}\n");
   });
 });

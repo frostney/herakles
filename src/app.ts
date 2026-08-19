@@ -2,13 +2,6 @@ import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { TOML } from "bun";
-import { automateTick, configuredJobs, dueSlots, recentRuns, runAutomationJob } from "./automation";
-import { listLocks } from "./automation/locks";
-import {
-  type AutomationJobConfigChanges,
-  applyAutomationJobConfigPlan,
-  createAutomationJobConfigPlan,
-} from "./config/jobs";
 import { type LoadedConfig, loadConfig } from "./config/load";
 import { resolveUnder } from "./config/paths";
 import {
@@ -34,7 +27,6 @@ import type {
   PullRequestCollection,
   PullRequestCollectionFailure,
   PullRequestSummary,
-  ReportDetail,
   UpPlan,
   UpPlanItem,
   ValidationIssue,
@@ -54,13 +46,6 @@ import {
   renameProject as executeProjectRename,
 } from "./project/rename";
 import { resolveProjects } from "./project/resolve";
-import {
-  createReportNote,
-  latestReport,
-  listProjectReports,
-  listReports,
-  readReport,
-} from "./reports";
 import { type UpExecution, executeUpPlan } from "./up/execute";
 import { createUpPlan } from "./up/plan";
 
@@ -323,7 +308,6 @@ export async function projectDetail(workspaceRoot: string, id: string): Promise<
   if (!found) throw new Error(`Unknown project: ${id}`);
   return {
     project: found,
-    reports: await listProjectReports(state.loaded, found),
     validationIssues: state.validation.issues.filter((issue) => issue.projectId === found.id),
   };
 }
@@ -786,73 +770,6 @@ export async function up(
 export async function doctor(workspaceRoot: string) {
   const loaded = await loadConfig(workspaceRoot);
   return runDoctor(loaded);
-}
-
-export async function reports(workspaceRoot: string) {
-  const loaded = await loadConfig(workspaceRoot);
-  return listReports(loaded);
-}
-
-export async function report(workspaceRoot: string, id: string) {
-  const loaded = await loadConfig(workspaceRoot);
-  return readReport(loaded, id);
-}
-
-export async function reportNote(
-  workspaceRoot: string,
-  input: { title: string; body: string; projectId?: string },
-) {
-  const loaded = await loadConfig(workspaceRoot);
-  return createReportNote(loaded, input);
-}
-
-export async function latestAutomationReport(workspaceRoot: string) {
-  const loaded = await loadConfig(workspaceRoot);
-  return latestReport(loaded);
-}
-
-export async function automations(workspaceRoot: string) {
-  const state = await loadWorkspace(workspaceRoot);
-  return {
-    jobs: configuredJobs(state.loaded),
-    due: dueSlots(state.loaded),
-    runs: await recentRuns(state.loaded),
-    locks: await listLocks(state.loaded),
-  };
-}
-
-export async function automate(workspaceRoot: string, options: { catchUp?: boolean } = {}) {
-  const state = await loadWorkspace(workspaceRoot);
-  return automateTick(state.loaded, { ...options, projects: state.projects });
-}
-
-export async function automateRun(
-  workspaceRoot: string,
-  jobId: string,
-  options: { slot?: string; date?: string } = {},
-) {
-  const state = await loadWorkspace(workspaceRoot);
-  return runAutomationJob(state.loaded, jobId, { ...options, projects: state.projects });
-}
-
-export async function automationJobConfigPlan(
-  workspaceRoot: string,
-  jobId: string,
-  changes: AutomationJobConfigChanges,
-) {
-  const loaded = await loadConfig(workspaceRoot);
-  return createAutomationJobConfigPlan(loaded, jobId, changes);
-}
-
-export async function applyAutomationJobConfig(
-  workspaceRoot: string,
-  jobId: string,
-  changes: AutomationJobConfigChanges,
-) {
-  const loaded = await loadConfig(workspaceRoot);
-  return applyWorkspaceConfigMutation(workspaceRoot, () =>
-    applyAutomationJobConfigPlan(createAutomationJobConfigPlan(loaded, jobId, changes)),
-  );
 }
 
 function findProject(projects: readonly Project[], id: string): Project | undefined {

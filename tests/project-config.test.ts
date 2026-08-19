@@ -43,7 +43,6 @@ function hostedProject(repo = "paid-api"): Project {
     languages: [],
     hasRoadmap: false,
     up: true,
-    automationEnabled: true,
   };
 }
 

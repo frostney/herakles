@@ -105,4 +105,4 @@ Do not include auto-update feeds, delta-update publishing, signing credentials, 
 
 ## Tool Choices
 
-Herakles prefers Bun APIs for TOML, cron, serving, bundling, tests, subprocesses, and runtime services. Stricli powers the CLI. Biome handles formatting and linting. Fallow handles repository quality evidence in CI.
+Herakles prefers Bun APIs for TOML, serving, bundling, tests, subprocesses, and runtime services. Stricli powers the CLI. Biome handles formatting and linting. Fallow handles repository quality evidence in CI.

@@ -2,9 +2,6 @@ import { z } from "zod";
 import * as app from "../app";
 import { InvalidProjectStateTransitionError } from "../lifecycle/transitions";
 import {
-  automationJobBodySchema,
-  automationJobConfigChangesFromPayload,
-  automationRunBodySchema,
   nonEmptyStringSchema,
   projectConfigBodySchema,
   projectConfigChangesFromPayload,
@@ -68,13 +65,6 @@ const projectUpBodySchema = z
   .strict();
 const syncDefaultBranchBodySchema = z.object({ projectId: nonEmptyString }).strict();
 const configTomlBodySchema = z.object({ toml: z.string() }).strict();
-const reportNoteBodySchema = z
-  .object({
-    title: nonEmptyString,
-    body: nonEmptyString,
-    projectId: nonEmptyString.optional(),
-  })
-  .strict();
 const localPromotionBodySchema = z
   .object({
     owner: nonEmptyString.optional(),
@@ -109,14 +99,8 @@ const getRoutes: Record<string, ApiHandler> = {
   "/api/up/plan": ({ options }) => jsonAsync(app.upPlan(options.workspaceRoot)),
   "/api/validate": ({ options, url }) =>
     jsonAsync(app.validation(options.workspaceRoot, { strict: isStrict(url) })),
-  "/api/reports": ({ options }) => jsonAsync(app.reports(options.workspaceRoot)),
   "/api/doctor": ({ options }) => jsonAsync(app.doctor(options.workspaceRoot)),
   "/api/config/toml": ({ options }) => jsonAsync(app.configToml(options.workspaceRoot)),
-  "/api/automation/jobs": ({ options }) => jsonAsync(app.automations(options.workspaceRoot)),
-  "/api/automation/due": ({ options }) =>
-    jsonAsync(app.automations(options.workspaceRoot).then((result) => result.due)),
-  "/api/automation/runs": ({ options }) =>
-    jsonAsync(app.automations(options.workspaceRoot).then((result) => result.runs)),
 };
 
 const postRoutes: Record<string, ApiHandler> = {
@@ -140,13 +124,8 @@ const postRoutes: Record<string, ApiHandler> = {
     routeValidation(options.workspaceRoot, { strict: isStrict(url) }),
   "/api/up/plan": ({ options }) => routeUp(options.workspaceRoot, true),
   "/api/up": ({ options }) => routeUp(options.workspaceRoot, false),
-  "/api/automation/tick": ({ options }) => routeAutomationTick(options.workspaceRoot),
-  "/api/automation/run": (context) => routeAutomationRun(context),
-  "/api/automation/job-plan": (context) => routeAutomationJobPlan(context),
-  "/api/automation/job-apply": (context) => routeAutomationJobApply(context),
   "/api/config/project-plan": (context) => routeProjectConfigPlan(context),
   "/api/config/apply": (context) => routeConfigApply(context),
-  "/api/reports/note": (context) => routeReportNote(context),
 };
 
 export async function routeApi(req: Request, options: ApiOptions): Promise<Response | undefined> {
@@ -203,37 +182,11 @@ async function routeGet(context: ApiContext): Promise<Response | undefined> {
     const id = decodeURIComponent(context.path.slice("/api/projects/".length));
     return json(await app.projectDetail(context.options.workspaceRoot, id));
   }
-  if (context.path.startsWith("/api/reports/")) {
-    const id = decodeURIComponent(context.path.slice("/api/reports/".length));
-    return json(await app.report(context.options.workspaceRoot, id));
-  }
 }
 
 async function routePost(context: ApiContext): Promise<Response | undefined> {
   const handler = postRoutes[context.path];
   if (handler) return handler(context);
-}
-
-async function routeAutomationRun(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, automationRunBodySchema);
-  if (!body.ok) return body.response;
-  emitApiEvent("automation-started", `manual automation job ${body.data.jobId} started`, {
-    jobId: body.data.jobId,
-  });
-  const run = await app.automateRun(context.options.workspaceRoot, body.data.jobId, {
-    ...(body.data.slot === undefined ? {} : { slot: body.data.slot }),
-    ...(body.data.date === undefined ? {} : { date: body.data.date }),
-  });
-  emitApiEvent("automation-log", run.message, { jobId: run.jobId, slotId: run.slotId });
-  emitReportCreated(run.reportPath, `automation report created for ${run.jobId}`, {
-    jobId: run.jobId,
-  });
-  emitApiEvent("automation-finished", `manual automation job ${run.jobId} finished`, {
-    jobId: run.jobId,
-    slotId: run.slotId,
-    status: run.status,
-  });
-  return json(run);
 }
 
 async function routeProjectsRefresh(workspaceRoot: string): Promise<Response> {
@@ -417,49 +370,6 @@ async function routeUp(workspaceRoot: string, dryRun: boolean): Promise<Response
   return json(result);
 }
 
-async function routeAutomationTick(workspaceRoot: string): Promise<Response> {
-  emitApiEvent("automation-started", "automation tick started");
-  const runs = await app.automate(workspaceRoot);
-  for (const run of runs) {
-    emitApiEvent("automation-log", run.message, {
-      jobId: run.jobId,
-      slotId: run.slotId,
-      status: run.status,
-    });
-    emitReportCreated(run.reportPath, `automation report created for ${run.jobId}`, {
-      jobId: run.jobId,
-    });
-  }
-  emitApiEvent("automation-finished", "automation tick finished", { runs: runs.length });
-  return json(runs);
-}
-
-async function routeAutomationJobPlan(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, automationJobBodySchema);
-  if (!body.ok) return body.response;
-  return json(
-    await app.automationJobConfigPlan(
-      context.options.workspaceRoot,
-      body.data.jobId,
-      automationJobConfigChangesFromPayload(body.data),
-    ),
-  );
-}
-
-async function routeAutomationJobApply(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, automationJobBodySchema);
-  if (!body.ok) return body.response;
-  const result = await app.applyAutomationJobConfig(
-    context.options.workspaceRoot,
-    body.data.jobId,
-    automationJobConfigChangesFromPayload(body.data),
-  );
-  emitApiEvent("automation-log", `automation job ${body.data.jobId} saved`, {
-    jobId: body.data.jobId,
-  });
-  return json(result);
-}
-
 async function routeProjectConfigPlan(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, projectConfigBodySchema);
   if (!body.ok) return body.response;
@@ -484,27 +394,6 @@ async function routeConfigApply(context: ApiContext): Promise<Response> {
       { force: body.data.force === true },
     ),
   );
-}
-
-async function routeReportNote(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, reportNoteBodySchema);
-  if (!body.ok) return body.response;
-  const result = await app.reportNote(context.options.workspaceRoot, {
-    title: body.data.title,
-    body: body.data.body,
-    ...(body.data.projectId === undefined ? {} : { projectId: body.data.projectId }),
-  });
-  emitReportCreated(result.path, "report note created", { id: result.id });
-  return json(result);
-}
-
-function emitReportCreated(
-  reportPath: string | undefined,
-  message: string,
-  payload: Record<string, unknown> = {},
-) {
-  if (!reportPath) return;
-  emitApiEvent("report-created", message, { ...payload, reportPath });
 }
 
 async function routeProjectPromotionAction(context: ApiContext, apply: boolean): Promise<Response> {

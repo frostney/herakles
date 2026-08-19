@@ -6,8 +6,7 @@
 - Run `herakles init` once for a Herakles Workspace.
 - Add or import projects, then let `herakles up` scaffold missing hosted project folders.
 - Preview and apply same-owner hosted project renames through one coordinated flow.
-- Use the UI for add/import, pull request review, project settings, drift checks, automation, reports, and config exchange.
-- Run automation manually with `automate tick` or a named `automate run`.
+- Use the UI for add/import, pull request review, project settings, drift checks, and config exchange.
 
 ## Install
 
@@ -105,24 +104,4 @@ bun run herakles up --root ~/Code
 bun run ui -- --root ~/Code --no-open
 ```
 
-The UI covers project add/import, pull request review, project settings, workspace drift, validation, doctor checks, automation editing, manual automation runs, reports, and Config Exchange.
-
-## Run Automation
-
-List due automation slots:
-
-```sh
-bun run herakles automate due --root ~/Code
-```
-
-Run the due tick:
-
-```sh
-bun run herakles automate tick --root ~/Code
-```
-
-Run one job immediately:
-
-```sh
-bun run herakles automate run morning_next_work --root ~/Code --slot now
-```
+The UI covers project add/import, pull request review, project settings, workspace drift, validation, doctor checks, and Config Exchange.

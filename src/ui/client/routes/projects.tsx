@@ -30,7 +30,6 @@ import type {
   ProjectRenamePlan,
   ProjectRenameResult,
   ProjectState,
-  ReportSummary,
   UpPlan,
 } from "../../../domain";
 import {
@@ -84,7 +83,6 @@ import { displayPath } from "../shared/displayPath";
 import { type Loadable, useRefreshOnEvents, useResource } from "../shared/hooks";
 import { assets, classNames, feedbackClass, feedbackToneClass, ui } from "../shared/styles";
 import { shouldScaffoldFromConfiguration, workspaceDriftItems } from "../upPlanPresentation";
-import { ReportLink } from "./reports";
 
 const githubImportDraftStorageKey = "herakles.githubImportDraft.v1";
 const githubImportCandidatesStorageKey = "herakles.githubImportCandidates.v2";
@@ -1381,12 +1379,7 @@ function repoInitials(repo: string) {
 
 export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   const [detail, refresh] = useResource(() => getProjectDetail(projectId));
-  useRefreshOnEvents(refresh, [
-    "projects-refresh-finished",
-    "up-finished",
-    "validation-updated",
-    "report-created",
-  ]);
+  useRefreshOnEvents(refresh, ["projects-refresh-finished", "up-finished", "validation-updated"]);
   return (
     <Screen
       title="Project"
@@ -1416,7 +1409,7 @@ type ProjectTableProps =
       onRemove: () => void;
     };
 
-export function ProjectTable(props: ProjectTableProps) {
+function ProjectTable(props: ProjectTableProps) {
   if (props.projects.length === 0) {
     return (
       <EmptyState art={assets.heraklesHero} title="No projects here">
@@ -2170,7 +2163,6 @@ function ProjectDetailPanel({ detail }: { detail: ProjectDetail }) {
     <>
       <ProjectMetadataPanel project={project} />
       <ProjectValidationPanel issues={detail.validationIssues} />
-      <ProjectReportsPanel reports={detail.reports} />
     </>
   );
 }
@@ -2207,7 +2199,6 @@ function projectDetailItems(project: Project): DetailItemModel[] {
     { label: "State", value: project.state },
     { label: "Visibility", value: project.visibility ?? "local" },
     { label: "Workspace up", value: project.up ? "yes" : "no" },
-    { label: "Automation", value: project.automationEnabled ? "yes" : "no" },
     { label: "Path", value: displayPath(project.path), mono: true },
   ];
   addDetailItem(items, "Remote", project.remote, true);
@@ -2246,31 +2237,6 @@ function ProjectValidationPanel({
     <section className={ui.panel}>
       <h2>Validation</h2>
       <ValidationIssueList issues={issues} />
-    </section>
-  );
-}
-
-function ProjectReportsPanel({ reports }: { reports: ReportSummary[] }) {
-  return (
-    <section className={ui.panel}>
-      <h2>Related Reports</h2>
-      {reports.length === 0 ? (
-        <p className={ui.emptyText}>No related reports.</p>
-      ) : (
-        <div className={ui.list}>
-          {reports.map((report) => (
-            <article className={ui.listRow} key={report.id}>
-              <div>
-                <strong>
-                  <ReportLink report={report} />
-                </strong>
-                <span>{report.id}</span>
-              </div>
-              <time>{new Date(report.updatedAt).toLocaleString()}</time>
-            </article>
-          ))}
-        </div>
-      )}
     </section>
   );
 }

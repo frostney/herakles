@@ -24,7 +24,6 @@ function project(path: string): Project {
     defaultBranchRef: "main",
     hasRoadmap: false,
     up: true,
-    automationEnabled: true,
   };
 }
 

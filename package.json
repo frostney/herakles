@@ -22,7 +22,7 @@
     "type": "git",
     "url": "git+https://github.com/frostney/herakles.git"
   },
-  "keywords": ["git", "github", "repository", "workspace", "automation", "bun"],
+  "keywords": ["git", "github", "repository", "workspace", "bun"],
   "author": "Johannes Stein",
   "license": "MIT",
   "bugs": {
@@ -35,8 +35,6 @@
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {

@@ -10,9 +10,8 @@ describe("config writes", () => {
 [project."Zulu"]
 source = "local"
 
-[job.example]
-schedule = "0 9 * * *"
-prompt = '''
+[metadata.example]
+description = '''
 [project."not-a-table"]
 '''
 
@@ -30,9 +29,8 @@ source = "local"
 [project.Alpha]
 source = "local"
 
-[job.example]
-schedule = "0 9 * * *"
-prompt = '''
+[metadata.example]
+description = '''
 [project."not-a-table"]
 '''
 
@@ -120,8 +118,8 @@ source = "local"
   });
 
   test("ignores table-shaped text inside multiline and single-line strings", () => {
-    const unsorted = `[job.example]
-prompt = """
+    const unsorted = `[metadata.example]
+description = """
 [project.fake]
 """
 repo_filter = "literal ''' does not open a multiline string"
@@ -138,6 +136,6 @@ source = "local"
     expect(normalized.indexOf("[project.alpha]")).toBeLessThan(
       normalized.indexOf("[project.zebra]"),
     );
-    expect(normalized).toContain('prompt = """\n[project.fake]\n"""');
+    expect(normalized).toContain('description = """\n[project.fake]\n"""');
   });
 });

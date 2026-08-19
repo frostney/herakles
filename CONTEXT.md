@@ -1,6 +1,6 @@
 # Herakles
 
-Herakles coordinates a personal multi-repository workspace across machines. Its language distinguishes source-control facts from the resolved operating model Herakles uses for workspace spin-up, validation, automation, and review.
+Herakles coordinates a personal multi-repository workspace across machines. Its language distinguishes source-control facts from the resolved operating model Herakles uses for workspace spin-up, validation, and review.
 
 ## Language
 
@@ -9,7 +9,7 @@ A Git or GitHub source-control unit with facts such as owner, name, remote URL, 
 _Avoid_: Project when referring only to Git or GitHub facts
 
 **Project**:
-Herakles's resolved operating model for a repository or local experiment, including lifecycle state, derived local path, up eligibility, automation eligibility, reports, and validation.
+Herakles's resolved operating model for a repository or local experiment, including lifecycle state, derived local path, up eligibility, and validation.
 _Avoid_: Repository when referring to Herakles-specific resolved state
 
 **Tracked Project**:
@@ -62,14 +62,14 @@ The user-facing action that makes an existing Herakles Workspace match its synce
 _Avoid_: Run Up, Remote sync
 
 **Config Exchange**:
-The user-directed act of copying Herakles configuration into or out of the UI. It moves configuration text, not repositories, runtime state, reports, or remote commands.
+The user-directed act of copying Herakles configuration into or out of the UI. It moves configuration text, not repositories, runtime state, or remote commands.
 _Avoid_: Remote sync, machine profile, file sync
 
 **Project Discovery**:
 The Herakles refresh flow that reads hosted repositories and local Git folders, then updates the resolved project model. It is user-facing as project discovery or project refresh; implementation details stay out of user-facing terminology.
 
 **Herakles Workbench**:
-The local graphical surface for inspecting and operating a Herakles Workspace, including projects, reports, automation, settings, and workspace recovery flows.
+The local graphical surface for inspecting and operating a Herakles Workspace, including projects, pull requests, settings, and workspace recovery flows.
 _Avoid_: Console, Dashboard as the whole-app name, terminal console
 
 **Project Settings**:
@@ -77,7 +77,7 @@ The user-facing place for changing a project's connection and interpretation, in
 _Avoid_: Separate promotion workflow
 
 **Starred Project**:
-A tracked project the user has marked as important for Workbench attention and ordering. Starred status does not change lifecycle, workspace path, or automation eligibility.
+A tracked project the user has marked as important for Workbench attention and ordering. Starred status does not change lifecycle or workspace path.
 _Avoid_: Pinned repository
 
 **Pull Request Review**:
@@ -120,40 +120,16 @@ _Avoid_: archivation note
 A local Markdown file that records an archive note for a project. It is one valid source of archive evidence, but archived hosted repositories can also satisfy the rule through meaningful hosted metadata.
 _Avoid_: archive file
 
-**Report**:
-A local generated record of Herakles analysis, automation output, or review context. Reports are surfaced in the UI but are not synced configuration.
-_Avoid_: Synced report, config report
-
-**Agent Runtime**:
-The external agent tool or development runtime that receives Herakles-prepared prompts and project context, performs the AI-assisted work, and returns reports or other outputs. Codex is one possible agent runtime; Herakles schedules agent runs but does not own the runtime's internal workflow.
-_Avoid_: Harness as the generic term, automation harness, GitHub Actions harness, Codex-only automation
-
-**Automation Job**:
-A scheduled prompt definition that selects projects and hands context to an agent runtime. It is not a Herakles-owned workflow type; the prompt and agent runtime determine what kind of work is performed.
-_Avoid_: Mode, implementation-plan job, CodeRabbit-review job
-
-**Automation Tag Filter**:
-A first-class automation selection rule that includes or excludes projects by Herakles project tags. It is the normal way to target tagged project groups without writing a custom project filter expression.
-_Avoid_: Tag expression, topic filter
-
-**Agent Run**:
-A scheduled Herakles handoff to an agent runtime for a prompt and a selected set of projects. Herakles prepares context, invokes the configured agent runtime, records the returned report, and stops there.
-_Avoid_: Herakles-owned implementation workflow
-
-**Agent Report**:
-The Herakles-owned output of an agent run. It records what the agent runtime returned or where to inspect its result, without Herakles modeling the runtime's implementation, review, or publishing workflow.
-_Avoid_: Patch candidate, publish candidate
-
 **Synced Configuration**:
-The desired Herakles workspace and orchestration configuration stored in `_herakles/herakles.toml`. It is configuration as code and should be sufficient to bootstrap the Herakles orchestrator, but Herakles does not require a specific storage or synchronization provider for it.
+The desired Herakles workspace configuration stored in `_herakles/herakles.toml`. It is configuration as code and should be sufficient to bootstrap the Herakles orchestrator, but Herakles does not require a specific storage or synchronization provider for it.
 _Avoid_: Project-local config
 
 **Herakles Workspace**:
-The initialized local directory that contains `_herakles` and mandatory lifecycle folders where project repositories are checked out. It is the orchestrator workspace from which editors, agent runtimes, and other tools can open or operate on managed repositories.
+The initialized local directory that contains `_herakles` and mandatory lifecycle folders where project repositories are checked out. It is the orchestrator workspace from which editors and other development tools can open or operate on managed repositories.
 _Avoid_: Config root, workspace root, inventory root
 
 **Herakles Folder**:
-The `_herakles` folder inside a Herakles Workspace. It contains Herakles configuration as code plus Herakles-owned runtime artifacts such as caches, reports, and worktrees.
+The `_herakles` folder inside a Herakles Workspace. It contains Herakles configuration as code plus Herakles-owned runtime artifacts such as caches and worktrees.
 _Avoid_: Local config folder, hidden project
 
 **Lifecycle Folder**:
@@ -165,29 +141,9 @@ An optional single grouping level inside a lifecycle folder. It changes where a 
 _Avoid_: Nested path, owner folder, arbitrary path
 
 **Project Tag**:
-A user-defined project label used for filtering, search, automation selection, and lightweight classification without changing where the repository is checked out.
+A user-defined project label used for filtering, search, and lightweight classification without changing where the repository is checked out.
 _Avoid_: Folder, lifecycle state, GitHub topic
 
 **Remote Repository**:
 A hosted repository discovered by Herakles, such as a GitHub repository. Non-archived remote repositories are included in the default `herakles up` eligible set unless excluded by configured topics.
 _Avoid_: Local experiment
-
-**Automation Tick**:
-A Herakles scheduler wake-up that calculates due prompt runs and attempts to hand claimed runs to the configured agent runtime. The UI server can run ticks in-process while it is open, and OS-level ticks must be installed explicitly.
-_Avoid_: Cron job as duplicate-prevention mechanism
-
-Automation jobs and their prompts live in `_herakles/herakles.toml` as synced orchestration configuration. `herakles init` creates standard agent-run job definitions inline in the TOML scaffold, and the UI edits those same job definitions instead of writing separate prompt files.
-
-Automation schedules are interpreted in the local machine timezone of the Herakles process that runs them. Timezone is runtime context, not synced automation configuration.
-
-Automation schedules are stored as cron expressions in synced configuration, while user-facing automation screens lead with a human-readable schedule summary. The cron expression remains available as the precise editable form.
-
-Startup catch-up is a special automation tick mode. It uses the local run ledger plus the configured catch-up window to enumerate missed slots, then still relies on normal lock claims and successful-run checks before executing anything.
-
-Explicit OS-level cron installation writes a generated worker script under the local cache path and registers that script through Bun cron. The generated worker is local machine state, not synced configuration.
-
-Implementation-shaped automation is delegated to the configured agent runtime. Herakles may schedule the prompt and store the resulting report, but it should not model implementation planning, review follow-up, publishing, or other project-specific workflows as Herakles-owned automation modes.
-
-Disabled automation still surfaces configured jobs in the UI and CLI, but scheduled ticks produce no due slots and the UI server does not start its in-process Bun cron loop.
-
-Local fallback automation locks honor their `expiresAt` timestamp before a slot is claimed again. Expired local locks are not shown as current locks.
