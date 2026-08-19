@@ -14,6 +14,7 @@ import {
   RefreshCcw,
   Search,
   Server,
+  SquareTerminal,
   Star,
   Terminal,
   Workflow,
@@ -2077,6 +2078,13 @@ function ProjectOpenActions({ project }: { project: Project }) {
         disabled={Boolean(busyTarget)}
         onClick={() => openTarget("terminal")}
         icon={<Terminal size={16} aria-hidden />}
+      />
+      <ProjectOpenButton
+        label="Open in Codex"
+        busy={busyTarget === "codex"}
+        disabled={Boolean(busyTarget)}
+        onClick={() => openTarget("codex")}
+        icon={<SquareTerminal size={16} aria-hidden />}
       />
       {error ? <span className={feedbackClass.error}>{error}</span> : null}
     </div>
