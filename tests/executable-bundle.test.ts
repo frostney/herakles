@@ -38,8 +38,12 @@ describe("executable bundle packaging", () => {
     const cliWrapper = await Bun.file(cliWrapperPath).text();
     const uiWrapper = await Bun.file(uiWrapperPath).text();
     expect(cliWrapper).toContain('join(root, "dist", "herakles")');
+    expect(cliWrapper).toContain('join(root, "dist", "herakles.exe")');
+    expect(cliWrapper).toContain('process.platform === "win32"');
     expect(cliWrapper).toContain('join(root, "src", "cli", "main.ts")');
     expect(uiWrapper).toContain('join(root, "dist", "herakles-ui")');
+    expect(uiWrapper).toContain('join(root, "dist", "herakles-ui.exe")');
+    expect(uiWrapper).toContain('process.platform === "win32"');
     expect(uiWrapper).toContain('join(root, "src", "ui", "server", "main.ts")');
   });
 });
