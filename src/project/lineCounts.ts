@@ -78,10 +78,20 @@ type DiskCacheState = {
   dirty: boolean;
   loaded: boolean;
   revision: number;
+  /** Serializes flushes for this cache file so concurrent callers cannot overwrite a newer revision. */
+  flushPromise?: Promise<void> | undefined;
 };
 
 const memoryCache = new Map<string, { stamp: string; counts: ProjectLineCounts }>();
 const diskCaches = new Map<string, DiskCacheState>();
+
+type LineCountWriteFile = typeof writeFile;
+let lineCountWriteFile: LineCountWriteFile = writeFile;
+
+/** Test-only: replace the writeFile used by flushLineCountCache. Pass null/undefined to restore. */
+export function __setLineCountWriteFileForTests(fn?: LineCountWriteFile | null): void {
+  lineCountWriteFile = fn ?? writeFile;
+}
 
 function cacheFilePath(cacheDir: string): string {
   return join(cacheDir, "line-counts.json");
@@ -122,17 +132,41 @@ export async function flushLineCountCache(cacheDir?: string): Promise<void> {
   if (!cacheDir) return;
   const path = cacheFilePath(cacheDir);
   const state = diskCaches.get(path);
-  if (!state?.dirty) return;
-  const revision = state.revision;
-  const payload = `${JSON.stringify(state.cache)}\n`;
+  if (!state) return;
+  if (!state.dirty && !state.flushPromise) return;
+
+  const previous = state.flushPromise;
+  const run = (async () => {
+    if (previous) await previous;
+    await flushUntilClean(path, state);
+  })();
+
+  state.flushPromise = run;
   try {
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, payload, "utf8");
-    if (state.revision === revision) {
-      state.dirty = false;
+    await run;
+  } finally {
+    if (state.flushPromise === run) {
+      state.flushPromise = undefined;
     }
-  } catch {
-    // Keep dirty so a later flush can retry; never fail workspace load.
+  }
+}
+
+/** Persist until clean or a write fails. Only one caller runs this per state (via flushPromise). */
+async function flushUntilClean(path: string, state: DiskCacheState): Promise<void> {
+  while (state.dirty) {
+    const revision = state.revision;
+    const payload = `${JSON.stringify(state.cache)}\n`;
+    try {
+      await mkdir(dirname(path), { recursive: true });
+      await lineCountWriteFile(path, payload, "utf8");
+      if (state.revision === revision) {
+        state.dirty = false;
+      }
+      // else revision advanced during the write — loop and persist the newer snapshot
+    } catch {
+      // Keep dirty so a later flush can retry; never fail workspace load.
+      return;
+    }
   }
 }
 

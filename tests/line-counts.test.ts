@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rmdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { countProjectLines, flushLineCountCache } from "../src/project/lineCounts";
+import {
+  __setLineCountWriteFileForTests,
+  countProjectLines,
+  flushLineCountCache,
+} from "../src/project/lineCounts";
 
 describe("project line counts", () => {
   test("counts source lines while ignoring generated and dependency directories", async () => {
@@ -112,5 +116,54 @@ describe("project line counts", () => {
       projects: Record<string, { loc: number }>;
     };
     expect(persisted.projects[root]?.loc).toBe(1);
+  });
+
+  test("concurrent flushes persist the newer revision, not a stale snapshot", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-line-counts-race-"));
+    const cacheDir = join(root, "_herakles", "cache");
+    await mkdir(join(root, "src"), { recursive: true });
+    await mkdir(cacheDir, { recursive: true });
+    await writeFile(join(root, "src", "index.ts"), "const value = 1;\n");
+    expect(countProjectLines(root, cacheDir)).toEqual({ loc: 1, sloc: 1 });
+
+    let releaseFirstWrite!: () => void;
+    const firstWriteGate = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    let enteredFirstWrite!: () => void;
+    const firstWriteEntered = new Promise<void>((resolve) => {
+      enteredFirstWrite = resolve;
+    });
+    let writeCount = 0;
+
+    __setLineCountWriteFileForTests(async (file, data, options) => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        enteredFirstWrite();
+        await firstWriteGate;
+      }
+      return writeFile(file, data, options);
+    });
+
+    try {
+      const flush1 = flushLineCountCache(cacheDir);
+      await firstWriteEntered;
+
+      // Advance the in-memory cache to a newer revision while the first write is held.
+      await writeFile(join(root, "src", "index.ts"), "const value = 1;\nconst extra = 2;\n");
+      expect(countProjectLines(root, cacheDir)).toEqual({ loc: 2, sloc: 2 });
+
+      const flush2 = flushLineCountCache(cacheDir);
+      releaseFirstWrite();
+      await Promise.all([flush1, flush2]);
+
+      const persisted = JSON.parse(await Bun.file(join(cacheDir, "line-counts.json")).text()) as {
+        projects: Record<string, { loc: number; sloc: number }>;
+      };
+      expect(persisted.projects[root]?.loc).toBe(2);
+      expect(persisted.projects[root]?.sloc).toBe(2);
+    } finally {
+      __setLineCountWriteFileForTests(undefined);
+    }
   });
 });
