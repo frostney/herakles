@@ -98,7 +98,7 @@ function resolveGitHubProject(
   const state = repo.isArchived ? "archived" : (config.state ?? inferredState(loaded, repo));
   const projectPath = derivedProjectPath(loaded, state, config.group, repo.name);
   const learningPath = findLearningPath(loaded, projectPath, config.learning);
-  const lineCounts = countProjectLines(projectPath);
+  const lineCounts = countProjectLines(projectPath, loaded.paths.cacheDir);
   const project: Project = {
     source: "github",
     id: `github:${repo.nameWithOwner}`,
@@ -178,7 +178,7 @@ function resolveLocalProject(
     syntheticLocalRepo(loaded, configuredPath);
   const learningPath = findLearningPath(loaded, repo.path, config.learning);
   const resolvedState = config.state ?? loaded.config.defaults.state_for_local;
-  const lineCounts = countProjectLines(repo.path);
+  const lineCounts = countProjectLines(repo.path, loaded.paths.cacheDir);
   const project: Project = {
     source: "local",
     id: `local:${repo.name}`,

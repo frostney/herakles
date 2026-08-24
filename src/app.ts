@@ -40,6 +40,7 @@ import {
   promoteLocalProject,
 } from "./local/promote";
 import { syncDefaultBranch } from "./project/gitStatus";
+import { flushLineCountCache } from "./project/lineCounts";
 import {
   InvalidProjectRenameError,
   createProjectRenamePlan,
@@ -59,6 +60,7 @@ type WorkspaceState = {
 type WorkspaceLoad = {
   generation: number;
   promise: Promise<WorkspaceState>;
+  state?: WorkspaceState;
 };
 
 type PullRequestCacheEntry = {
@@ -92,21 +94,32 @@ export { InvalidProjectRenameError };
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
   const generation = workspaceGeneration(workspaceRoot);
   const existing = workspaceLoads.get(workspaceRoot);
-  if (existing?.generation === generation) return existing.promise;
-  const loading = loadWorkspaceFresh(workspaceRoot)
-    .then(
-      (state) =>
-        workspaceGeneration(workspaceRoot) === generation ? state : loadWorkspace(workspaceRoot),
-      (error) =>
-        workspaceGeneration(workspaceRoot) === generation
-          ? Promise.reject(error)
-          : loadWorkspace(workspaceRoot),
-    )
-    .finally(() => {
-      if (workspaceLoads.get(workspaceRoot)?.promise === loading) {
+  if (existing?.generation === generation) {
+    if (existing.state) return existing.state;
+    return existing.promise;
+  }
+  const loading = loadWorkspaceFresh(workspaceRoot).then(
+    (state) => {
+      if (workspaceGeneration(workspaceRoot) !== generation) {
+        return loadWorkspace(workspaceRoot);
+      }
+      const entry = workspaceLoads.get(workspaceRoot);
+      if (entry?.promise === loading) {
+        entry.state = state;
+      }
+      return state;
+    },
+    (error) => {
+      if (workspaceGeneration(workspaceRoot) !== generation) {
+        return loadWorkspace(workspaceRoot);
+      }
+      const entry = workspaceLoads.get(workspaceRoot);
+      if (entry?.promise === loading) {
         workspaceLoads.delete(workspaceRoot);
       }
-    });
+      return Promise.reject(error);
+    },
+  );
   workspaceLoads.set(workspaceRoot, { generation, promise: loading });
   return loading;
 }
@@ -133,6 +146,7 @@ async function loadWorkspaceFresh(workspaceRoot: string): Promise<WorkspaceState
   const loaded = await loadConfig(workspaceRoot);
   const discovery = await refreshProjectDiscovery(loaded);
   const projects = resolveProjects(loaded, discovery);
+  await flushLineCountCache(loaded.paths.cacheDir);
   const validation = validateWorkspaceProjects(loaded, discovery, projects);
   return { loaded, discovery, projects, validation };
 }
