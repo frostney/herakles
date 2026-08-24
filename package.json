@@ -4,13 +4,15 @@
   "description": "A Bun-first workspace orchestrator for many repositories.",
   "type": "module",
   "bin": {
-    "herakles": "./dist/herakles",
-    "herakles-ui": "./dist/herakles-ui"
+    "herakles": "./bin/herakles",
+    "herakles-ui": "./bin/herakles-ui"
   },
   "scripts": {
     "herakles": "bun run src/cli/main.ts",
     "ui": "bun run src/ui/server/main.ts",
     "build": "bun run scripts/build.ts",
+    "build:cli": "bun run scripts/build.ts cli",
+    "build:ui": "bun run scripts/build.ts ui",
     "desktop": "electrobun dev",
     "desktop:build": "electrobun build --env=stable",
     "desktop:build:nightly": "electrobun build --env=canary",

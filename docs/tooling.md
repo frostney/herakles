@@ -78,6 +78,7 @@ Build and smoke the compiled executables:
 
 ```sh
 bun run build
+# or: bun run build:cli / bun run build:ui
 ./dist/herakles --help
 ./dist/herakles-ui --help
 ```

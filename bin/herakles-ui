@@ -1,0 +1,16 @@
+#!/usr/bin/env bun
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+const root = join(import.meta.dir, "..");
+const compiled = join(root, "dist", "herakles-ui");
+const source = join(root, "src", "ui", "server", "main.ts");
+const args = process.argv.slice(2);
+
+const command = existsSync(compiled) ? [compiled, ...args] : ["bun", "run", source, ...args];
+const proc = Bun.spawn(command, {
+  stdin: "inherit",
+  stdout: "inherit",
+  stderr: "inherit",
+});
+process.exit(await proc.exited);

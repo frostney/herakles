@@ -28,6 +28,9 @@ Build standalone Bun-native executables for the current platform:
 
 ```sh
 bun run build
+# or individually:
+bun run build:cli
+bun run build:ui
 ```
 
 This runs `scripts/build.ts`, which uses `Bun.build({ compile: ... })` with `bun-plugin-tailwind` so the CLI and UI binaries embed the Workbench HTML/CSS/JS assets. Artifacts land at:
@@ -35,7 +38,9 @@ This runs `scripts/build.ts`, which uses `Bun.build({ compile: ... })` with `bun
 - `dist/herakles` — main CLI (includes `herakles ui`)
 - `dist/herakles-ui` — direct UI server entrypoint
 
-`package.json` `bin` entries point at those compiled artifacts for shipped use. Source-dev entrypoints stay on the package scripts (`bun run herakles`, `bun run ui`) and do not require a prior build.
+`package.json` `bin` entries are thin wrappers under bin/ that prefer dist/ when present, else TypeScript sources for development. Source-dev scripts (`bun run herakles`, `bun run ui`) always run from src/ and do not require a prior build.
+
+Compiled artifacts remain ignored by git. Install by building locally and placing the artifact on PATH.
 
 Run a built executable directly:
 
@@ -49,6 +54,8 @@ Run a built executable directly:
 The binaries are self-contained: copy `dist/herakles` (or `dist/herakles-ui`) to another directory without the source tree and run it from there. Electrobun desktop packaging remains a separate path and is unchanged by this CLI bundle flow.
 
 Cross-compilation for other OS/arch targets can use Bun's `--target=bun-<os>-<arch>` compile options when release automation needs multi-platform artifacts; the default `bun run build` targets the machine that runs it.
+
+Caveat: herakles-ui HTML/asset compile uses Bun fullstack HTML imports; Tailwind at-source warnings during compile can appear. Verify UI routes after rebuilding client assets.
 
 ## Desktop Distribution
 

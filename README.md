@@ -24,7 +24,7 @@ Open the local UI:
 bun run ui -- --root ~/Code --no-open
 ```
 
-Build standalone CLI/UI executables with Bun (`dist/herakles`, `dist/herakles-ui`):
+Build standalone CLI/UI executables with Bun (`dist/herakles`, `dist/herakles-ui`), then run or put them on `PATH`:
 
 ```sh
 bun run build

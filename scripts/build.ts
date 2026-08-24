@@ -2,10 +2,19 @@
 import { mkdir } from "node:fs/promises";
 import tailwind from "bun-plugin-tailwind";
 
-const targets = [
-  { entrypoint: "./src/cli/main.ts", outfile: "./dist/herakles" },
-  { entrypoint: "./src/ui/server/main.ts", outfile: "./dist/herakles-ui" },
-] as const;
+const allTargets = {
+  cli: { entrypoint: "./src/cli/main.ts", outfile: "./dist/herakles" },
+  ui: { entrypoint: "./src/ui/server/main.ts", outfile: "./dist/herakles-ui" },
+} as const;
+
+type TargetName = keyof typeof allTargets;
+
+function selectedTargets(argv: string[]): TargetName[] {
+  const names = argv.filter((arg) => arg === "cli" || arg === "ui") as TargetName[];
+  return names.length > 0 ? names : (["cli", "ui"] as TargetName[]);
+}
+
+const targets = selectedTargets(Bun.argv.slice(2)).map((name) => allTargets[name]);
 
 await mkdir("dist", { recursive: true });
 
