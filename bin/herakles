@@ -1,0 +1,23 @@
+#!/usr/bin/env bun
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+const root = join(import.meta.dir, "..");
+const compiledExe = join(root, "dist", "herakles.exe");
+const compiled = join(root, "dist", "herakles");
+const source = join(root, "src", "cli", "main.ts");
+const args = process.argv.slice(2);
+
+const artifact =
+  process.platform === "win32" && existsSync(compiledExe)
+    ? compiledExe
+    : existsSync(compiled)
+      ? compiled
+      : null;
+const command = artifact ? [artifact, ...args] : ["bun", "run", source, ...args];
+const proc = Bun.spawn(command, {
+  stdin: "inherit",
+  stdout: "inherit",
+  stderr: "inherit",
+});
+process.exit(await proc.exited);
