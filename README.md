@@ -10,7 +10,7 @@ bun install
 
 ## Usage
 
-Create a workspace, add a project, and spin it up:
+Create a workspace, add a project, and spin it up from source:
 
 ```sh
 bun run herakles init --root ~/Code
@@ -24,7 +24,14 @@ Open the local UI:
 bun run ui -- --root ~/Code --no-open
 ```
 
-See [Quick Start](docs/quick-start.md) for add/import, rename, drift, and UI flows.
+Build standalone CLI/UI executables with Bun (`dist/herakles`, `dist/herakles-ui`):
+
+```sh
+bun run build
+./dist/herakles --help
+```
+
+See [Quick Start](docs/quick-start.md) for add/import, rename, drift, and UI flows, and [Deployment](docs/deployment.md) for bundled executable details.
 
 ## Background
 

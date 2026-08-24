@@ -2,16 +2,17 @@
 
 ## Executive Summary
 
-- Herakles currently runs from source with Bun.
-- The UI is a local Bun fullstack server, not a hosted SaaS deployment.
-- The first packaged target is an unsigned macOS arm64 Electrobun desktop app.
+- Local development still runs Herakles from source with Bun (`bun run herakles`, `bun run ui`).
+- Shipped CLI/UI distribution uses Bun `build --compile` single-file executables under `dist/`.
+- The UI remains a local Bun fullstack server, not a hosted SaaS deployment.
+- The first packaged desktop target is an unsigned macOS arm64 Electrobun app.
 - Generated caches and worktrees stay under ignored `_herakles` folders.
 - Stable releases are tag-driven, and nightly builds are a rolling prerelease from `main`.
 - Auto-update, signing, and notarization are out of scope for the first desktop packaging pass.
 
 ## Local Runtime
 
-Herakles is operated locally through the CLI and UI:
+Herakles is operated locally through the CLI and UI from source during development:
 
 ```sh
 bun run herakles -- <command>
@@ -20,6 +21,34 @@ bun run desktop
 ```
 
 The UI server uses Bun's fullstack server model and serves the local Herakles Workspace.
+
+## CLI Executable Distribution
+
+Build standalone Bun-native executables for the current platform:
+
+```sh
+bun run build
+```
+
+This runs `scripts/build.ts`, which uses `Bun.build({ compile: ... })` with `bun-plugin-tailwind` so the CLI and UI binaries embed the Workbench HTML/CSS/JS assets. Artifacts land at:
+
+- `dist/herakles` — main CLI (includes `herakles ui`)
+- `dist/herakles-ui` — direct UI server entrypoint
+
+`package.json` `bin` entries point at those compiled artifacts for shipped use. Source-dev entrypoints stay on the package scripts (`bun run herakles`, `bun run ui`) and do not require a prior build.
+
+Run a built executable directly:
+
+```sh
+./dist/herakles --help
+./dist/herakles --version
+./dist/herakles doctor --root <workspace> --json
+./dist/herakles-ui --root <workspace> --no-open
+```
+
+The binaries are self-contained: copy `dist/herakles` (or `dist/herakles-ui`) to another directory without the source tree and run it from there. Electrobun desktop packaging remains a separate path and is unchanged by this CLI bundle flow.
+
+Cross-compilation for other OS/arch targets can use Bun's `--target=bun-<os>-<arch>` compile options when release automation needs multi-platform artifacts; the default `bun run build` targets the machine that runs it.
 
 ## Desktop Distribution
 
@@ -64,3 +93,5 @@ The first release channel is a macOS arm64 Electrobun artifact attached to GitHu
 - Rollback is manual: download and install an earlier stable release artifact.
 
 Signing, notarization, auto-update metadata, update feeds, macOS x64 packaging, and cross-platform installers are intentionally deferred until the unsigned macOS arm64 artifact flow is reliable.
+
+Attaching the `dist/herakles` / `dist/herakles-ui` compile artifacts to GitHub Releases is a follow-on packaging step; local `bun run build` is the supported way to produce them today.

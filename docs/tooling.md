@@ -74,6 +74,14 @@ Run the UI server without opening a browser:
 bun run ui -- --root <workspace> --no-open
 ```
 
+Build and smoke the compiled executables:
+
+```sh
+bun run build
+./dist/herakles --help
+./dist/herakles-ui --help
+```
+
 ## GitHub Actions
 
 CI is defined in `.github/workflows/ci.yml`. The workflow installs with Bun, runs tests, runs Biome, type-checks, runs Fallow audit against an explicit base ref, and records a whole-repo Fallow health report.
