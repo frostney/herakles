@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { countProjectLines } from "../src/project/lineCounts";
+import {
+  configureLineCountCache,
+  countProjectLines,
+  flushLineCountCache,
+} from "../src/project/lineCounts";
 
 describe("project line counts", () => {
   test("counts source lines while ignoring generated and dependency directories", async () => {
@@ -42,6 +46,20 @@ describe("project line counts", () => {
       "const hiddenDirectory = true;\n",
     );
 
+    expect(countProjectLines(root)).toEqual({ loc: 1, sloc: 1 });
+  });
+
+  test("stamp cache skips re-reading unchanged source files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-line-counts-cache-"));
+    const cacheDir = join(root, "_herakles", "cache");
+    await mkdir(join(root, "src"), { recursive: true });
+    await mkdir(cacheDir, { recursive: true });
+    await writeFile(join(root, "src", "index.ts"), "const value = 1;\n");
+    configureLineCountCache(cacheDir);
+    expect(countProjectLines(root)).toEqual({ loc: 1, sloc: 1 });
+    await flushLineCountCache();
+    configureLineCountCache(undefined);
+    configureLineCountCache(cacheDir);
     expect(countProjectLines(root)).toEqual({ loc: 1, sloc: 1 });
   });
 });
