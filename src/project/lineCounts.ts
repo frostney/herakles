@@ -77,6 +77,7 @@ type DiskCacheState = {
   cache: LineCountCacheFile;
   dirty: boolean;
   loaded: boolean;
+  revision: number;
 };
 
 const memoryCache = new Map<string, { stamp: string; counts: ProjectLineCounts }>();
@@ -86,6 +87,10 @@ function cacheFilePath(cacheDir: string): string {
   return join(cacheDir, "line-counts.json");
 }
 
+function memoryCacheKey(projectPath: string, cacheDir?: string): string {
+  return `${cacheDir ?? ""}\0${projectPath}`;
+}
+
 export function countProjectLines(
   projectPath: string,
   cacheDir?: string,
@@ -93,12 +98,13 @@ export function countProjectLines(
   if (!existsSync(projectPath)) return undefined;
   const inventory = collectInventory(projectPath);
   const stamp = stampInventory(inventory);
-  const cached = memoryCache.get(projectPath);
+  const memKey = memoryCacheKey(projectPath, cacheDir);
+  const cached = memoryCache.get(memKey);
   if (cached?.stamp === stamp) return { ...cached.counts };
 
   const fromDisk = cacheDir ? readDiskEntry(cacheDir, projectPath) : undefined;
   if (fromDisk?.stamp === stamp) {
-    memoryCache.set(projectPath, { stamp, counts: { loc: fromDisk.loc, sloc: fromDisk.sloc } });
+    memoryCache.set(memKey, { stamp, counts: { loc: fromDisk.loc, sloc: fromDisk.sloc } });
     return { loc: fromDisk.loc, sloc: fromDisk.sloc };
   }
 
@@ -106,7 +112,7 @@ export function countProjectLines(
   for (const file of inventory) {
     countFile(file.path, totals);
   }
-  memoryCache.set(projectPath, { stamp, counts: { ...totals } });
+  memoryCache.set(memKey, { stamp, counts: { ...totals } });
   if (cacheDir) writeDiskEntry(cacheDir, projectPath, stamp, totals);
   return totals;
 }
@@ -117,10 +123,14 @@ export async function flushLineCountCache(cacheDir?: string): Promise<void> {
   const path = cacheFilePath(cacheDir);
   const state = diskCaches.get(path);
   if (!state?.dirty) return;
+  const revision = state.revision;
+  const payload = `${JSON.stringify(state.cache)}\n`;
   try {
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${JSON.stringify(state.cache)}\n`, "utf8");
-    state.dirty = false;
+    await writeFile(path, payload, "utf8");
+    if (state.revision === revision) {
+      state.dirty = false;
+    }
   } catch {
     // Keep dirty so a later flush can retry; never fail workspace load.
   }
@@ -225,6 +235,7 @@ function ensureDiskCache(cacheDir: string): DiskCacheState {
     cache: { version: 1, projects: {} },
     dirty: false,
     loaded: true,
+    revision: 0,
   };
   if (existsSync(path)) {
     try {
@@ -254,4 +265,5 @@ function writeDiskEntry(
   const state = ensureDiskCache(cacheDir);
   state.cache.projects[projectPath] = { stamp, loc: counts.loc, sloc: counts.sloc };
   state.dirty = true;
+  state.revision += 1;
 }

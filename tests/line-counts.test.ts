@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rmdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { countProjectLines, flushLineCountCache } from "../src/project/lineCounts";
@@ -101,14 +101,12 @@ describe("project line counts", () => {
     await writeFile(join(root, "src", "index.ts"), "const value = 1;\n");
     expect(countProjectLines(root, cacheDir)).toEqual({ loc: 1, sloc: 1 });
 
-    // Make cacheDir non-writable so mkdir/write fails (file already may exist as dir).
-    // Replace cache path parent permissions: chmod cacheDir to read-only after placing a file
-    // that blocks overwrite by making the directory unwritable.
-    await chmod(cacheDir, 0o555);
+    // Block writeFile with EISDIR by placing a directory at the cache file path.
+    await mkdir(join(cacheDir, "line-counts.json"));
     await expect(flushLineCountCache(cacheDir)).resolves.toBeUndefined();
 
-    // Restore permissions and retry — dirty should still flush successfully.
-    await chmod(cacheDir, 0o755);
+    // Remove the blocker and retry — dirty should still flush successfully.
+    await rmdir(join(cacheDir, "line-counts.json"));
     await expect(flushLineCountCache(cacheDir)).resolves.toBeUndefined();
     const persisted = JSON.parse(await Bun.file(join(cacheDir, "line-counts.json")).text()) as {
       projects: Record<string, { loc: number }>;
