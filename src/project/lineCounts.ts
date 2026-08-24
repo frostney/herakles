@@ -1,7 +1,7 @@
+import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { createHash } from "node:crypto";
 import type { ProjectLineCounts } from "../domain";
 
 const ignoredDirectories = new Set([
@@ -73,34 +73,30 @@ type LineCountCacheFile = {
   projects: Record<string, { stamp: string; loc: number; sloc: number }>;
 };
 
-const memoryCache = new Map<string, { stamp: string; counts: ProjectLineCounts }>();
-let diskCache: LineCountCacheFile | undefined;
-let diskCachePath: string | undefined;
-let diskCacheDirty = false;
+type DiskCacheState = {
+  cache: LineCountCacheFile;
+  dirty: boolean;
+  loaded: boolean;
+};
 
-/** Point line-count persistence at the workspace `_herakles/cache` directory. */
-export function configureLineCountCache(cacheDir: string | undefined) {
-  if (!cacheDir) {
-    diskCachePath = undefined;
-    diskCache = undefined;
-    diskCacheDirty = false;
-    return;
-  }
-  const nextPath = join(cacheDir, "line-counts.json");
-  if (diskCachePath === nextPath) return;
-  diskCachePath = nextPath;
-  diskCache = undefined;
-  diskCacheDirty = false;
+const memoryCache = new Map<string, { stamp: string; counts: ProjectLineCounts }>();
+const diskCaches = new Map<string, DiskCacheState>();
+
+function cacheFilePath(cacheDir: string): string {
+  return join(cacheDir, "line-counts.json");
 }
 
-export function countProjectLines(projectPath: string): ProjectLineCounts | undefined {
+export function countProjectLines(
+  projectPath: string,
+  cacheDir?: string,
+): ProjectLineCounts | undefined {
   if (!existsSync(projectPath)) return undefined;
   const inventory = collectInventory(projectPath);
   const stamp = stampInventory(inventory);
   const cached = memoryCache.get(projectPath);
   if (cached?.stamp === stamp) return { ...cached.counts };
 
-  const fromDisk = readDiskEntry(projectPath);
+  const fromDisk = cacheDir ? readDiskEntry(cacheDir, projectPath) : undefined;
   if (fromDisk?.stamp === stamp) {
     memoryCache.set(projectPath, { stamp, counts: { loc: fromDisk.loc, sloc: fromDisk.sloc } });
     return { loc: fromDisk.loc, sloc: fromDisk.sloc };
@@ -111,19 +107,23 @@ export function countProjectLines(projectPath: string): ProjectLineCounts | unde
     countFile(file.path, totals);
   }
   memoryCache.set(projectPath, { stamp, counts: { ...totals } });
-  writeDiskEntry(projectPath, stamp, totals);
+  if (cacheDir) writeDiskEntry(cacheDir, projectPath, stamp, totals);
   return totals;
 }
 
-/** Flush pending cache writes. Safe to call after a workspace resolve. */
-export async function flushLineCountCache(): Promise<void> {
-  if (!diskCacheDirty || !diskCachePath || !diskCache) return;
-  await mkdir(join(diskCachePath, ".."), { recursive: true }).catch(() => undefined);
-  // mkdir parent of file
-  const parent = diskCachePath.slice(0, diskCachePath.lastIndexOf("/"));
-  await mkdir(parent, { recursive: true });
-  await writeFile(diskCachePath, `${JSON.stringify(diskCache)}\n`, "utf8");
-  diskCacheDirty = false;
+/** Flush pending cache writes for a workspace cache directory. Never throws. */
+export async function flushLineCountCache(cacheDir?: string): Promise<void> {
+  if (!cacheDir) return;
+  const path = cacheFilePath(cacheDir);
+  const state = diskCaches.get(path);
+  if (!state?.dirty) return;
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, `${JSON.stringify(state.cache)}\n`, "utf8");
+    state.dirty = false;
+  } catch {
+    // Keep dirty so a later flush can retry; never fail workspace load.
+  }
 }
 
 type InventoryFile = { path: string; mtimeMs: number; size: number };
@@ -216,30 +216,42 @@ function isSourceLine(line: string): boolean {
   return true;
 }
 
-function ensureDiskCache(): LineCountCacheFile {
-  if (diskCache) return diskCache;
-  diskCache = { version: 1, projects: {} };
-  if (!diskCachePath || !existsSync(diskCachePath)) return diskCache;
-  try {
-    const raw = readFileSync(diskCachePath, "utf8");
-    const parsed = JSON.parse(raw) as LineCountCacheFile;
-    if (parsed?.version === 1 && parsed.projects && typeof parsed.projects === "object") {
-      diskCache = parsed;
+function ensureDiskCache(cacheDir: string): DiskCacheState {
+  const path = cacheFilePath(cacheDir);
+  const existing = diskCaches.get(path);
+  if (existing?.loaded) return existing;
+
+  const state: DiskCacheState = {
+    cache: { version: 1, projects: {} },
+    dirty: false,
+    loaded: true,
+  };
+  if (existsSync(path)) {
+    try {
+      const raw = readFileSync(path, "utf8");
+      const parsed = JSON.parse(raw) as LineCountCacheFile;
+      if (parsed?.version === 1 && parsed.projects && typeof parsed.projects === "object") {
+        state.cache = parsed;
+      }
+    } catch {
+      // ignore corrupt cache
     }
-  } catch {
-    // ignore corrupt cache
   }
-  return diskCache;
+  diskCaches.set(path, state);
+  return state;
 }
 
-function readDiskEntry(projectPath: string) {
-  if (!diskCachePath) return undefined;
-  return ensureDiskCache().projects[projectPath];
+function readDiskEntry(cacheDir: string, projectPath: string) {
+  return ensureDiskCache(cacheDir).cache.projects[projectPath];
 }
 
-function writeDiskEntry(projectPath: string, stamp: string, counts: ProjectLineCounts) {
-  if (!diskCachePath) return;
-  const cache = ensureDiskCache();
-  cache.projects[projectPath] = { stamp, loc: counts.loc, sloc: counts.sloc };
-  diskCacheDirty = true;
+function writeDiskEntry(
+  cacheDir: string,
+  projectPath: string,
+  stamp: string,
+  counts: ProjectLineCounts,
+) {
+  const state = ensureDiskCache(cacheDir);
+  state.cache.projects[projectPath] = { stamp, loc: counts.loc, sloc: counts.sloc };
+  state.dirty = true;
 }

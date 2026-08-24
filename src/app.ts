@@ -40,15 +40,12 @@ import {
   promoteLocalProject,
 } from "./local/promote";
 import { syncDefaultBranch } from "./project/gitStatus";
+import { flushLineCountCache } from "./project/lineCounts";
 import {
   InvalidProjectRenameError,
   createProjectRenamePlan,
   renameProject as executeProjectRename,
 } from "./project/rename";
-import {
-  configureLineCountCache,
-  flushLineCountCache,
-} from "./project/lineCounts";
 import { resolveProjects } from "./project/resolve";
 import { type UpExecution, executeUpPlan } from "./up/execute";
 import { createUpPlan } from "./up/plan";
@@ -112,10 +109,16 @@ async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
       }
       return state;
     },
-    (error) =>
-      workspaceGeneration(workspaceRoot) === generation
-        ? Promise.reject(error)
-        : loadWorkspace(workspaceRoot),
+    (error) => {
+      if (workspaceGeneration(workspaceRoot) !== generation) {
+        return loadWorkspace(workspaceRoot);
+      }
+      const entry = workspaceLoads.get(workspaceRoot);
+      if (entry?.promise === loading) {
+        workspaceLoads.delete(workspaceRoot);
+      }
+      return Promise.reject(error);
+    },
   );
   workspaceLoads.set(workspaceRoot, { generation, promise: loading });
   return loading;
@@ -141,10 +144,9 @@ async function applyWorkspaceConfigMutation<T>(
 
 async function loadWorkspaceFresh(workspaceRoot: string): Promise<WorkspaceState> {
   const loaded = await loadConfig(workspaceRoot);
-  configureLineCountCache(loaded.paths.cacheDir);
   const discovery = await refreshProjectDiscovery(loaded);
   const projects = resolveProjects(loaded, discovery);
-  await flushLineCountCache();
+  await flushLineCountCache(loaded.paths.cacheDir);
   const validation = validateWorkspaceProjects(loaded, discovery, projects);
   return { loaded, discovery, projects, validation };
 }
