@@ -61,6 +61,12 @@
       "skillPath": "review-pr/SKILL.md",
       "computedHash": "b8da6111930a0b5e4623995ded930a88237638526d22a8e3b84b221b2e48a90a"
     },
+    "software-engineering-excellence": {
+      "source": "frostney/known-good-route",
+      "sourceType": "github",
+      "skillPath": "software-engineering-excellence/SKILL.md",
+      "computedHash": "ae51397231890746db8f79007763e211785b4a583c9e7644ffc9fc6411f4a919"
+    },
     "update-pr": {
       "source": "frostney/known-good-route",
       "sourceType": "github",
