@@ -16,10 +16,12 @@ export function useResource<T>(
 ): [Loadable<T>, (loaderOverride?: () => Promise<T>) => void] {
   const [state, setState] = useState<Loadable<T>>({ status: "loading" });
   const requestIdRef = useRef(0);
+  const loaderRef = useRef(loader);
+  loaderRef.current = loader;
   const refresh = (loaderOverride?: () => Promise<T>) => {
     const requestId = ++requestIdRef.current;
     setState({ status: "loading" });
-    (loaderOverride ?? loader)()
+    (loaderOverride ?? loaderRef.current)()
       .then((data) => {
         if (requestId === requestIdRef.current) setState({ status: "ready", data });
       })

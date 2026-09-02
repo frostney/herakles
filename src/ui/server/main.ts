@@ -2,7 +2,7 @@
 import { buildApplication, buildCommand, run } from "@stricli/core";
 import { heraklesApplicationText } from "../../cli/text";
 import { selectHeraklesWorkspace } from "../../config/workspace";
-import { type UiServerOptions, startUiServer } from "./server";
+import { startUiServer, type UiServerOptions } from "./server";
 
 export type UiFlags = {
   root?: string;

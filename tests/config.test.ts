@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
 import {
-  HeraklesWorkspaceNotFoundError,
   discoverHeraklesWorkspace,
+  HeraklesWorkspaceNotFoundError,
   selectHeraklesWorkspace,
 } from "../src/config/workspace";
 

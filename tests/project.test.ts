@@ -470,7 +470,7 @@ ${projectsToml}`,
   return root;
 }
 
-async function withFakeArchivedGhRepo(run: () => Promise<void>) {
+async function _withFakeArchivedGhRepo(run: () => Promise<void>) {
   await withFakeGhScript(
     "herakles-gh-archived-",
     `#!/bin/sh

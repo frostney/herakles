@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startUiCommand } from "../src/ui/server/main";
 import {
+  startUiServerSession,
   type UiServerOptions,
   type UiServerSession,
-  startUiServerSession,
 } from "../src/ui/server/server";
 
 const sessions: UiServerSession[] = [];

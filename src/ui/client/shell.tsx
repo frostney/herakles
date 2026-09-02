@@ -5,7 +5,6 @@ import type { Project } from "../../domain";
 import type { HeraklesEvent } from "./api";
 import { getProjects } from "./api";
 import { projectName } from "./routes/projects";
-import { IconButton } from "./shared/components";
 import {
   EventContext,
   useEventStreamStatus,
@@ -203,13 +202,15 @@ function CommandPalette({
     items[active]?.run();
   };
   return (
-    <div
-      className="fixed inset-0 z-[120] flex items-start justify-center bg-[rgba(8,6,4,0.6)] px-[var(--space-4)] pt-[12vh] backdrop-blur-[3px]"
-      role="presentation"
-      onMouseDown={onClose}
-    >
+    <div className="fixed inset-0 z-[120] flex items-start justify-center bg-[rgba(8,6,4,0.6)] px-[var(--space-4)] pt-[12vh] backdrop-blur-[3px]">
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default"
+        aria-label="Close command palette"
+        onMouseDown={onClose}
+      />
       <dialog
-        className="relative m-0 grid w-full max-w-[560px] overflow-hidden rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-0 text-[var(--text-body)] shadow-[var(--shadow-xl)]"
+        className="relative z-10 m-0 grid w-full max-w-[560px] overflow-hidden rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-0 text-[var(--text-body)] shadow-[var(--shadow-xl)]"
         open
         aria-modal="true"
         aria-label="Command palette"
@@ -260,6 +261,7 @@ function CommandPalette({
         </label>
         <div
           className="grid max-h-[50vh] gap-[var(--space-1)] overflow-auto p-[var(--space-2)]"
+          role="listbox"
           aria-label="Command results"
         >
           {items.map((item, index) => (

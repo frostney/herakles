@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import type { ValidationResult } from "../../../domain";
 import {
-  type ProjectDiscoveryRefreshResult,
-  type UpRunResult,
   getConfigToml,
   getDoctor,
   getStatus,
+  type ProjectDiscoveryRefreshResult,
   postConfigToml,
   postProjectsRefresh,
   postUp,
   postValidate,
+  type UpRunResult,
 } from "../api";
 import {
   DoctorPanel,
@@ -22,7 +22,7 @@ import {
 } from "../shared/components";
 import { displayPath } from "../shared/displayPath";
 import { useRefreshOnEvents, useResource } from "../shared/hooks";
-import { feedbackClass, feedbackToneClass, ui } from "../shared/styles";
+import { feedbackToneClass, ui } from "../shared/styles";
 
 export function SettingsScreen() {
   const [status, refreshStatus] = useResource(getStatus);

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TOML } from "bun";
-import { type WorkspacePaths, lifecycleFolders, resolveWorkspacePaths } from "./paths";
+import { lifecycleFolders, resolveWorkspacePaths, type WorkspacePaths } from "./paths";
 import { type HeraklesConfig, heraklesConfigSchema } from "./schema";
 import { HeraklesWorkspaceNotFoundError } from "./workspace";
 

@@ -9,10 +9,10 @@ import type {
 } from "../../../domain";
 import { getPullRequests } from "../api";
 import {
-  type PullRequestDraftFilter,
-  type PullRequestFilterState,
   defaultPullRequestFilters,
   filterPullRequests,
+  type PullRequestDraftFilter,
+  type PullRequestFilterState,
   pullRequestProjectOptions,
   uniquePullRequestAuthors,
 } from "../pullRequestFilters";
@@ -218,11 +218,7 @@ function PullRequestSelect<T extends string>({
   );
 }
 
-function PullRequestFailurePanel({
-  failures,
-}: {
-  failures: PullRequestCollection["failures"];
-}) {
+function PullRequestFailurePanel({ failures }: { failures: PullRequestCollection["failures"] }) {
   if (failures.length === 0) return null;
   return (
     <Panel title="Partial GitHub Reads" actions={<Badge tone="warning">{failures.length}</Badge>}>
