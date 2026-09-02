@@ -131,7 +131,7 @@ export function Modal({
           type="button"
           className="absolute inset-0 cursor-default"
           aria-label="Close"
-          onMouseDown={() => {
+          onClick={() => {
             if (closeOnBackdrop) onClose();
           }}
         />
@@ -191,7 +191,7 @@ export function Modal({
         type="button"
         className="absolute inset-0 cursor-default"
         aria-label="Close"
-        onMouseDown={() => {
+        onClick={() => {
           if (closeOnBackdrop) onClose();
         }}
       />

@@ -207,7 +207,7 @@ function CommandPalette({
         type="button"
         className="absolute inset-0 cursor-default"
         aria-label="Close command palette"
-        onMouseDown={onClose}
+        onClick={onClose}
       />
       <dialog
         className="relative z-10 m-0 grid w-full max-w-[560px] overflow-hidden rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-0 text-[var(--text-body)] shadow-[var(--shadow-xl)]"
@@ -259,11 +259,7 @@ function CommandPalette({
             esc
           </kbd>
         </label>
-        <div
-          className="grid max-h-[50vh] gap-[var(--space-1)] overflow-auto p-[var(--space-2)]"
-          role="listbox"
-          aria-label="Command results"
-        >
+        <div className="grid max-h-[50vh] gap-[var(--space-1)] overflow-auto p-[var(--space-2)]">
           {items.map((item, index) => (
             <button
               type="button"

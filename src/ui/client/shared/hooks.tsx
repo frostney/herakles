@@ -17,7 +17,9 @@ export function useResource<T>(
   const [state, setState] = useState<Loadable<T>>({ status: "loading" });
   const requestIdRef = useRef(0);
   const loaderRef = useRef(loader);
-  loaderRef.current = loader;
+  useEffect(() => {
+    loaderRef.current = loader;
+  }, [loader]);
   const refresh = (loaderOverride?: () => Promise<T>) => {
     const requestId = ++requestIdRef.current;
     setState({ status: "loading" });
