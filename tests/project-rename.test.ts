@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
 import type { Project } from "../src/domain";
 import {
-  InvalidProjectRenameError,
   createProjectRenamePlanWithRunner,
+  InvalidProjectRenameError,
   renameProjectWithRunner,
 } from "../src/project/rename";
 

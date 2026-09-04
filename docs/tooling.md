@@ -2,9 +2,9 @@
 
 ## Executive Summary
 
-- Bun is the only package manager and runtime for local development.
-- Biome owns formatting and linting.
-- TypeScript is checked with `bunx tsc --noEmit`.
+- Bun 1.4.0 is the only package manager and runtime for local development.
+- Biome 2.5.x owns formatting and linting.
+- TypeScript 7 is checked with `bunx tsc --noEmit`.
 - Fallow audit is the changed-file quality gate in GitHub Actions.
 - There is intentionally no `bun run ci`; CI means the GitHub Actions workflow.
 - Release packaging belongs in a separate GitHub Actions workflow from CI.
@@ -85,7 +85,7 @@ bun run build
 
 ## GitHub Actions
 
-CI is defined in `.github/workflows/ci.yml`. The workflow installs with Bun, runs tests, runs Biome, type-checks, runs Fallow audit against an explicit base ref, and records a whole-repo Fallow health report.
+CI is defined in `.github/workflows/ci.yml`. The workflow installs Bun 1.4.0, runs tests, runs Biome, type-checks, runs Fallow audit against an explicit base ref, and records a whole-repo Fallow health report.
 
 Do not add a package-level `ci` script. If the full CI workflow is needed, trigger GitHub Actions.
 
@@ -108,10 +108,10 @@ The nightly flow is a rolling prerelease from `main`:
 - Publish or replace the assets on a single `nightly` prerelease.
 - Mark the release as prerelease and keep it separate from semantic stable tags.
 
-The nightly GitHub release uses Electrobun's canary build channel internally, so generated filenames start with `canary-` even though the GitHub release tag is `nightly`. The workflow runs on GitHub's `macos-26` arm64 runner with a pinned Bun release, serializes nightly publication, and does not claim macOS x64 artifacts in the first release pass.
+The nightly GitHub release uses Electrobun's canary build channel internally, so generated filenames start with `canary-` even though the GitHub release tag is `nightly`. The workflow runs on GitHub's `macos-26` arm64 runner with Bun 1.4.0 pinned, serializes nightly publication, and does not claim macOS x64 artifacts in the first release pass.
 
 Do not include auto-update feeds, delta-update publishing, signing credentials, notarization credentials, macOS x64 packaging, Windows packaging, or Linux packaging in the first release workflow. Add those only after the unsigned macOS arm64 artifact flow is proven.
 
 ## Tool Choices
 
-Herakles prefers Bun APIs for TOML, serving, bundling, tests, subprocesses, and runtime services. Stricli powers the CLI. Biome handles formatting and linting. Fallow handles repository quality evidence in CI.
+Herakles prefers Bun APIs for TOML, serving, bundling, tests, subprocesses, and runtime services. Stricli powers the CLI. Biome 2.5 handles formatting and linting. TypeScript 7 type-checks with `bunx tsc --noEmit`. Fallow handles repository quality evidence in CI.

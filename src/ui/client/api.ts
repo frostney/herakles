@@ -23,7 +23,6 @@ import type {
   ValidationResult,
 } from "../../domain";
 
-export type { HeraklesEvent, LocalPromotionResult };
 export type {
   ProjectConfigPlan,
   ProjectConfigValues,
@@ -31,6 +30,7 @@ export type {
   StatusPayload,
   UpRunResult,
 } from "../../api/contracts";
+export type { HeraklesEvent, LocalPromotionResult };
 
 export async function getStatus(): Promise<StatusPayload> {
   return get("/api/status");

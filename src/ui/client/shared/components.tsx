@@ -9,7 +9,7 @@ import type {
 import type { ProjectDiscoveryRefreshResult, StatusPayload, UpRunResult } from "../api";
 import { displayTextPartsWithHomePaths } from "./displayPath";
 import type { Loadable } from "./hooks";
-import { assets, classNames, feedbackClass, ui } from "./styles";
+import { classNames, feedbackClass, ui } from "./styles";
 
 export function Panel({
   title,
@@ -126,19 +126,21 @@ export function Modal({
   useModalFocus(dialogRef, onClose, !stateful);
   if (designSystem) {
     return (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[rgba(8,6,4,0.66)] p-[var(--space-6)] backdrop-blur-[3px] max-[720px]:p-[var(--space-3)]"
-        role="presentation"
-        onMouseDown={() => {
-          if (closeOnBackdrop) onClose();
-        }}
-      >
+      <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[rgba(8,6,4,0.66)] p-[var(--space-6)] backdrop-blur-[3px] max-[720px]:p-[var(--space-3)]">
+        <button
+          type="button"
+          className="absolute inset-0 cursor-default"
+          aria-label="Close"
+          onClick={() => {
+            if (closeOnBackdrop) onClose();
+          }}
+        />
         <dialog
           ref={(node) => {
             dialogRef.current = node;
           }}
           className={classNames(
-            "relative m-0 grid max-h-[calc(100dvh-var(--space-12))] w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-0 text-[var(--text-body)] shadow-[var(--shadow-xl)] max-[720px]:max-h-[calc(100dvh-var(--space-6))]",
+            "relative z-10 m-0 grid max-h-[calc(100dvh-var(--space-12))] w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-0 text-[var(--text-body)] shadow-[var(--shadow-xl)] max-[720px]:max-h-[calc(100dvh-var(--space-6))]",
             size === "md" && "max-w-[460px]",
             size === "lg" && "max-w-[640px]",
             size === "xl" && "max-w-[760px]",
@@ -184,18 +186,20 @@ export function Modal({
     );
   }
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[rgba(8,6,4,0.66)] p-[var(--space-5)] backdrop-blur-[3px]"
-      role="presentation"
-      onMouseDown={() => {
-        if (closeOnBackdrop) onClose();
-      }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[rgba(8,6,4,0.66)] p-[var(--space-5)] backdrop-blur-[3px]">
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default"
+        aria-label="Close"
+        onClick={() => {
+          if (closeOnBackdrop) onClose();
+        }}
+      />
       <dialog
         ref={(node) => {
           dialogRef.current = node;
         }}
-        className="relative m-0 grid max-h-[calc(100dvh-var(--space-10))] w-full max-w-[760px] gap-[var(--space-4)] overflow-auto rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-[var(--space-5)] text-[var(--text-body)] shadow-[var(--shadow-xl)]"
+        className="relative z-10 m-0 grid max-h-[calc(100dvh-var(--space-10))] w-full max-w-[760px] gap-[var(--space-4)] overflow-auto rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-[var(--space-5)] text-[var(--text-body)] shadow-[var(--shadow-xl)]"
         open
         aria-modal="true"
         aria-labelledby={titleId}
@@ -287,7 +291,11 @@ export function StateSelect({
   id,
   value,
   onChange,
-}: { id?: string; value: ProjectState; onChange: (state: ProjectState) => void }) {
+}: {
+  id?: string;
+  value: ProjectState;
+  onChange: (state: ProjectState) => void;
+}) {
   return (
     <select
       {...(id === undefined ? {} : { id })}
@@ -387,7 +395,10 @@ export function ProjectDiscoveryResultPanel({ result }: { result: ProjectDiscove
 export function ValidationResultPanel({
   result,
   title = "Validation Result",
-}: { result: ValidationResult; title?: string }) {
+}: {
+  result: ValidationResult;
+  title?: string;
+}) {
   return (
     <section className={ui.panel}>
       <h2>{title}</h2>
@@ -433,7 +444,12 @@ export function Screen({
   subtitle,
   actions,
   children,
-}: { title: string; subtitle?: string; actions?: React.ReactNode; children: React.ReactNode }) {
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <>
       <header className={ui.screenHeader}>
@@ -521,7 +537,11 @@ export function DetailItem({
   label,
   value,
   mono = false,
-}: { label: string; value: string; mono?: boolean }) {
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div className={ui.detailItem}>
       <span className={ui.labelText}>{label}</span>
@@ -538,17 +558,20 @@ export function DetailItem({
 }
 
 export function TextWithMonoPaths({ text }: { text: string }) {
+  let cursor = 0;
   return (
     <>
-      {displayTextPartsWithHomePaths(text).map((part, index) =>
-        part.kind === "path" ? (
-          <span className={ui.mono} key={`${part.value}-${index}`}>
+      {displayTextPartsWithHomePaths(text).map((part) => {
+        const key = `${cursor}:${part.kind}`;
+        cursor += part.value.length;
+        return part.kind === "path" ? (
+          <span className={ui.mono} key={key}>
             {part.value}
           </span>
         ) : (
           part.value
-        ),
-      )}
+        );
+      })}
     </>
   );
 }
@@ -575,7 +598,10 @@ export function DoctorPanel({ data, title = "Doctor" }: { data: DoctorResult; ti
 export function LoadState<T>({
   state,
   label = "Loading...",
-}: { state: Loadable<T>; label?: string }) {
+}: {
+  state: Loadable<T>;
+  label?: string;
+}) {
   if (state.status === "error") return <p className={feedbackClass.error}>{state.error}</p>;
   if (state.status === "ready") return null;
   return <p className={ui.emptyText}>{label}</p>;
@@ -586,7 +612,12 @@ export function IconButton({
   icon,
   onClick,
   disabled = false,
-}: { label: string; icon: React.ReactNode; onClick: () => void; disabled?: boolean }) {
+}: {
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"

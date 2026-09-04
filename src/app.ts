@@ -5,15 +5,15 @@ import { TOML } from "bun";
 import { type LoadedConfig, loadConfig } from "./config/load";
 import { resolveUnder } from "./config/paths";
 import {
-  type ProjectConfigChanges,
-  type ProjectConfigPlan,
   applyProjectConfigPlan,
   createProjectConfigPlan,
   createRemoveProjectConfigPlan,
+  type ProjectConfigChanges,
+  type ProjectConfigPlan,
 } from "./config/projects";
 import { heraklesConfigSchema } from "./config/schema";
 import { normalizeProjectConfigOrder, writeConfigToml } from "./config/write";
-import { type ProjectDiscovery, normalizeRemote, refreshProjectDiscovery } from "./discovery";
+import { normalizeRemote, type ProjectDiscovery, refreshProjectDiscovery } from "./discovery";
 import { runDoctor } from "./doctor";
 import type {
   GitHubRepository,
@@ -35,19 +35,19 @@ import type {
 import { listImportableGitHubRepositories, listOpenPullRequestsForRepo } from "./github/gh";
 import { type HostedClonePathMismatch, validateProjects } from "./lifecycle/validate";
 import {
-  type LocalPromotionOptions,
   createLocalPromotionPlan,
+  type LocalPromotionOptions,
   promoteLocalProject,
 } from "./local/promote";
 import { syncDefaultBranch } from "./project/gitStatus";
 import { flushLineCountCache } from "./project/lineCounts";
 import {
-  InvalidProjectRenameError,
   createProjectRenamePlan,
   renameProject as executeProjectRename,
+  InvalidProjectRenameError,
 } from "./project/rename";
 import { resolveProjects } from "./project/resolve";
-import { type UpExecution, executeUpPlan } from "./up/execute";
+import { executeUpPlan, type UpExecution } from "./up/execute";
 import { createUpPlan } from "./up/plan";
 
 type WorkspaceState = {
@@ -450,7 +450,7 @@ export async function applyProjectConfig(
   changes: ProjectConfigChanges,
   options: { force?: boolean } = {},
 ) {
-  const { state, plan } = await createWorkspaceProjectConfigPlan(
+  const { plan } = await createWorkspaceProjectConfigPlan(
     workspaceRoot,
     projectId,
     changes,

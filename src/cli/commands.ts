@@ -252,10 +252,7 @@ function requireProjectValue(value: string | undefined, message: string): string
   return value;
 }
 
-async function promptProjectSource(flags: {
-  source?: "github" | "local";
-  repo?: string;
-}) {
+async function promptProjectSource(flags: { source?: "github" | "local"; repo?: string }) {
   if (flags.source) return flags.source;
   if (flags.repo) return "github";
   return projectSourceParser((await prompt("Source (github/local): ")) || "github");

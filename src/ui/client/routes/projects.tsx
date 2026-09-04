@@ -6,8 +6,8 @@ import {
   CircleDot,
   FolderOpen,
   GitBranch,
-  GitPullRequest,
   Github,
+  GitPullRequest,
   History,
   LoaderCircle,
   Plus,
@@ -33,13 +33,12 @@ import type {
   UpPlan,
 } from "../../../domain";
 import {
-  type ProjectConfigPlan,
-  type ProjectConfigValues,
-  type UpRunResult,
   getHostedImportCandidates,
   getProjectDetail,
   getProjects,
   getUpPlan,
+  type ProjectConfigPlan,
+  type ProjectConfigValues,
   postAddProject,
   postImportProjects,
   postLocalPromotion,
@@ -55,11 +54,12 @@ import {
   postSyncProjectDefaultBranch,
   postUp,
   projectIconUrl,
+  type UpRunResult,
 } from "../api";
 import {
+  defaultProjectSortDirection,
   type ProjectSortDirection,
   type ProjectSortKey,
-  defaultProjectSortDirection,
   projectSortOptions,
   sortProjects,
 } from "../projectSorting";
@@ -72,12 +72,11 @@ import {
   Modal,
   Screen,
   StateSelect,
+  splitTags,
   TextWithMonoPaths,
   UpResultList,
   ValidationIssueList,
   ValidationSummary,
-  VisualBanner,
-  splitTags,
 } from "../shared/components";
 import { displayPath } from "../shared/displayPath";
 import { type Loadable, useRefreshOnEvents, useResource } from "../shared/hooks";
@@ -1166,8 +1165,8 @@ function ImportCandidateList({
   onDraft: (updater: (current: GitHubImportDraft) => GitHubImportDraft) => void;
 }) {
   return (
-    <div
-      className="flex flex-col overflow-hidden rounded-[var(--radius-md)] border-[1.5px] border-[var(--border-subtle)]"
+    <ul
+      className="m-0 flex list-none flex-col overflow-hidden rounded-[var(--radius-md)] border-[1.5px] border-[var(--border-subtle)] p-0"
       aria-label="GitHub repositories"
     >
       {candidates.map((candidate) => (
@@ -1204,7 +1203,7 @@ function ImportCandidateList({
           }
         />
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -1302,7 +1301,7 @@ function ImportCandidateRow({
     onChecked(!checked);
   };
   return (
-    <div
+    <li
       className={classNames(
         "grid cursor-pointer grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-x-[var(--space-3)] border-b border-[var(--border-subtle)] p-[var(--space-3)] transition-colors last:border-b-0 hover:bg-[var(--surface-raised)]",
         checked && "bg-[var(--primary-soft)]",
@@ -1363,7 +1362,7 @@ function ImportCandidateRow({
           </label>
         </div>
       ) : null}
-    </div>
+    </li>
   );
 }
 
@@ -1708,6 +1707,7 @@ function ProjectLanguageBar({ project }: { project: Project }) {
     <div className="grid gap-1.5">
       <div
         className="flex h-2 overflow-hidden rounded-full bg-[var(--surface-inset)]"
+        role="img"
         aria-label={`Top languages: ${languages.map((language) => language.name).join(", ")}`}
       >
         {languages.map((language) => (
@@ -1910,7 +1910,10 @@ const githubLanguageColors: Record<string, string> = {
 function ProjectAvatar({
   project,
   size = "compact",
-}: { project: Project; size?: "compact" | "card" }) {
+}: {
+  project: Project;
+  size?: "compact" | "card";
+}) {
   const [failed, setFailed] = useState(false);
   const initials = repoInitials(projectName(project));
   const frameClass = size === "card" ? projectLogoClass : compactAvatarClass;
@@ -2228,11 +2231,7 @@ function ProjectExternalLink({ url }: { url: string | undefined }) {
   );
 }
 
-function ProjectValidationPanel({
-  issues,
-}: {
-  issues: ProjectDetail["validationIssues"];
-}) {
+function ProjectValidationPanel({ issues }: { issues: ProjectDetail["validationIssues"] }) {
   return (
     <section className={ui.panel}>
       <h2>Validation</h2>
@@ -2679,7 +2678,10 @@ function errorMessage(error: unknown): string {
 function LocalPromotionPanel({
   project,
   onPromoted,
-}: { project: Project; onPromoted: () => void }) {
+}: {
+  project: Project;
+  onPromoted: () => void;
+}) {
   const [owner, setOwner] = useState("");
   const [repo, setRepo] = useState(project.repo);
   const [visibility, setVisibility] = useState<"public" | "private">("private");

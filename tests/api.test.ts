@@ -94,7 +94,7 @@ async function projectUpDryRun(workspaceRoot: string, projectId: string) {
   return { response, body: await response?.json() };
 }
 
-async function withHostedPublicToolAndScratch(workspaceRoot: string, run: () => Promise<void>) {
+async function _withHostedPublicToolAndScratch(workspaceRoot: string, run: () => Promise<void>) {
   await configureGithubOwner(workspaceRoot);
   await addLocalGitProject(workspaceRoot, "scratch");
   await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");

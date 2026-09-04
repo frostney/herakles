@@ -1,12 +1,12 @@
 import { useState } from "react";
 import type { UpPlan } from "../../../domain";
 import {
-  type StatusPayload,
-  type UpRunResult,
   getDoctor,
   getStatus,
   getUpPlan,
   postUp,
+  type StatusPayload,
+  type UpRunResult,
 } from "../api";
 import {
   Badge,

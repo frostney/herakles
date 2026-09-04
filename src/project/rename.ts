@@ -4,9 +4,9 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { LoadedConfig } from "../config/load";
 import { resolveInside } from "../config/paths";
 import {
-  type ProjectConfigRenamePlan,
   applyProjectConfigRenamePlan,
   createRenameProjectConfigPlan,
+  type ProjectConfigRenamePlan,
 } from "../config/projects";
 import type {
   Project,
