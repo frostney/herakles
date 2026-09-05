@@ -18,22 +18,13 @@ export type ProjectLineCounts = {
 
 export type ProjectOpenTarget = "filesystem" | "github" | "codex" | "terminal";
 
-export type GitHubRepository = {
-  name: string;
-  nameWithOwner: string;
-  owner: string;
-  sshUrl?: string;
+type RepositoryMetadata = {
   url?: string;
-  visibility: "PUBLIC" | "PRIVATE";
-  isPrivate?: boolean;
-  isArchived: boolean;
-  repositoryTopics: string[];
   primaryLanguage?: string;
   languages: string[];
   languageBreakdown?: ProjectLanguage[];
   defaultBranchRef?: string;
   description?: string;
-  homepageUrl?: string;
   latestActivityAt?: string;
   mainlineCommittedAt?: string;
   pushedAt?: string;
@@ -41,6 +32,18 @@ export type GitHubRepository = {
   openPullRequests?: number;
   draftPullRequests?: number;
   openIssues?: number;
+};
+
+export type GitHubRepository = RepositoryMetadata & {
+  name: string;
+  nameWithOwner: string;
+  owner: string;
+  sshUrl?: string;
+  visibility: "PUBLIC" | "PRIVATE";
+  isPrivate?: boolean;
+  isArchived: boolean;
+  repositoryTopics: string[];
+  homepageUrl?: string;
 };
 
 export type LocalRepository = {
@@ -49,7 +52,7 @@ export type LocalRepository = {
   remote?: string;
 };
 
-export type Project = {
+export type Project = RepositoryMetadata & {
   source: ProjectSource;
   id: string;
   owner?: string;
@@ -58,31 +61,18 @@ export type Project = {
   path: string;
   group?: string;
   remote?: string;
-  url?: string;
   visibility: HostedVisibility;
   state: ProjectState;
   archived: boolean;
   pinned: boolean;
   topics: string[];
   tags: string[];
-  primaryLanguage?: string;
-  languages: string[];
-  languageBreakdown?: ProjectLanguage[];
   lineCounts?: ProjectLineCounts;
-  defaultBranchRef?: string;
   defaultBranchBehindBy?: number;
   hasRoadmap: boolean;
   learningPath?: string;
   archiveNote?: string;
   up: boolean;
-  description?: string;
-  latestActivityAt?: string;
-  mainlineCommittedAt?: string;
-  pushedAt?: string;
-  updatedAt?: string;
-  openPullRequests?: number;
-  draftPullRequests?: number;
-  openIssues?: number;
 };
 
 export type ProjectDefaultBranchSyncResult = {

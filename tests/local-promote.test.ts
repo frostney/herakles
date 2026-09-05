@@ -6,18 +6,16 @@ import { loadConfig } from "../src/config/load";
 import type { Project } from "../src/domain";
 import { createLocalPromotionPlan, promoteLocalProject } from "../src/local/promote";
 import { runCommand } from "../src/utils/command";
+import { createTestWorkspace } from "./helpers/workspace";
 
 async function tempWorkspace(owners = ["frostney"]) {
-  const root = await mkdtemp(join(tmpdir(), "herakles-promote-"));
-  await mkdir(join(root, "_herakles"), { recursive: true });
-  await writeFile(
-    join(root, "_herakles", "herakles.toml"),
+  return createTestWorkspace(
+    "herakles-promote-",
     `version = 2
 [github]
 owners = [${owners.map((owner) => JSON.stringify(owner)).join(", ")}]
 `,
   );
-  return root;
 }
 
 function localProject(root: string): Project {

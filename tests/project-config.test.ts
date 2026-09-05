@@ -1,17 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
 import { applyProjectConfigPlan, createProjectConfigPlan } from "../src/config/projects";
 import type { Project } from "../src/domain";
 import { InvalidProjectStateTransitionError } from "../src/lifecycle/transitions";
+import { createTestWorkspace } from "./helpers/workspace";
 
 async function tempWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-project-config-"));
-  await mkdir(join(root, "_herakles"), { recursive: true });
-  await writeFile(
-    join(root, "_herakles", "herakles.toml"),
+  return createTestWorkspace(
+    "herakles-project-config-",
     `version = 2
 [github]
 owners = []
@@ -23,7 +21,6 @@ state = "commercial"
 tags = ["strategic"]
 `,
   );
-  return root;
 }
 
 function hostedProject(repo = "paid-api"): Project {

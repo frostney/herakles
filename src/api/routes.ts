@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as app from "../app";
 import { InvalidProjectStateTransitionError } from "../lifecycle/transitions";
+import { definedProperties } from "../utils/definedProperties";
 import {
   nonEmptyStringSchema,
   projectConfigBodySchema,
@@ -22,7 +23,6 @@ type ApiContext = {
 };
 
 type ApiHandler = (context: ApiContext) => Promise<Response>;
-type ParsedBody<T> = { ok: true; data: T } | { ok: false; response: Response };
 
 const nonEmptyString = nonEmptyStringSchema;
 const addProjectBodySchema = z
@@ -72,7 +72,6 @@ const localPromotionBodySchema = z
     visibility: z.enum(["public", "private"]).optional(),
   })
   .strict();
-type LocalPromotionBody = z.infer<typeof localPromotionBodySchema>;
 
 function json(value: unknown, init?: ResponseInit): Response {
   return Response.json(value, {
@@ -124,8 +123,8 @@ const postRoutes: Record<string, ApiHandler> = {
     routeValidation(options.workspaceRoot, { strict: isStrict(url) }),
   "/api/up/plan": ({ options }) => routeUp(options.workspaceRoot, true),
   "/api/up": ({ options }) => routeUp(options.workspaceRoot, false),
-  "/api/config/project-plan": (context) => routeProjectConfigPlan(context),
-  "/api/config/apply": (context) => routeConfigApply(context),
+  "/api/config/project-plan": (context) => routeProjectConfigAction(context, false),
+  "/api/config/apply": (context) => routeProjectConfigAction(context, true),
 };
 
 export async function routeApi(req: Request, options: ApiOptions): Promise<Response | undefined> {
@@ -154,7 +153,7 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
     if (error instanceof app.InvalidProjectRenameError) {
       return json({ error: error.message }, { status: 400 });
     }
-    if (error instanceof InvalidRequestPathError) {
+    if (error instanceof InvalidRequestError) {
       return json({ error: error.message }, { status: 400 });
     }
     if (error instanceof z.ZodError) {
@@ -202,52 +201,32 @@ async function routeProjectsRefresh(workspaceRoot: string): Promise<Response> {
 
 async function routeAddProject(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, addProjectBodySchema);
-  if (!body.ok) return body.response;
-  return json(
-    await app.addProject(context.options.workspaceRoot, {
-      source: body.data.source,
-      ...(body.data.id === undefined ? {} : { id: body.data.id }),
-      ...(body.data.repo === undefined ? {} : { repo: body.data.repo }),
-      ...(body.data.name === undefined ? {} : { name: body.data.name }),
-      ...(body.data.group === undefined ? {} : { group: body.data.group }),
-      ...(body.data.state === undefined ? {} : { state: body.data.state }),
-      ...(body.data.tags === undefined ? {} : { tags: body.data.tags }),
-    }),
-  );
+  return json(await app.addProject(context.options.workspaceRoot, definedProperties(body)));
 }
 
 async function routeImportProjects(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, importProjectsBodySchema);
-  if (!body.ok) return body.response;
   return json(
     await app.importHostedProjects(
       context.options.workspaceRoot,
-      body.data.projects.map((project) => ({
-        repo: project.repo,
-        ...(project.id === undefined ? {} : { id: project.id }),
-        ...(project.state === undefined ? {} : { state: project.state }),
-        ...(project.group === undefined ? {} : { group: project.group }),
-        ...(project.tags === undefined ? {} : { tags: project.tags }),
-      })),
+      body.projects.map(definedProperties),
     ),
   );
 }
 
 async function routeRemoveProject(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, removeProjectBodySchema);
-  if (!body.ok) return body.response;
-  return json(await app.removeProject(context.options.workspaceRoot, body.data.projectId));
+  return json(await app.removeProject(context.options.workspaceRoot, body.projectId));
 }
 
 async function routeResolveCanonicalPath(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, resolveCanonicalPathBodySchema);
-  if (!body.ok) return body.response;
   const result = await app.resolveProjectCanonicalPath(
     context.options.workspaceRoot,
-    body.data.projectId,
+    body.projectId,
   );
-  emitApiEvent("projects-refresh-finished", `canonical path resolved for ${body.data.projectId}`, {
-    projectId: body.data.projectId,
+  emitApiEvent("projects-refresh-finished", `canonical path resolved for ${body.projectId}`, {
+    projectId: body.projectId,
     from: result.from,
     to: result.to,
   });
@@ -256,25 +235,23 @@ async function routeResolveCanonicalPath(context: ApiContext): Promise<Response>
 
 async function routeOpenProject(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, openProjectBodySchema);
-  if (!body.ok) return body.response;
   const result = await app.openProject(
     context.options.workspaceRoot,
-    body.data.projectId,
-    body.data.target,
-    body.data.destination,
+    body.projectId,
+    body.target,
+    body.destination,
   );
   return json(result);
 }
 
 async function routeProjectUp(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, projectUpBodySchema);
-  if (!body.ok) return body.response;
-  emitApiEvent("up-started", `project up started for ${body.data.projectId}`, {
-    projectId: body.data.projectId,
-    dryRun: body.data.dryRun === true,
+  emitApiEvent("up-started", `project up started for ${body.projectId}`, {
+    projectId: body.projectId,
+    dryRun: body.dryRun === true,
   });
-  const result = await app.upProject(context.options.workspaceRoot, body.data.projectId, {
-    dryRun: body.data.dryRun === true,
+  const result = await app.upProject(context.options.workspaceRoot, body.projectId, {
+    dryRun: body.dryRun === true,
     onProgress(progress) {
       emitApiEvent("up-progress", `${progress.item.project.repo}: ${progress.message}`, {
         projectId: progress.item.project.id,
@@ -283,9 +260,9 @@ async function routeProjectUp(context: ApiContext): Promise<Response> {
       });
     },
   });
-  emitApiEvent("up-finished", `project up finished for ${body.data.projectId}`, {
-    projectId: body.data.projectId,
-    dryRun: body.data.dryRun === true,
+  emitApiEvent("up-finished", `project up finished for ${body.projectId}`, {
+    projectId: body.projectId,
+    dryRun: body.dryRun === true,
     results: result.length,
   });
   return json(result);
@@ -293,24 +270,23 @@ async function routeProjectUp(context: ApiContext): Promise<Response> {
 
 async function routeSyncDefaultBranch(context: ApiContext): Promise<Response> {
   const body = await readJsonBody(context, syncDefaultBranchBodySchema);
-  if (!body.ok) return body.response;
-  emitApiEvent("up-started", `default branch sync started for ${body.data.projectId}`, {
-    projectId: body.data.projectId,
+  emitApiEvent("up-started", `default branch sync started for ${body.projectId}`, {
+    projectId: body.projectId,
   });
   try {
     const result = await app.syncProjectDefaultBranch(
       context.options.workspaceRoot,
-      body.data.projectId,
+      body.projectId,
     );
-    emitApiEvent("up-finished", `default branch sync finished for ${body.data.projectId}`, {
-      projectId: body.data.projectId,
+    emitApiEvent("up-finished", `default branch sync finished for ${body.projectId}`, {
+      projectId: body.projectId,
       status: result.status,
       behindAfter: result.behindAfter,
     });
     return json(result);
   } catch (error) {
-    emitApiEvent("up-finished", `default branch sync failed for ${body.data.projectId}`, {
-      projectId: body.data.projectId,
+    emitApiEvent("up-finished", `default branch sync failed for ${body.projectId}`, {
+      projectId: body.projectId,
       status: "failed",
       error: error instanceof Error ? error.message : String(error),
     });
@@ -324,10 +300,9 @@ async function routeConfigToml(
   apply: boolean,
 ): Promise<Response> {
   const body = await readJsonBody(context, configTomlBodySchema);
-  if (!body.ok) return body.response;
   const result = apply
-    ? await app.applyConfigToml(workspaceRoot, body.data.toml)
-    : await app.configTomlPlan(workspaceRoot, body.data.toml);
+    ? await app.applyConfigToml(workspaceRoot, body.toml)
+    : await app.configTomlPlan(workspaceRoot, body.toml);
   if (apply) {
     emitApiEvent("validation-updated", "configuration applied", {
       valid: result.validation.valid,
@@ -370,28 +345,15 @@ async function routeUp(workspaceRoot: string, dryRun: boolean): Promise<Response
   return json(result);
 }
 
-async function routeProjectConfigPlan(context: ApiContext): Promise<Response> {
+async function routeProjectConfigAction(context: ApiContext, apply: boolean): Promise<Response> {
   const body = await readJsonBody(context, projectConfigBodySchema);
-  if (!body.ok) return body.response;
+  const action = apply ? app.applyProjectConfig : app.projectConfigPlan;
   return json(
-    await app.projectConfigPlan(
+    await action(
       context.options.workspaceRoot,
-      body.data.projectId,
-      projectConfigChangesFromPayload(body.data),
-      { force: body.data.force === true },
-    ),
-  );
-}
-
-async function routeConfigApply(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, projectConfigBodySchema);
-  if (!body.ok) return body.response;
-  return json(
-    await app.applyProjectConfig(
-      context.options.workspaceRoot,
-      body.data.projectId,
-      projectConfigChangesFromPayload(body.data),
-      { force: body.data.force === true },
+      body.projectId,
+      projectConfigChangesFromPayload(body),
+      { force: body.force === true },
     ),
   );
 }
@@ -401,45 +363,27 @@ async function routeProjectPromotionAction(context: ApiContext, apply: boolean):
     context,
     localPromotionBodySchema.extend({ projectId: nonEmptyString }),
   );
-  if (!body.ok) return body.response;
-  const options = localPromotionOptions(body.data);
+  const { projectId, ...options } = definedProperties(body);
   return json(
     apply
-      ? await app.promoteLocal(context.options.workspaceRoot, body.data.projectId, options)
-      : await app.localPromotionPlan(context.options.workspaceRoot, body.data.projectId, options),
+      ? await app.promoteLocal(context.options.workspaceRoot, projectId, options)
+      : await app.localPromotionPlan(context.options.workspaceRoot, projectId, options),
   );
 }
 
 async function routeProjectRenameAction(context: ApiContext, apply: boolean): Promise<Response> {
   const body = await readJsonBody(context, projectRenameBodySchema);
-  if (!body.ok) return body.response;
   const result = apply
-    ? await app.renameTrackedProject(
-        context.options.workspaceRoot,
-        body.data.projectId,
-        body.data.targetRepo,
-      )
-    : await app.projectRenamePlan(
-        context.options.workspaceRoot,
-        body.data.projectId,
-        body.data.targetRepo,
-      );
+    ? await app.renameTrackedProject(context.options.workspaceRoot, body.projectId, body.targetRepo)
+    : await app.projectRenamePlan(context.options.workspaceRoot, body.projectId, body.targetRepo);
   if ("status" in result) {
     emitApiEvent("projects-refresh-finished", `project rename ${result.status}`, {
-      projectId: body.data.projectId,
-      targetRepo: body.data.targetRepo,
+      projectId: body.projectId,
+      targetRepo: body.targetRepo,
       status: result.status,
     });
   }
   return json(result);
-}
-
-function localPromotionOptions(body: LocalPromotionBody) {
-  return {
-    ...(body.owner === undefined ? {} : { owner: body.owner }),
-    ...(body.repo === undefined ? {} : { repo: body.repo }),
-    ...(body.visibility === undefined ? {} : { visibility: body.visibility }),
-  };
 }
 
 async function jsonAsync(value: Promise<unknown>): Promise<Response> {
@@ -454,30 +398,26 @@ function decodePathComponent(value: string): string {
   try {
     return decodeURIComponent(value);
   } catch {
-    throw new InvalidRequestPathError("invalid path encoding");
+    throw new InvalidRequestError("invalid path encoding");
   }
 }
 
-class InvalidRequestPathError extends Error {}
+class InvalidRequestError extends Error {}
 
 async function readJsonBody<T extends z.ZodTypeAny>(
   context: ApiContext,
   schema: T,
-): Promise<ParsedBody<z.infer<T>>> {
+): Promise<z.infer<T>> {
   const raw = await context.req.text();
   let parsed: unknown = {};
   if (raw.trim()) {
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return { ok: false, response: json({ error: "invalid JSON body" }, { status: 400 }) };
+      throw new InvalidRequestError("invalid JSON body");
     }
   }
-  const result = schema.safeParse(parsed);
-  if (!result.success) {
-    return { ok: false, response: zodErrorResponse(result.error) };
-  }
-  return { ok: true, data: result.data };
+  return schema.parse(parsed);
 }
 
 function zodErrorResponse(error: z.ZodError): Response {

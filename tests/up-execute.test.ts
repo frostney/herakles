@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Project, UpPlan } from "../src/domain";
 import { executeUpPlan } from "../src/up/execute";
+import { withEnvironment } from "./helpers/environment";
 
 function project(path: string): Project {
   return {
@@ -105,10 +106,6 @@ async function withFakeGit(
 ) {
   const bin = await mkdtemp(join(tmpdir(), "herakles-fake-git-"));
   const logPath = join(bin, "git.log");
-  const previousPath = process.env.PATH;
-  const previousLog = process.env.HERAKLES_GIT_LOG;
-  const previousStatus = process.env.HERAKLES_GIT_STATUS;
-  const previousPullExit = process.env.HERAKLES_GIT_PULL_EXIT;
   await writeFile(
     join(bin, "git"),
     `#!/bin/sh
@@ -138,24 +135,13 @@ exit 0
   );
   await chmod(join(bin, "git"), 0o755);
   await chmod(join(bin, "gh"), 0o755);
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  process.env.HERAKLES_GIT_LOG = logPath;
-  process.env.HERAKLES_GIT_STATUS = options.status;
-  process.env.HERAKLES_GIT_PULL_EXIT = options.pullExit ?? "0";
-  try {
-    await run(logPath);
-  } finally {
-    process.env.PATH = previousPath;
-    restoreEnv("HERAKLES_GIT_LOG", previousLog);
-    restoreEnv("HERAKLES_GIT_STATUS", previousStatus);
-    restoreEnv("HERAKLES_GIT_PULL_EXIT", previousPullExit);
-  }
-}
-
-function restoreEnv(key: string, value: string | undefined) {
-  if (value === undefined) {
-    delete process.env[key];
-    return;
-  }
-  process.env[key] = value;
+  await withEnvironment(
+    {
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      HERAKLES_GIT_LOG: logPath,
+      HERAKLES_GIT_STATUS: options.status,
+      HERAKLES_GIT_PULL_EXIT: options.pullExit ?? "0",
+    },
+    () => run(logPath),
+  );
 }

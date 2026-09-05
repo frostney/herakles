@@ -1,9 +1,12 @@
 import { z } from "zod";
+import type { status } from "../app";
 import type {
   ProjectConfigPlan as CoreProjectConfigPlan,
   ProjectConfigChanges,
 } from "../config/projects";
-import type { Project, ValidationResult } from "../domain";
+import type { ProjectDiscovery } from "../discovery";
+import type { UpExecution } from "../up/execute";
+import { definedProperties } from "../utils/definedProperties";
 
 export const nonEmptyStringSchema = z.string().min(1);
 
@@ -38,42 +41,16 @@ export type ProjectConfigPayload = z.infer<typeof projectConfigBodySchema>;
 export type ProjectConfigValues = ProjectConfigChanges;
 export type ProjectConfigPlan = CoreProjectConfigPlan;
 
-export type StatusPayload = {
-  generatedAt: string;
-  config: {
-    syncedConfigPath: string;
-  };
-  root: string;
-  projectCount: number;
-  hostedCount: number;
-  localExperimentCount: number;
-  hostedCloneCount: number;
-  counts: Record<string, number>;
-  validation: ValidationResult;
-};
-
-export type UpRunResult = Array<{
-  item: {
-    action: string;
-    reason: string;
-    project: Project;
-  };
-  status: string;
-  message: string;
-}>;
-
-export type ProjectDiscoveryRefreshResult = {
-  hosted: unknown[];
-  local: unknown[];
-  hostedClones: unknown[];
-};
+export type StatusPayload = Awaited<ReturnType<typeof status>>;
+export type UpRunResult = UpExecution[];
+export type ProjectDiscoveryRefreshResult = ProjectDiscovery;
 
 export function projectConfigChangesFromPayload(body: ProjectConfigPayload): ProjectConfigChanges {
-  return {
-    ...(body.state === undefined ? {} : { state: body.state }),
-    ...(body.group === undefined ? {} : { group: body.group }),
-    ...(body.tags === undefined ? {} : { tags: body.tags }),
-    ...(body.learning === undefined ? {} : { learning: body.learning }),
-    ...(body.pinned === undefined ? {} : { pinned: body.pinned }),
-  };
+  return definedProperties({
+    state: body.state,
+    group: body.group,
+    tags: body.tags,
+    learning: body.learning,
+    pinned: body.pinned,
+  });
 }

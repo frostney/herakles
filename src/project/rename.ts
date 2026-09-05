@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { mkdir, realpath, rename } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { dirname, join } from "node:path";
 import type { LoadedConfig } from "../config/load";
-import { resolveInside } from "../config/paths";
+import { nearestExistingAncestor, pathIsInside, resolveInside } from "../config/paths";
 import {
   applyProjectConfigRenamePlan,
   createRenameProjectConfigPlan,
@@ -43,36 +43,24 @@ export class InvalidProjectRenameError extends Error {
   }
 }
 
+export const createProjectRenamePlanWithRunner = createProjectRenamePlan;
+
 export async function createProjectRenamePlan(
   loaded: LoadedConfig,
   project: Project,
   targetRepo: string,
-): Promise<ProjectRenamePlan> {
-  return (await prepareProjectRename(loaded, project, targetRepo, runCommand)).plan;
-}
-
-export async function createProjectRenamePlanWithRunner(
-  loaded: LoadedConfig,
-  project: Project,
-  targetRepo: string,
-  runner: Runner,
+  runner: Runner = runCommand,
 ): Promise<ProjectRenamePlan> {
   return (await prepareProjectRename(loaded, project, targetRepo, runner)).plan;
 }
+
+export const renameProjectWithRunner = renameProject;
 
 export async function renameProject(
   loaded: LoadedConfig,
   project: Project,
   targetRepo: string,
-): Promise<ProjectRenameResult> {
-  return renameProjectWithRunner(loaded, project, targetRepo, runCommand);
-}
-
-export async function renameProjectWithRunner(
-  loaded: LoadedConfig,
-  project: Project,
-  targetRepo: string,
-  runner: Runner,
+  runner: Runner = runCommand,
 ): Promise<ProjectRenameResult> {
   const prepared = await prepareProjectRename(loaded, project, targetRepo, runner);
   const results: ProjectRenameStepResult[] = [];
@@ -488,21 +476,6 @@ function assertLexicallyInside(workspaceRoot: string, path: string) {
   if (!pathIsInside(workspaceRoot, path)) {
     throw new InvalidProjectRenameError(`Refusing to operate outside workspace: ${path}`);
   }
-}
-
-function pathIsInside(base: string, path: string) {
-  const offset = relative(base, path);
-  return offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset);
-}
-
-function nearestExistingAncestor(path: string): string {
-  let current = path;
-  while (!existsSync(current)) {
-    const parent = dirname(current);
-    if (parent === current) return current;
-    current = parent;
-  }
-  return current;
 }
 
 function required<T>(value: T | undefined, label: string): T {

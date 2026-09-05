@@ -14,6 +14,7 @@ import { validateProjects } from "../src/lifecycle/validate";
 import { resolveProjects } from "../src/project/resolve";
 import { createUpPlan } from "../src/up/plan";
 import { fakeGhRepositoryJson, withFakeGhScript } from "./helpers/gh";
+import { createTestWorkspace } from "./helpers/workspace";
 
 const fixtureRoot = join(import.meta.dir, "fixtures", "workspace");
 
@@ -456,33 +457,14 @@ JSON
 }
 
 async function tempTrackedWorkspace(prefix: string, projectsToml: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), prefix));
-  await mkdir(join(root, "_herakles"), { recursive: true });
-  await writeFile(
-    join(root, "_herakles", "herakles.toml"),
+  return createTestWorkspace(
+    prefix,
     `version = 2
 # Project resolution fixture
 
 [github]
 owners = ["frostney"]
 ${projectsToml}`,
-  );
-  return root;
-}
-
-async function _withFakeArchivedGhRepo(run: () => Promise<void>) {
-  await withFakeGhScript(
-    "herakles-gh-archived-",
-    `#!/bin/sh
-cat <<'JSON'
-${fakeGhRepositoryJson({
-  name: "silent-archive",
-  isArchived: true,
-  description: "Small CLI experiment.",
-})}
-JSON
-`,
-    run,
   );
 }
 

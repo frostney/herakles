@@ -21,19 +21,17 @@ import {
   WorkspacePanel,
 } from "../shared/components";
 import { displayPath } from "../shared/displayPath";
-import { useRefreshOnEvents, useResource } from "../shared/hooks";
+import { useAction, useRefreshOnEvents, useResource } from "../shared/hooks";
 import { feedbackToneClass, ui } from "../shared/styles";
 
 export function SettingsScreen() {
   const [status, refreshStatus] = useResource(getStatus);
   const [doctor, refreshDoctor] = useResource(getDoctor);
-  const [busy, setBusy] = useState(false);
+  const { busy, message, setMessage, runAction } = useAction();
   const [projectDiscoveryResult, setProjectDiscoveryResult] =
     useState<ProjectDiscoveryRefreshResult>();
   const [validationResult, setValidationResult] = useState<ValidationResult>();
   const [upResult, setUpResult] = useState<UpRunResult>();
-  const [message, setMessage] = useState("");
-  const [messageKind, setMessageKind] = useState<"success" | "error">("success");
   useRefreshOnEvents(refreshStatus, [
     "projects-refresh-finished",
     "up-finished",
@@ -45,51 +43,33 @@ export function SettingsScreen() {
     "validation-updated",
   ]);
   const refreshProjects = async () => {
-    setBusy(true);
-    setMessage("");
-    try {
+    await runAction(async () => {
       setProjectDiscoveryResult(await postProjectsRefresh());
       refreshStatus();
       refreshDoctor();
-      setMessageKind("success");
-      setMessage("Projects refreshed.");
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
+      setMessage({ kind: "success", text: "Projects refreshed." });
+    });
   };
   const validate = async (strict: boolean) => {
-    setBusy(true);
-    setMessage("");
-    try {
+    await runAction(async () => {
       setValidationResult(await postValidate({ strict }));
       refreshStatus();
-      setMessageKind("success");
-      setMessage(strict ? "Strict validation complete." : "Validation complete.");
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
+      setMessage({
+        kind: "success",
+        text: strict ? "Strict validation complete." : "Validation complete.",
+      });
+    });
   };
   const runUp = async (dryRun: boolean) => {
-    setBusy(true);
-    setMessage("");
-    try {
+    await runAction(async () => {
       setUpResult(await postUp({ dryRun }));
       refreshStatus();
       refreshDoctor();
-      setMessageKind("success");
-      setMessage(dryRun ? "Workspace up dry run complete." : "Workspace up complete.");
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
+      setMessage({
+        kind: "success",
+        text: dryRun ? "Workspace up dry run complete." : "Workspace up complete.",
+      });
+    });
   };
   return (
     <Screen
@@ -139,7 +119,7 @@ export function SettingsScreen() {
         </>
       }
     >
-      {message && <p className={feedbackToneClass(messageKind)}>{message}</p>}
+      {message.text && <p className={feedbackToneClass(message.kind)}>{message.text}</p>}
       {status.status === "ready" && <WorkspacePanel status={status.data} />}
       <ConfigExchangePanel
         onApplied={() => {
@@ -163,33 +143,26 @@ function ConfigExchangePanel({ onApplied }: { onApplied: () => void }) {
   const [loaded, refresh] = useResource(getConfigToml);
   const [toml, setToml] = useState("");
   const [validation, setValidation] = useState<ValidationResult>();
-  const [message, setMessage] = useState("");
-  const [messageKind, setMessageKind] = useState<"success" | "error">("success");
-  const [busy, setBusy] = useState(false);
+  const { busy, message, setMessage, runAction } = useAction();
 
   useEffect(() => {
     if (loaded.status === "ready") setToml(loaded.data.toml);
   }, [loaded]);
 
   const run = async (apply: boolean) => {
-    setBusy(true);
-    setMessage("");
-    try {
+    await runAction(async () => {
       const result = await postConfigToml(toml, { apply });
       setToml(result.toml);
       setValidation(result.validation);
-      setMessageKind("success");
-      setMessage(result.applied ? "Configuration applied." : "Configuration parsed.");
+      setMessage({
+        kind: "success",
+        text: result.applied ? "Configuration applied." : "Configuration parsed.",
+      });
       if (result.applied) {
         refresh();
         onApplied();
       }
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
@@ -226,7 +199,7 @@ function ConfigExchangePanel({ onApplied }: { onApplied: () => void }) {
         <LoadState state={loaded} label="Loading configuration..." />
       )}
       {validation && <ValidationResultPanel result={validation} title="Config Parse" />}
-      {message && <p className={feedbackToneClass(messageKind)}>{message}</p>}
+      {message.text && <p className={feedbackToneClass(message.kind)}>{message.text}</p>}
     </section>
   );
 }

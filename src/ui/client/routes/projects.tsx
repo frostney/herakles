@@ -73,13 +73,14 @@ import {
   Screen,
   StateSelect,
   splitTags,
+  TextField,
   TextWithMonoPaths,
   UpResultList,
   ValidationIssueList,
   ValidationSummary,
 } from "../shared/components";
 import { displayPath } from "../shared/displayPath";
-import { type Loadable, useRefreshOnEvents, useResource } from "../shared/hooks";
+import { type Loadable, useAction, useRefreshOnEvents, useResource } from "../shared/hooks";
 import { assets, classNames, feedbackClass, feedbackToneClass, ui } from "../shared/styles";
 import { shouldScaffoldFromConfiguration, workspaceDriftItems } from "../upPlanPresentation";
 
@@ -263,7 +264,7 @@ export function Projects() {
               }}
               onState={setStateFilter}
             />
-            <ProjectTable
+            <ProjectCardGrid
               projects={filtered}
               onChanged={refreshProjects}
               selectedProjectId={selectedProjectId}
@@ -405,13 +406,10 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
   const [name, setName] = useState("");
   const [group, setGroup] = useState("");
   const [tags, setTags] = useState("");
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { busy, message, setMessage, runAction } = useAction();
   const add = async () => {
     if (busy) return;
-    setMessage("");
-    setBusy(true);
-    try {
+    await runAction(async () => {
       const tagList = splitTags(tags);
       const result = await postAddProject({
         source,
@@ -423,17 +421,16 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
       if (source === "github") {
         assertProjectUpSucceeded(await postProjectUp(result.projectId));
       }
-      setMessage(source === "github" ? "Project added and workspace updated." : "Project added.");
+      setMessage({
+        kind: "success",
+        text: source === "github" ? "Project added and workspace updated." : "Project added.",
+      });
       setRepo("");
       setName("");
       setGroup("");
       setTags("");
       onChanged();
-    } catch (error) {
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
   return (
     <section className="grid gap-[var(--space-4)]">
@@ -451,49 +448,29 @@ function AddProjectPanel({ onChanged }: { onChanged: () => void }) {
           </select>
         </label>
         {source === "github" ? (
-          <label className={ui.label}>
-            <span className={ui.labelText}>Repository</span>
-            <input
-              className={ui.input}
-              value={repo}
-              onChange={(event) => setRepo(event.target.value)}
-              placeholder="owner/name"
-            />
-          </label>
+          <TextField
+            label="Repository"
+            value={repo}
+            onChange={(event) => setRepo(event.target.value)}
+            placeholder="owner/name"
+          />
         ) : (
-          <label className={ui.label}>
-            <span className={ui.labelText}>Name</span>
-            <input
-              className={ui.input}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="local-spike"
-            />
-          </label>
+          <TextField
+            label="Name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="local-spike"
+          />
         )}
-        <label className={ui.label}>
-          <span className={ui.labelText}>Group</span>
-          <input
-            className={ui.input}
-            value={group}
-            onChange={(event) => setGroup(event.target.value)}
-          />
-        </label>
-        <label className={ui.label}>
-          <span className={ui.labelText}>Tags</span>
-          <input
-            className={ui.input}
-            value={tags}
-            onChange={(event) => setTags(event.target.value)}
-          />
-        </label>
+        <TextField label="Group" value={group} onChange={(event) => setGroup(event.target.value)} />
+        <TextField label="Tags" value={tags} onChange={(event) => setTags(event.target.value)} />
       </div>
       <button type="button" className={ui.buttonPrimary} onClick={add} disabled={busy}>
         <Plus size={16} aria-hidden /> Add Project
       </button>
-      {message && (
-        <p className={message.includes("added") ? feedbackClass.success : feedbackClass.error}>
-          {message}
+      {message.text && (
+        <p className={message.text.includes("added") ? feedbackClass.success : feedbackClass.error}>
+          {message.text}
         </p>
       )}
     </section>
@@ -504,9 +481,7 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
   const [ignoredPlanAt, setIgnoredPlanAt] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const [upResult, setUpResult] = useState<UpRunResult>();
-  const [message, setMessage] = useState("");
-  const [messageKind, setMessageKind] = useState<"success" | "error">("success");
-  const [busy, setBusy] = useState(false);
+  const { busy, message, setMessage, runAction } = useAction();
   const [resolvingProjectId, setResolvingProjectId] = useState("");
   const driftItems = workspaceDriftItems(result.items);
   const ignored = ignoredPlanAt === result.generatedAt;
@@ -517,19 +492,11 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
   if (ignored || driftItems.length === 0) return null;
 
   const runUp = async () => {
-    setBusy(true);
-    setMessage("");
-    try {
+    await runAction(async () => {
       setUpResult(await postUp());
-      setMessageKind("success");
-      setMessage("Workspace up complete.");
+      setMessage({ kind: "success", text: "Workspace up complete." });
       onChanged();
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   const resolveCanonicalPath = async (item: UpPlan["items"][number]) => {
@@ -543,15 +510,13 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
       return;
     }
     setResolvingProjectId(item.project.id);
-    setMessage("");
+    setMessage({ kind: "success", text: "" });
     try {
       await postResolveProjectCanonicalPath(item.project.id);
-      setMessageKind("success");
-      setMessage("Canonical checkout path resolved.");
+      setMessage({ kind: "success", text: "Canonical checkout path resolved." });
       onChanged();
     } catch (error) {
-      setMessageKind("error");
-      setMessage(String(error));
+      setMessage({ kind: "error", text: String(error) });
     } finally {
       setResolvingProjectId("");
     }
@@ -589,7 +554,7 @@ function WorkspaceDriftPanel({ result, onChanged }: { result: UpPlan; onChanged:
       />
       {reviewing && <PlanItemList items={result.items} title="Dry Run Items" />}
       {upResult && <UpResultList result={upResult} />}
-      {message && <p className={feedbackToneClass(messageKind)}>{message}</p>}
+      {message.text && <p className={feedbackToneClass(message.kind)}>{message.text}</p>}
     </Modal>
   );
 }
@@ -675,6 +640,40 @@ function GitHubImportPanel({
       })
       .catch((error) => setCandidates({ status: "error", error: String(error) }));
   }, []);
+  const importSelected = async () => {
+    const projects = selectedImportProjects(rows, draft);
+    if (projects.length === 0) {
+      setMessage("Select at least one repository.");
+      return;
+    }
+    try {
+      setMessage("");
+      setProgress({ phase: "writing", current: 0, total: projects.length });
+      const imported = await postImportProjects(projects);
+      for (const [index, importedProject] of imported.entries()) {
+        const repo = projects[index]?.repo ?? importedProject.projectId;
+        setProgress({ phase: "syncing", current: index, total: projects.length, repo });
+        const result = await postProjectUp(importedProject.projectId);
+        assertProjectUpSucceeded(result);
+        setProgress({ phase: "syncing", current: index + 1, total: projects.length, repo });
+      }
+      setDraft((current) =>
+        clearImportedGitHubImportDraft(
+          current,
+          projects.map((project) => project.repo),
+        ),
+      );
+      setMessage(
+        `Imported and updated ${projects.length} project${projects.length === 1 ? "" : "s"}.`,
+      );
+      refresh(false);
+      onChanged();
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setProgress({ phase: "idle", current: 0, total: 0 });
+    }
+  };
   useEffect(() => {
     refresh(!hadCachedCandidatesOnOpen.current);
   }, [refresh]);
@@ -697,17 +696,7 @@ function GitHubImportPanel({
             selectedCount={selectedCount}
             importing={importing}
             onCancel={onCancel}
-            onImport={() =>
-              void importSelectedGitHubProjects({
-                draft,
-                rows,
-                setDraft,
-                setMessage,
-                setProgress,
-                refresh,
-                onChanged,
-              })
-            }
+            onImport={() => void importSelected()}
           />
         ) : undefined
       }
@@ -745,20 +734,54 @@ function GitHubImportReadyPanel({
   const selectedCount = rows.filter((candidate) => draft.selected[candidate.repo]).length;
   return (
     <>
-      <ImportCandidateFilters
-        query={draft.query}
-        owner={draft.owner}
-        owners={owners}
-        bulkGroup={draft.bulkGroup}
-        bulkTags={draft.bulkTags}
-        selected={selectedCount}
-        shown={filteredRows.length}
-        total={rows.length}
-        onQuery={(query) => onDraft((current) => ({ ...current, query }))}
-        onOwner={(owner) => onDraft((current) => ({ ...current, owner }))}
-        onBulkGroup={(bulkGroup) => onDraft((current) => ({ ...current, bulkGroup }))}
-        onBulkTags={(bulkTags) => onDraft((current) => ({ ...current, bulkTags }))}
+      <div className="mb-[var(--space-3)] grid grid-cols-2 gap-[var(--space-3)] max-[820px]:grid-cols-1">
+        <div className={importFieldClass}>
+          <span className={importLabelClass}>From owner / org</span>
+          <select
+            className={importInputClass}
+            value={draft.owner}
+            onChange={(event) => onDraft((current) => ({ ...current, owner: event.target.value }))}
+          >
+            <option value="all">All owners</option>
+            {owners.map((candidateOwner) => (
+              <option key={candidateOwner} value={candidateOwner}>
+                {candidateOwner}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={importFieldClass}>
+          <span className={importLabelClass}>Assign to group</span>
+          <input
+            className={importInputClass}
+            value={draft.bulkGroup}
+            placeholder="group for imported projects"
+            onChange={(event) =>
+              onDraft((current) => ({ ...current, bulkGroup: event.target.value }))
+            }
+          />
+        </div>
+      </div>
+      <ImportTagField
+        tags={draft.bulkTags}
+        onTags={(bulkTags) => onDraft((current) => ({ ...current, bulkTags }))}
       />
+      <div className="mb-[var(--space-3)] grid gap-[var(--space-1_5)]">
+        <div className="relative flex items-center">
+          <span className="pointer-events-none absolute left-[var(--space-3)] inline-flex text-[15px] text-[var(--text-faint)] [&_svg]:h-[15px] [&_svg]:w-[15px]">
+            <Search size={15} />
+          </span>
+          <input
+            className={classNames(importInputClass, "pl-[calc(var(--space-3)+22px)]")}
+            value={draft.query}
+            placeholder="Filter repositories..."
+            onChange={(event) => onDraft((current) => ({ ...current, query: event.target.value }))}
+          />
+        </div>
+        <p className="font-mono text-[var(--text-xs)] text-[var(--text-muted)]">
+          Showing {filteredRows.length} of {rows.length} · {selectedCount} selected
+        </p>
+      </div>
       <ImportCandidateList candidates={filteredRows} draft={draft} onDraft={onDraft} />
     </>
   );
@@ -811,57 +834,6 @@ function selectedImportProjects(rows: HostedImportCandidate[], draft: GitHubImpo
     });
 }
 
-async function importSelectedGitHubProjects({
-  draft,
-  rows,
-  setDraft,
-  setMessage,
-  setProgress,
-  refresh,
-  onChanged,
-}: {
-  draft: GitHubImportDraft;
-  rows: HostedImportCandidate[];
-  setDraft: (updater: (current: GitHubImportDraft) => GitHubImportDraft) => void;
-  setMessage: (message: string) => void;
-  setProgress: (progress: GitHubImportProgress) => void;
-  refresh: (showLoading?: boolean) => void;
-  onChanged: () => void;
-}) {
-  const projects = selectedImportProjects(rows, draft);
-  if (projects.length === 0) {
-    setMessage("Select at least one repository.");
-    return;
-  }
-  try {
-    setMessage("");
-    setProgress({ phase: "writing", current: 0, total: projects.length });
-    const imported = await postImportProjects(projects);
-    for (const [index, importedProject] of imported.entries()) {
-      const repo = projects[index]?.repo ?? importedProject.projectId;
-      setProgress({ phase: "syncing", current: index, total: projects.length, repo });
-      const result = await postProjectUp(importedProject.projectId);
-      assertProjectUpSucceeded(result);
-      setProgress({ phase: "syncing", current: index + 1, total: projects.length, repo });
-    }
-    setDraft((current) =>
-      clearImportedGitHubImportDraft(
-        current,
-        projects.map((project) => project.repo),
-      ),
-    );
-    setMessage(
-      `Imported and updated ${projects.length} project${projects.length === 1 ? "" : "s"}.`,
-    );
-    refresh(false);
-    onChanged();
-  } catch (error) {
-    setMessage(String(error));
-  } finally {
-    setProgress({ phase: "idle", current: 0, total: 0 });
-  }
-}
-
 function emptyGitHubImportDraft(): GitHubImportDraft {
   return {
     selected: {},
@@ -879,10 +851,13 @@ function loadGitHubImportDraft(): GitHubImportDraft {
   const parsed = readStoredJson(githubImportDraftStorageKey);
   if (!isRecord(parsed)) return emptyGitHubImportDraft();
   return {
-    selected: stringBooleanRecord(parsed.selected),
-    states: projectStateRecord(parsed.states),
-    groups: stringRecord(parsed.groups),
-    tags: stringRecord(parsed.tags),
+    selected: filteredRecord(
+      parsed.selected,
+      (value): value is boolean => typeof value === "boolean",
+    ),
+    states: filteredRecord(parsed.states, isProjectState),
+    groups: filteredRecord(parsed.groups, (value): value is string => typeof value === "string"),
+    tags: filteredRecord(parsed.tags, (value): value is string => typeof value === "string"),
     query: typeof parsed.query === "string" ? parsed.query : "",
     owner: typeof parsed.owner === "string" ? parsed.owner : "all",
     bulkGroup: typeof parsed.bulkGroup === "string" ? parsed.bulkGroup : "",
@@ -977,30 +952,13 @@ function isStringList(value: unknown) {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-function stringRecord(value: unknown): Record<string, string> {
+function filteredRecord<T>(
+  value: unknown,
+  accepts: (value: unknown) => value is T,
+): Record<string, T> {
   if (!isRecord(value)) return {};
   return Object.fromEntries(
-    Object.entries(value).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
-    ),
-  );
-}
-
-function stringBooleanRecord(value: unknown): Record<string, boolean> {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      (entry): entry is [string, boolean] => typeof entry[1] === "boolean",
-    ),
-  );
-}
-
-function projectStateRecord(value: unknown): Record<string, ProjectState> {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value).filter((entry): entry is [string, ProjectState] =>
-      isProjectState(entry[1]),
-    ),
+    Object.entries(value).filter((entry): entry is [string, T] => accepts(entry[1])),
   );
 }
 
@@ -1029,82 +987,6 @@ const compactAvatarClass =
   "inline-flex h-6 w-6 flex-none select-none items-center justify-center overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-card)] font-sans text-[var(--text-xs)] font-semibold text-[var(--text-body)]";
 const projectLogoClass =
   "inline-flex h-9 w-9 flex-none select-none items-center justify-center overflow-hidden bg-transparent";
-
-function ImportCandidateFilters({
-  query,
-  owner,
-  owners,
-  bulkGroup,
-  bulkTags,
-  selected,
-  shown,
-  total,
-  onQuery,
-  onOwner,
-  onBulkGroup,
-  onBulkTags,
-}: {
-  query: string;
-  owner: string;
-  owners: string[];
-  bulkGroup: string;
-  bulkTags: string;
-  selected: number;
-  shown: number;
-  total: number;
-  onQuery: (query: string) => void;
-  onOwner: (owner: string) => void;
-  onBulkGroup: (group: string) => void;
-  onBulkTags: (tags: string) => void;
-}) {
-  return (
-    <>
-      <div className="mb-[var(--space-3)] grid grid-cols-2 gap-[var(--space-3)] max-[820px]:grid-cols-1">
-        <div className={importFieldClass}>
-          <span className={importLabelClass}>From owner / org</span>
-          <select
-            className={importInputClass}
-            value={owner}
-            onChange={(event) => onOwner(event.target.value)}
-          >
-            <option value="all">All owners</option>
-            {owners.map((candidateOwner) => (
-              <option key={candidateOwner} value={candidateOwner}>
-                {candidateOwner}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className={importFieldClass}>
-          <span className={importLabelClass}>Assign to group</span>
-          <input
-            className={importInputClass}
-            value={bulkGroup}
-            placeholder="group for imported projects"
-            onChange={(event) => onBulkGroup(event.target.value)}
-          />
-        </div>
-      </div>
-      <ImportTagField tags={bulkTags} onTags={onBulkTags} />
-      <div className="mb-[var(--space-3)] grid gap-[var(--space-1_5)]">
-        <div className="relative flex items-center">
-          <span className="pointer-events-none absolute left-[var(--space-3)] inline-flex text-[15px] text-[var(--text-faint)] [&_svg]:h-[15px] [&_svg]:w-[15px]">
-            <Search size={15} />
-          </span>
-          <input
-            className={classNames(importInputClass, "pl-[calc(var(--space-3)+22px)]")}
-            value={query}
-            placeholder="Filter repositories..."
-            onChange={(event) => onQuery(event.target.value)}
-          />
-        </div>
-        <p className="font-mono text-[var(--text-xs)] text-[var(--text-muted)]">
-          Showing {shown} of {total} · {selected} selected
-        </p>
-      </div>
-    </>
-  );
-}
 
 function ImportTagField({ tags, onTags }: { tags: string; onTags: (tags: string) => void }) {
   const [tagDraft, setTagDraft] = useState("");
@@ -1173,34 +1055,8 @@ function ImportCandidateList({
         <ImportCandidateRow
           key={candidate.repo}
           candidate={candidate}
-          checked={draft.selected[candidate.repo] === true}
-          group={draft.groups[candidate.repo] ?? ""}
-          state={draft.states[candidate.repo] ?? candidate.suggestedState}
-          tags={draft.tags[candidate.repo] ?? ""}
-          onChecked={(checked) =>
-            onDraft((current) => ({
-              ...current,
-              selected: { ...current.selected, [candidate.repo]: checked },
-            }))
-          }
-          onGroup={(next) =>
-            onDraft((current) => ({
-              ...current,
-              groups: { ...current.groups, [candidate.repo]: next },
-            }))
-          }
-          onState={(next) =>
-            onDraft((current) => ({
-              ...current,
-              states: { ...current.states, [candidate.repo]: next },
-            }))
-          }
-          onTags={(next) =>
-            onDraft((current) => ({
-              ...current,
-              tags: { ...current.tags, [candidate.repo]: next },
-            }))
-          }
+          draft={draft}
+          onDraft={onDraft}
         />
       ))}
     </ul>
@@ -1269,25 +1125,22 @@ function importCandidateMatches(candidate: HostedImportCandidate, query: string,
 
 function ImportCandidateRow({
   candidate,
-  checked,
-  group,
-  state,
-  tags,
-  onChecked,
-  onGroup,
-  onState,
-  onTags,
+  draft,
+  onDraft,
 }: {
   candidate: HostedImportCandidate;
-  checked: boolean;
-  group: string;
-  state: ProjectState;
-  tags: string;
-  onChecked: (checked: boolean) => void;
-  onGroup: (group: string) => void;
-  onState: (state: ProjectState) => void;
-  onTags: (tags: string) => void;
+  draft: GitHubImportDraft;
+  onDraft: (updater: (current: GitHubImportDraft) => GitHubImportDraft) => void;
 }) {
+  const checked = draft.selected[candidate.repo] === true;
+  const group = draft.groups[candidate.repo] ?? "";
+  const state = draft.states[candidate.repo] ?? candidate.suggestedState;
+  const tags = draft.tags[candidate.repo] ?? "";
+  const update = <K extends "selected" | "groups" | "states" | "tags">(
+    field: K,
+    value: GitHubImportDraft[K][string],
+  ) =>
+    onDraft((current) => ({ ...current, [field]: { ...current[field], [candidate.repo]: value } }));
   const description =
     candidate.description ||
     `${candidate.owner}/${candidate.name}${candidate.archived ? " · archived" : ""}`;
@@ -1298,7 +1151,7 @@ function ImportCandidateRow({
     ) {
       return;
     }
-    onChecked(!checked);
+    update("selected", !checked);
   };
   return (
     <li
@@ -1314,7 +1167,7 @@ function ImportCandidateRow({
           className="peer h-[18px] w-[18px] min-h-0 appearance-none rounded-[var(--radius-xs)] border-[1.5px] border-[var(--border-strong)] bg-[var(--surface-inset)] p-0 shadow-none checked:border-[var(--primary)] checked:bg-[var(--primary)]"
           aria-label={`Select ${candidate.repo}`}
           checked={checked}
-          onChange={(event) => onChecked(event.target.checked)}
+          onChange={(event) => update("selected", event.target.checked)}
         />
         <span className="pointer-events-none absolute left-[2.5px] top-[2.5px] inline-flex text-[var(--on-primary)] opacity-0 peer-checked:opacity-100">
           <CheckCircle2 size={13} />
@@ -1340,7 +1193,7 @@ function ImportCandidateRow({
         <div className="col-[3/5] mt-[var(--space-3)] grid grid-cols-3 gap-[var(--space-3)] border-t border-dashed border-[var(--border-subtle)] pt-[var(--space-3)] max-[820px]:grid-cols-1">
           <div className={importFieldClass}>
             <span className={importLabelClass}>Lifecycle</span>
-            <StateSelect value={state} onChange={onState} />
+            <StateSelect value={state} onChange={(value) => update("states", value)} />
           </div>
           <label className={importFieldClass}>
             <span className={importLabelClass}>Group override</span>
@@ -1348,7 +1201,7 @@ function ImportCandidateRow({
               className={importInputClass}
               value={group}
               placeholder="use dialog group"
-              onChange={(event) => onGroup(event.target.value)}
+              onChange={(event) => update("groups", event.target.value)}
             />
           </label>
           <label className={importFieldClass}>
@@ -1357,7 +1210,7 @@ function ImportCandidateRow({
               className={importInputClass}
               value={tags}
               placeholder="use dialog tags"
-              onChange={(event) => onTags(event.target.value)}
+              onChange={(event) => update("tags", event.target.value)}
             />
           </label>
         </div>
@@ -1393,64 +1246,6 @@ export function ProjectDetailScreen({ projectId }: { projectId: string }) {
   );
 }
 
-type ProjectTableProps =
-  | {
-      projects: Project[];
-      compact: true;
-    }
-  | {
-      projects: Project[];
-      compact?: false;
-      onChanged: () => void;
-      onPinnedChange: (projectId: string, pinned: boolean) => void;
-      selectedProjectId: string;
-      onSelectProject: (id: string) => void;
-      onRemove: () => void;
-    };
-
-function ProjectTable(props: ProjectTableProps) {
-  if (props.projects.length === 0) {
-    return (
-      <EmptyState art={assets.heraklesHero} title="No projects here">
-        No projects match this lifecycle state or search query.
-      </EmptyState>
-    );
-  }
-  return props.compact === true ? (
-    <CompactProjectTable projects={props.projects} />
-  ) : (
-    <ProjectCardGrid {...props} />
-  );
-}
-
-function CompactProjectTable({ projects }: { projects: Project[] }) {
-  return (
-    <ProjectTableShell
-      header={
-        <tr>
-          <th>Project</th>
-          <th>State</th>
-          <th>Workspace up</th>
-        </tr>
-      }
-    >
-      {projects.map((project) => (
-        <CompactProjectRow key={project.id} project={project} />
-      ))}
-    </ProjectTableShell>
-  );
-}
-
-function CompactProjectRow({ project }: { project: Project }) {
-  return (
-    <tr>
-      <ProjectIdentityCell project={project} />
-      <td>{project.state}</td>
-      <td>{yesNo(project.up)}</td>
-    </tr>
-  );
-}
-
 function ProjectCardGrid({
   onChanged,
   onPinnedChange,
@@ -1466,6 +1261,13 @@ function ProjectCardGrid({
   onSelectProject: (id: string) => void;
   onRemove: () => void;
 }) {
+  if (projects.length === 0) {
+    return (
+      <EmptyState art={assets.heraklesHero} title="No projects here">
+        No projects match this lifecycle state or search query.
+      </EmptyState>
+    );
+  }
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,280px),1fr))] gap-[var(--space-4)]">
       {projects.map((project) => (
@@ -1479,23 +1281,6 @@ function ProjectCardGrid({
           selectedProjectId={selectedProjectId}
         />
       ))}
-    </div>
-  );
-}
-
-function ProjectTableShell({
-  header,
-  children,
-}: {
-  header: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={ui.tableWrap}>
-      <table className={ui.table}>
-        <thead>{header}</thead>
-        <tbody>{children}</tbody>
-      </table>
     </div>
   );
 }
@@ -1527,7 +1312,7 @@ function ProjectCard({
         }}
       />
       <div className="mb-0 flex items-start gap-[var(--space-3)]">
-        <ProjectAvatar project={project} size="card" />
+        <ProjectAvatar project={project} />
         <div className="min-w-0 flex-1">
           <strong className="block overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[0.875rem] font-semibold text-[var(--text-strong)]">
             <Link
@@ -1590,30 +1375,24 @@ function ProjectDefaultBranchSync({
   onChanged: () => void;
   project: Project;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const { busy, message, setMessage, runAction } = useAction();
   if (project.source !== "github" || !project.defaultBranchRef) return null;
   const sync = async () => {
     if (busy) return;
-    setBusy(true);
-    setError("");
-    try {
+    await runAction(async () => {
       const result = await postSyncProjectDefaultBranch(project.id);
       if (result.status !== "done") {
-        setError(result.message);
+        setMessage({ kind: "error", text: result.message });
       } else if (result.behindAfter && result.behindAfter > 0) {
-        setError(
-          `${result.branch} is still ${result.behindAfter} ${
+        setMessage({
+          kind: "error",
+          text: `${result.branch} is still ${result.behindAfter} ${
             result.behindAfter === 1 ? "commit" : "commits"
           } behind`,
-        );
+        });
       }
       onChanged();
-    } catch (error) {
-      setError(String(error));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
   return (
     <div className="flex min-w-0 items-center justify-between gap-[var(--space-2)] font-mono text-[var(--text-2xs)] text-[var(--text-faint)]">
@@ -1635,7 +1414,7 @@ function ProjectDefaultBranchSync({
           <RefreshCcw size={15} aria-hidden />
         )}
       </button>
-      {error ? <span className={feedbackClass.error}>{error}</span> : null}
+      {message.text ? <span className={feedbackClass.error}>{message.text}</span> : null}
     </div>
   );
 }
@@ -1648,8 +1427,7 @@ function defaultBranchBehindLabel(project: Project): string {
 }
 
 function ProjectRepositoryLink({ project }: { project: Project }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const { busy, message, runAction } = useAction();
   const label =
     project.source === "github" && project.owner
       ? `${project.owner}/${project.repo}`
@@ -1663,15 +1441,9 @@ function ProjectRepositoryLink({ project }: { project: Project }) {
 
   const openGitHub = async () => {
     if (busy) return;
-    setBusy(true);
-    setError("");
-    try {
+    await runAction(async () => {
       await openProjectTarget(project, "github");
-    } catch (error) {
-      setError(String(error));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
@@ -1686,7 +1458,7 @@ function ProjectRepositoryLink({ project }: { project: Project }) {
       >
         {label}
       </button>
-      {error ? <span className={feedbackClass.error}>{error}</span> : null}
+      {message.text ? <span className={feedbackClass.error}>{message.text}</span> : null}
     </span>
   );
 }
@@ -1907,25 +1679,18 @@ const githubLanguageColors: Record<string, string> = {
   TypeScript: "#3178c6",
 };
 
-function ProjectAvatar({
-  project,
-  size = "compact",
-}: {
-  project: Project;
-  size?: "compact" | "card";
-}) {
+function ProjectAvatar({ project }: { project: Project }) {
   const [failed, setFailed] = useState(false);
   const initials = repoInitials(projectName(project));
-  const frameClass = size === "card" ? projectLogoClass : compactAvatarClass;
   if (failed) {
     return (
-      <span className={frameClass} aria-hidden>
+      <span className={projectLogoClass} aria-hidden>
         {initials}
       </span>
     );
   }
   return (
-    <span className={frameClass} aria-hidden>
+    <span className={projectLogoClass} aria-hidden>
       <img
         className="h-full w-full object-contain"
         src={projectIconUrl(project.id)}
@@ -1933,24 +1698,6 @@ function ProjectAvatar({
         onError={() => setFailed(true)}
       />
     </span>
-  );
-}
-
-function ProjectIdentityCell({ project }: { project: Project }) {
-  return (
-    <td>
-      <div className="flex items-start gap-[var(--space-2)]">
-        <ProjectAvatar project={project} />
-        <div className="min-w-0">
-          <strong>
-            <Link to="/projects/$projectId" params={{ projectId: project.id }} className={ui.link}>
-              {projectName(project)}
-            </Link>
-          </strong>
-          <span>{project.visibility ?? "local"}</span>
-        </div>
-      </div>
-    </td>
   );
 }
 
@@ -2044,6 +1791,13 @@ function ProjectStarButton({
   );
 }
 
+const projectOpenTargets = [
+  { target: "filesystem", label: "Open in Finder / Explorer", icon: FolderOpen },
+  { target: "github", label: "Open in GitHub", icon: Github },
+  { target: "terminal", label: "Open in Terminal", icon: Terminal },
+  { target: "codex", label: "Open in Codex", icon: SquareTerminal },
+] as const;
+
 function ProjectOpenActions({ project }: { project: Project }) {
   const [busyTarget, setBusyTarget] = useState<ProjectOpenTarget | "">("");
   const [error, setError] = useState("");
@@ -2061,34 +1815,23 @@ function ProjectOpenActions({ project }: { project: Project }) {
   };
   return (
     <div className="flex min-w-0 items-center justify-end gap-1">
-      <ProjectOpenButton
-        label="Open in Finder / Explorer"
-        busy={busyTarget === "filesystem"}
-        disabled={Boolean(busyTarget)}
-        onClick={() => openTarget("filesystem")}
-        icon={<FolderOpen size={16} aria-hidden />}
-      />
-      <ProjectOpenButton
-        label="Open in GitHub"
-        busy={busyTarget === "github"}
-        disabled={Boolean(busyTarget) || !project.url}
-        onClick={() => openTarget("github")}
-        icon={<Github size={16} aria-hidden />}
-      />
-      <ProjectOpenButton
-        label="Open in Terminal"
-        busy={busyTarget === "terminal"}
-        disabled={Boolean(busyTarget)}
-        onClick={() => openTarget("terminal")}
-        icon={<Terminal size={16} aria-hidden />}
-      />
-      <ProjectOpenButton
-        label="Open in Codex"
-        busy={busyTarget === "codex"}
-        disabled={Boolean(busyTarget)}
-        onClick={() => openTarget("codex")}
-        icon={<SquareTerminal size={16} aria-hidden />}
-      />
+      {projectOpenTargets.map(({ target, label, icon: Icon }) => (
+        <button
+          key={target}
+          type="button"
+          className={ui.iconButton}
+          title={label}
+          aria-label={label}
+          disabled={Boolean(busyTarget) || (target === "github" && !project.url)}
+          onClick={() => openTarget(target)}
+        >
+          {busyTarget === target ? (
+            <LoaderCircle size={16} className="animate-spin" aria-hidden />
+          ) : (
+            <Icon size={16} aria-hidden />
+          )}
+        </button>
+      ))}
       {error ? <span className={feedbackClass.error}>{error}</span> : null}
     </div>
   );
@@ -2100,56 +1843,22 @@ async function openProjectTarget(project: Project, target: ProjectOpenTarget) {
   await postOpenProject(project.id, target, destination);
 }
 
-function ProjectOpenButton({
-  busy,
-  disabled,
-  icon,
-  label,
-  onClick,
-}: {
-  busy: boolean;
-  disabled: boolean;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={ui.iconButton}
-      title={label}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {busy ? <LoaderCircle size={16} className="animate-spin" aria-hidden /> : icon}
-    </button>
-  );
-}
-
 function ProjectRemoveButton({ onRemove, project }: { onRemove: () => void; project: Project }) {
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { busy, message, runAction } = useAction();
   const remove = async () => {
     if (busy) return;
     if (!confirmStopTracking(project)) return;
-    setBusy(true);
-    setError("");
-    try {
+    await runAction(async () => {
       await postRemoveProject(project.slug);
       onRemove();
-    } catch (error) {
-      setError(String(error));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
   return (
     <>
       <button type="button" className={ui.buttonDanger} onClick={remove} disabled={busy}>
         Remove
       </button>
-      {error && <span className={feedbackClass.error}>{error}</span>}
+      {message.text && <span className={feedbackClass.error}>{message.text}</span>}
     </>
   );
 }
@@ -2281,19 +1990,18 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
   const [force, setForce] = useState(false);
   const [plan, setPlan] = useState<ProjectConfigPlan | undefined>();
   const [previewKey, setPreviewKey] = useState("");
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { busy, message, setMessage, runAction } = useAction();
 
   useEffect(() => {
     setPlan(undefined);
     setPreviewKey("");
-    setMessage("");
+    setMessage({ kind: "success", text: "" });
     setState(project.state);
     setGroup(project.group ?? "");
     setTags(project.tags.join(", "));
     setLearning("");
     setForce(false);
-  }, [project.state, project.group, project.tags]);
+  }, [project.state, project.group, project.tags, setMessage]);
 
   const currentKey = projectConfigPreviewKey(project.id, state, group, tags, learning, force);
   const canApply = plan !== undefined && previewKey === currentKey;
@@ -2301,9 +2009,7 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
   const previewConfigPlan = () => runProjectConfigOperation("preview");
   const applyConfigPlan = () => runProjectConfigOperation("apply");
   const runProjectConfigOperation = async (operation: "preview" | "apply") => {
-    setBusy(true);
-    setMessage("");
-    try {
+    await runAction(async () => {
       const changes: ProjectConfigValues = {
         state,
         group: group.trim(),
@@ -2317,53 +2023,96 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
       setPlan(nextPlan);
       setPreviewKey(currentKey);
       if (operation === "apply") {
-        setMessage("Applied");
+        setMessage({ kind: "success", text: "Applied" });
         onApplied();
       }
-    } catch (error) {
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
   return (
     <>
-      <ProjectStateForm
-        busy={busy}
-        canApply={canApply}
-        force={force}
-        group={group}
-        learning={learning}
-        project={project}
-        state={state}
-        tags={tags}
-        onApply={applyConfigPlan}
-        onForceChange={(nextForce) => {
-          setForce(nextForce);
-          setPreviewKey("");
-        }}
-        onGroupChange={(nextGroup) => {
-          setGroup(nextGroup);
-          setPreviewKey("");
-        }}
-        onLearningChange={(nextLearning) => {
-          setLearning(nextLearning);
-          setPreviewKey("");
-        }}
-        onPreview={previewConfigPlan}
-        onStateChange={(nextState) => {
-          setState(nextState);
-          setPreviewKey("");
-        }}
-        onTagsChange={(nextTags) => {
-          setTags(nextTags);
-          setPreviewKey("");
-        }}
-      />
+      <div className={ui.formGrid}>
+        <div className="grid gap-1 self-end">
+          <strong className={ui.listTitle}>{projectName(project)}</strong>
+          <span className={ui.mono}>
+            {project.source === "github" && project.owner
+              ? `${project.owner}/${project.repo}`
+              : project.source}
+          </span>
+        </div>
+        <label className={ui.label}>
+          <span className={ui.labelText}>State</span>
+          <select
+            className={ui.input}
+            value={state}
+            onChange={(event) => {
+              setState(event.target.value as Project["state"]);
+              setPreviewKey("");
+            }}
+          >
+            {["experiment", "candidate", "commercial", "open-source", "archived"].map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+        <TextField
+          label="Group"
+          value={group}
+          onChange={(event) => {
+            setGroup(event.target.value);
+            setPreviewKey("");
+          }}
+        />
+        <TextField
+          label="Tags"
+          value={tags}
+          onChange={(event) => {
+            setTags(event.target.value);
+            setPreviewKey("");
+          }}
+        />
+        <TextField
+          label="Learning file"
+          value={learning}
+          onChange={(event) => {
+            setLearning(event.target.value);
+            setPreviewKey("");
+          }}
+        />
+        <label className={ui.checkboxLabel}>
+          <input
+            className={ui.checkbox}
+            type="checkbox"
+            checked={force}
+            onChange={(event) => {
+              setForce(event.target.checked);
+              setPreviewKey("");
+            }}
+          />
+          <span>Force transition</span>
+        </label>
+        <button
+          type="button"
+          className={ui.buttonGhost}
+          onClick={previewConfigPlan}
+          disabled={busy}
+        >
+          Preview
+        </button>
+        <button
+          type="button"
+          className={ui.buttonPrimary}
+          onClick={applyConfigPlan}
+          disabled={busy || !canApply}
+        >
+          Apply
+        </button>
+      </div>
       <ProjectConfigPlanPreview plan={plan} />
-      {message && (
-        <p className={message === "Applied" ? feedbackClass.success : feedbackClass.error}>
-          {message}
+      {message.text && (
+        <p className={message.text === "Applied" ? feedbackClass.success : feedbackClass.error}>
+          {message.text}
         </p>
       )}
     </>
@@ -2379,111 +2128,6 @@ function projectConfigPreviewKey(
   force: boolean,
 ) {
   return `${projectId}:${state}:${group}:${tags}:${learning}:${force ? "force" : "normal"}`;
-}
-
-function ProjectStateForm({
-  busy,
-  canApply,
-  force,
-  group,
-  learning,
-  project,
-  state,
-  tags,
-  onApply,
-  onForceChange,
-  onGroupChange,
-  onLearningChange,
-  onPreview,
-  onStateChange,
-  onTagsChange,
-}: {
-  busy: boolean;
-  canApply: boolean;
-  force: boolean;
-  group: string;
-  learning: string;
-  project: Project;
-  state: Project["state"];
-  tags: string;
-  onApply: () => void;
-  onForceChange: (force: boolean) => void;
-  onGroupChange: (group: string) => void;
-  onLearningChange: (learning: string) => void;
-  onPreview: () => void;
-  onStateChange: (state: Project["state"]) => void;
-  onTagsChange: (tags: string) => void;
-}) {
-  return (
-    <div className={ui.formGrid}>
-      <div className="grid gap-1 self-end">
-        <strong className={ui.listTitle}>{projectName(project)}</strong>
-        <span className={ui.mono}>
-          {project.source === "github" && project.owner
-            ? `${project.owner}/${project.repo}`
-            : project.source}
-        </span>
-      </div>
-      <label className={ui.label}>
-        <span className={ui.labelText}>State</span>
-        <select
-          className={ui.input}
-          value={state}
-          onChange={(event) => onStateChange(event.target.value as Project["state"])}
-        >
-          {["experiment", "candidate", "commercial", "open-source", "archived"].map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className={ui.label}>
-        <span className={ui.labelText}>Group</span>
-        <input
-          className={ui.input}
-          value={group}
-          onChange={(event) => onGroupChange(event.target.value)}
-        />
-      </label>
-      <label className={ui.label}>
-        <span className={ui.labelText}>Tags</span>
-        <input
-          className={ui.input}
-          value={tags}
-          onChange={(event) => onTagsChange(event.target.value)}
-        />
-      </label>
-      <label className={ui.label}>
-        <span className={ui.labelText}>Learning file</span>
-        <input
-          className={ui.input}
-          value={learning}
-          onChange={(event) => onLearningChange(event.target.value)}
-        />
-      </label>
-      <label className={ui.checkboxLabel}>
-        <input
-          className={ui.checkbox}
-          type="checkbox"
-          checked={force}
-          onChange={(event) => onForceChange(event.target.checked)}
-        />
-        <span>Force transition</span>
-      </label>
-      <button type="button" className={ui.buttonGhost} onClick={onPreview} disabled={busy}>
-        Preview
-      </button>
-      <button
-        type="button"
-        className={ui.buttonPrimary}
-        onClick={onApply}
-        disabled={busy || !canApply}
-      >
-        Apply
-      </button>
-    </div>
-  );
 }
 
 function ProjectConfigPlanPreview({ plan }: { plan: ProjectConfigPlan | undefined }) {
@@ -2520,8 +2164,7 @@ function ProjectRenamePanel({
   const [plan, setPlan] = useState<ProjectRenamePlan>();
   const [result, setResult] = useState<ProjectRenameResult>();
   const [previewKey, setPreviewKey] = useState("");
-  const [message, setMessage] = useState<PromotionMessage>({ kind: "success", text: "" });
-  const [busy, setBusy] = useState(false);
+  const { busy, message, setMessage, runAction } = useAction(errorMessage);
 
   useEffect(() => {
     setNewName(project.repo);
@@ -2529,7 +2172,7 @@ function ProjectRenamePanel({
     setResult(undefined);
     setPreviewKey("");
     setMessage({ kind: "success", text: "" });
-  }, [project.repo]);
+  }, [project.repo, setMessage]);
 
   const trimmedName = newName.trim();
   const currentKey = `${project.id}:${trimmedName}`;
@@ -2538,10 +2181,8 @@ function ProjectRenamePanel({
   const targetRepo = `${owner}/${trimmedName}`;
 
   const run = async (operation: "preview" | "apply") => {
-    setBusy(true);
-    setMessage({ kind: "success", text: "" });
     setResult(undefined);
-    try {
+    await runAction(async () => {
       if (operation === "preview") {
         const nextPlan = await postProjectRenamePlan(project.id, targetRepo);
         setPlan(nextPlan);
@@ -2558,11 +2199,7 @@ function ProjectRenamePanel({
       if (nextResult.status === "renamed") {
         onRenamed(`github:${nextResult.plan.newRepo}`);
       }
-    } catch (error) {
-      setMessage({ kind: "error", text: errorMessage(error) });
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
@@ -2577,20 +2214,17 @@ function ProjectRenamePanel({
           <span className={ui.labelText}>Owner</span>
           <strong className={ui.mono}>{owner}</strong>
         </div>
-        <label className={ui.label}>
-          <span className={ui.labelText}>Repository name</span>
-          <input
-            className={ui.input}
-            value={newName}
-            onChange={(event) => {
-              setNewName(event.target.value);
-              setPreviewKey("");
-              setPlan(undefined);
-              setResult(undefined);
-              setMessage({ kind: "success", text: "" });
-            }}
-          />
-        </label>
+        <TextField
+          label="Repository name"
+          value={newName}
+          onChange={(event) => {
+            setNewName(event.target.value);
+            setPreviewKey("");
+            setPlan(undefined);
+            setResult(undefined);
+            setMessage({ kind: "success", text: "" });
+          }}
+        />
         <button
           type="button"
           className={ui.buttonGhost}
@@ -2687,15 +2321,14 @@ function LocalPromotionPanel({
   const [visibility, setVisibility] = useState<"public" | "private">("private");
   const [plan, setPlan] = useState("");
   const [result, setResult] = useState<LocalPromotionResult>();
-  const [message, setMessage] = useState<PromotionMessage>({ kind: "success", text: "" });
-  const [busy, setBusy] = useState(false);
+  const { busy, message, setMessage, runAction } = useAction();
 
   useEffect(() => {
     setRepo(project.repo);
     setPlan("");
     setResult(undefined);
     setMessage({ kind: "success", text: "" });
-  }, [project]);
+  }, [project, setMessage]);
 
   const options = () => ({
     ...(owner ? { owner } : {}),
@@ -2703,13 +2336,14 @@ function LocalPromotionPanel({
     visibility,
   });
 
-  const previewPromotion = () => runPromotionPlan();
-  const applyPromotion = () => runPromotionApply();
-  const runPromotionApply = async () => {
-    setBusy(true);
-    setMessage({ kind: "success", text: "" });
+  const runPromotion = async (apply: boolean) => {
     setResult(undefined);
-    try {
+    await runAction(async () => {
+      if (!apply) {
+        const nextPlan = await postLocalPromotionPlan(project.id, options());
+        setPlan(nextPlan.command.join(" "));
+        return;
+      }
       const nextResult = await postLocalPromotion(project.id, options());
       setResult(nextResult);
       setPlan(nextResult.plan.command.join(" "));
@@ -2718,103 +2352,45 @@ function LocalPromotionPanel({
         text: nextResult.message,
       });
       if (nextResult.status === "promoted") onPromoted();
-    } catch (error) {
-      setMessage({ kind: "error", text: String(error) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const runPromotionPlan = async () => {
-    setBusy(true);
-    setMessage({ kind: "success", text: "" });
-    setResult(undefined);
-    try {
-      const nextPlan = await postLocalPromotionPlan(project.id, options());
-      setPlan(nextPlan.command.join(" "));
-    } catch (error) {
-      setMessage({ kind: "error", text: String(error) });
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
     <section className={ui.panel}>
       <h2 className={ui.panelTitle}>Promotion</h2>
-      <LocalPromotionControls
-        busy={busy}
-        owner={owner}
-        repo={repo}
-        visibility={visibility}
-        onOwnerChange={setOwner}
-        onPreview={previewPromotion}
-        onPromote={applyPromotion}
-        onRepoChange={setRepo}
-        onVisibilityChange={setVisibility}
-      />
+      <div className={ui.formGrid}>
+        <TextField label="Owner" value={owner} onChange={(event) => setOwner(event.target.value)} />
+        <TextField label="Repo" value={repo} onChange={(event) => setRepo(event.target.value)} />
+        <label className={ui.label}>
+          <span className={ui.labelText}>Visibility</span>
+          <select
+            className={ui.input}
+            value={visibility}
+            onChange={(event) => setVisibility(event.target.value as "public" | "private")}
+          >
+            <option value="private">private</option>
+            <option value="public">public</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className={ui.buttonGhost}
+          onClick={() => runPromotion(false)}
+          disabled={busy}
+        >
+          Preview
+        </button>
+        <button
+          type="button"
+          className={ui.buttonPrimary}
+          onClick={() => runPromotion(true)}
+          disabled={busy}
+        >
+          Promote
+        </button>
+      </div>
       <LocalPromotionOutput message={message} plan={plan} result={result} />
     </section>
-  );
-}
-
-function LocalPromotionControls({
-  busy,
-  owner,
-  repo,
-  visibility,
-  onOwnerChange,
-  onPreview,
-  onPromote,
-  onRepoChange,
-  onVisibilityChange,
-}: {
-  busy: boolean;
-  owner: string;
-  repo: string;
-  visibility: "public" | "private";
-  onOwnerChange: (owner: string) => void;
-  onPreview: () => void;
-  onPromote: () => void;
-  onRepoChange: (repo: string) => void;
-  onVisibilityChange: (visibility: "public" | "private") => void;
-}) {
-  return (
-    <div className={ui.formGrid}>
-      <label className={ui.label}>
-        <span className={ui.labelText}>Owner</span>
-        <input
-          className={ui.input}
-          value={owner}
-          onChange={(event) => onOwnerChange(event.target.value)}
-        />
-      </label>
-      <label className={ui.label}>
-        <span className={ui.labelText}>Repo</span>
-        <input
-          className={ui.input}
-          value={repo}
-          onChange={(event) => onRepoChange(event.target.value)}
-        />
-      </label>
-      <label className={ui.label}>
-        <span className={ui.labelText}>Visibility</span>
-        <select
-          className={ui.input}
-          value={visibility}
-          onChange={(event) => onVisibilityChange(event.target.value as "public" | "private")}
-        >
-          <option value="private">private</option>
-          <option value="public">public</option>
-        </select>
-      </label>
-      <button type="button" className={ui.buttonGhost} onClick={onPreview} disabled={busy}>
-        Preview
-      </button>
-      <button type="button" className={ui.buttonPrimary} onClick={onPromote} disabled={busy}>
-        Promote
-      </button>
-    </div>
   );
 }
 

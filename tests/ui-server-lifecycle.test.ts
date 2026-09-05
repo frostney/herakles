@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { startUiCommand } from "../src/ui/server/main";
 import {
@@ -8,20 +7,18 @@ import {
   type UiServerOptions,
   type UiServerSession,
 } from "../src/ui/server/server";
+import { createTestWorkspace } from "./helpers/workspace";
 
 const sessions: UiServerSession[] = [];
 
 async function tempWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-ui-server-"));
-  await mkdir(join(root, "_herakles"), { recursive: true });
-  await writeFile(
-    join(root, "_herakles", "herakles.toml"),
+  return createTestWorkspace(
+    "herakles-ui-server-",
     `version = 2
 [github]
 owners = []
 `,
   );
-  return root;
 }
 
 async function expectServerWorkspace(session: UiServerSession, workspaceRoot: string) {

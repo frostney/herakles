@@ -1,9 +1,9 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { TOML } from "bun";
 import { type LoadedConfig, loadConfig } from "./config/load";
-import { resolveUnder } from "./config/paths";
+import { nearestExistingAncestor, pathIsInside, resolveUnder } from "./config/paths";
 import {
   applyProjectConfigPlan,
   createProjectConfigPlan,
@@ -49,6 +49,7 @@ import {
 import { resolveProjects } from "./project/resolve";
 import { executeUpPlan, type UpExecution } from "./up/execute";
 import { createUpPlan } from "./up/plan";
+import { definedProperties } from "./utils/definedProperties";
 
 type WorkspaceState = {
   loaded: LoadedConfig;
@@ -58,7 +59,6 @@ type WorkspaceState = {
 };
 
 type WorkspaceLoad = {
-  generation: number;
   promise: Promise<WorkspaceState>;
   state?: WorkspaceState;
 };
@@ -84,7 +84,6 @@ export class InvalidProjectOpenDestinationError extends Error {
 }
 
 const workspaceLoads = new Map<string, WorkspaceLoad>();
-const workspaceGenerations = new Map<string, number>();
 const pullRequestCacheTtlMs = 60_000;
 const pullRequestCacheVersion = 3;
 const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
@@ -92,44 +91,27 @@ const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
 export { InvalidProjectRenameError };
 
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
-  const generation = workspaceGeneration(workspaceRoot);
   const existing = workspaceLoads.get(workspaceRoot);
-  if (existing?.generation === generation) {
-    if (existing.state) return existing.state;
-    return existing.promise;
-  }
+  if (existing) return existing.state ?? existing.promise;
   const loading = loadWorkspaceFresh(workspaceRoot).then(
     (state) => {
-      if (workspaceGeneration(workspaceRoot) !== generation) {
-        return loadWorkspace(workspaceRoot);
-      }
       const entry = workspaceLoads.get(workspaceRoot);
-      if (entry?.promise === loading) {
-        entry.state = state;
-      }
+      if (entry?.promise !== loading) return loadWorkspace(workspaceRoot);
+      entry.state = state;
       return state;
     },
     (error) => {
-      if (workspaceGeneration(workspaceRoot) !== generation) {
+      if (workspaceLoads.get(workspaceRoot)?.promise !== loading)
         return loadWorkspace(workspaceRoot);
-      }
-      const entry = workspaceLoads.get(workspaceRoot);
-      if (entry?.promise === loading) {
-        workspaceLoads.delete(workspaceRoot);
-      }
-      return Promise.reject(error);
+      workspaceLoads.delete(workspaceRoot);
+      throw error;
     },
   );
-  workspaceLoads.set(workspaceRoot, { generation, promise: loading });
+  workspaceLoads.set(workspaceRoot, { promise: loading });
   return loading;
 }
 
-function workspaceGeneration(workspaceRoot: string): number {
-  return workspaceGenerations.get(workspaceRoot) ?? 0;
-}
-
 function invalidateWorkspace(workspaceRoot: string) {
-  workspaceGenerations.set(workspaceRoot, workspaceGeneration(workspaceRoot) + 1);
   workspaceLoads.delete(workspaceRoot);
 }
 
@@ -147,7 +129,7 @@ async function loadWorkspaceFresh(workspaceRoot: string): Promise<WorkspaceState
   const discovery = await refreshProjectDiscovery(loaded);
   const projects = resolveProjects(loaded, discovery);
   await flushLineCountCache(loaded.paths.cacheDir);
-  const validation = validateWorkspaceProjects(loaded, discovery, projects);
+  const validation = validateWorkspaceProjects(discovery, projects);
   return { loaded, discovery, projects, validation };
 }
 
@@ -439,9 +421,7 @@ export async function projectConfigPlan(
   changes: ProjectConfigChanges,
   options: { force?: boolean } = {},
 ) {
-  return createWorkspaceProjectConfigPlan(workspaceRoot, projectId, changes, options).then(
-    ({ plan }) => plan,
-  );
+  return createWorkspaceProjectConfigPlan(workspaceRoot, projectId, changes, options);
 }
 
 export async function applyProjectConfig(
@@ -450,12 +430,7 @@ export async function applyProjectConfig(
   changes: ProjectConfigChanges,
   options: { force?: boolean } = {},
 ) {
-  const { plan } = await createWorkspaceProjectConfigPlan(
-    workspaceRoot,
-    projectId,
-    changes,
-    options,
-  );
+  const plan = await createWorkspaceProjectConfigPlan(workspaceRoot, projectId, changes, options);
   return applyTrackedProjectConfigPlan(workspaceRoot, plan);
 }
 
@@ -486,15 +461,15 @@ export async function addProject(
 function projectConfigChangesFromInput(
   input: ProjectConfigChanges & { id?: string; name?: string },
 ): ProjectConfigChanges {
-  return {
-    ...(input.source === undefined ? {} : { source: input.source }),
-    ...(input.repo === undefined ? {} : { repo: input.repo }),
-    ...(input.group === undefined ? {} : { group: input.group }),
-    ...(input.state === undefined ? {} : { state: input.state }),
-    ...(input.tags === undefined ? {} : { tags: input.tags }),
-    ...(input.learning === undefined ? {} : { learning: input.learning }),
-    ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
-  };
+  return definedProperties({
+    source: input.source,
+    repo: input.repo,
+    group: input.group,
+    state: input.state,
+    tags: input.tags,
+    learning: input.learning,
+    pinned: input.pinned,
+  });
 }
 
 export async function removeProject(workspaceRoot: string, projectId: string) {
@@ -689,7 +664,7 @@ export async function validation(
   const loaded = await loadConfig(workspaceRoot);
   const discovery = await refreshProjectDiscovery(loaded);
   const projects = resolveProjects(loaded, discovery);
-  return validateWorkspaceProjects(loaded, discovery, projects, options);
+  return validateWorkspaceProjects(discovery, projects, options);
 }
 
 export async function projectDiscoveryRefresh(workspaceRoot: string) {
@@ -814,9 +789,12 @@ async function createWorkspaceProjectConfigPlan(
   const configId = projectConfigId(state.loaded, target);
   const plan = {
     ...createProjectConfigPlan(state.loaded, configId, changes, target, options),
-    validation: validateProjectedWorkspace(state, target, changes),
+    validation: validateWorkspaceProjects(
+      state.discovery,
+      projectConfigProjection(state.loaded, state.projects, target, changes),
+    ),
   };
-  return { state, plan };
+  return plan;
 }
 
 function projectConfigProjection(
@@ -866,14 +844,13 @@ function withoutArchiveEvidence(project: Project): Project {
 }
 
 function validateWorkspaceProjects(
-  loaded: LoadedConfig,
   discovery: ProjectDiscovery,
   projects: Project[],
   options: { strict?: boolean } = {},
 ): ValidationResult {
   return validateProjects(projects, {
     ...options,
-    ...validationOptions(loaded, discovery, projects),
+    hostedClonePathMismatches: hostedClonePathMismatches(discovery, projects),
   });
 }
 
@@ -895,25 +872,6 @@ function validateConfigToml(toml: string): ValidationResult {
   }
 }
 
-function validateProjectedWorkspace(
-  state: WorkspaceState,
-  target: Project,
-  changes: ProjectConfigChanges,
-): ValidationResult {
-  const projected = projectConfigProjection(state.loaded, state.projects, target, changes);
-  return validateProjects(projected, validationOptions(state.loaded, state.discovery, projected));
-}
-
-function validationOptions(
-  _loaded: LoadedConfig,
-  discovery: ProjectDiscovery,
-  projects: readonly Project[],
-) {
-  return {
-    hostedClonePathMismatches: hostedClonePathMismatches(discovery, projects),
-  };
-}
-
 function hostedClonePathMismatches(
   discovery: ProjectDiscovery,
   projects: readonly Project[],
@@ -929,11 +887,6 @@ function hostedClonePathMismatches(
     })
     .filter((mismatch): mismatch is HostedClonePathMismatch => mismatch !== undefined)
     .sort((a, b) => a.projectId.localeCompare(b.projectId));
-}
-
-function pathIsInside(base: string, path: string) {
-  const offset = relative(base, path);
-  return offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset);
 }
 
 function isWorkspaceFile(workspaceRoot: string, path: string): boolean {
@@ -970,16 +923,6 @@ async function assertCanonicalMoveInsideWorkspace(
   }
 }
 
-function nearestExistingAncestor(path: string): string {
-  let current = path;
-  while (!existsSync(current)) {
-    const parent = dirname(current);
-    if (parent === current) return current;
-    current = parent;
-  }
-  return current;
-}
-
 function projectConfigId(loaded: LoadedConfig, project: Project): string {
   const existing = Object.entries(loaded.config.project).find(([id, config]) => {
     if (project.source !== config.source) return false;
@@ -1014,7 +957,7 @@ function applyValidationIssuesToUpPlan(
   });
   for (const [projectId, issues] of byProjectId) {
     if (seen.has(projectId)) continue;
-    const project = issuesProject(projects, projectId);
+    const project = projects.find((project) => project.id === projectId);
     if (project) items.push(validationUpItem({ project, action: "validate", reason: "" }, issues));
   }
   return {
@@ -1042,8 +985,4 @@ function validationUpItem(item: UpPlanItem, issues: readonly ValidationIssue[]):
     action: "validate",
     reason: issues.map((issue) => `${issue.code}: ${issue.message}`).join("; "),
   };
-}
-
-function issuesProject(projects: readonly Project[], projectId: string): Project | undefined {
-  return projects.find((project) => project.id === projectId);
 }

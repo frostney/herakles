@@ -14,6 +14,13 @@ import {
 } from "./shared/hooks";
 import { assets, classNames, ui } from "./shared/styles";
 
+const surfaces = [
+  { id: "projects", to: "/", label: "Projects", icon: Boxes },
+  { id: "pull-requests", to: "/pull-requests", label: "Pull Requests", icon: GitPullRequest },
+  { id: "workspace", to: "/workspace", label: "Workspace", icon: Workflow },
+  { id: "settings", to: "/settings", label: "Settings", icon: Settings },
+] as const;
+
 export function Shell() {
   const latestEvent = useEventStreamStatus();
   const theme = useWorkbenchTheme();
@@ -51,30 +58,17 @@ export function Shell() {
           </div>
         </div>
         <nav className={ui.nav} aria-label="Primary navigation">
-          <Link to="/" className={ui.navLink} activeProps={{ className: ui.navLinkActive }}>
-            <Boxes size={18} aria-hidden />
-            Projects
-          </Link>
-          <Link
-            to="/pull-requests"
-            className={ui.navLink}
-            activeProps={{ className: ui.navLinkActive }}
-          >
-            <GitPullRequest size={18} aria-hidden />
-            Pull Requests
-          </Link>
-          <Link
-            to="/workspace"
-            className={ui.navLink}
-            activeProps={{ className: ui.navLinkActive }}
-          >
-            <Workflow size={18} aria-hidden />
-            Workspace
-          </Link>
-          <Link to="/settings" className={ui.navLink} activeProps={{ className: ui.navLinkActive }}>
-            <Settings size={18} aria-hidden />
-            Settings
-          </Link>
+          {surfaces.map(({ id, to, label, icon: Icon }) => (
+            <Link
+              key={id}
+              to={to}
+              className={ui.navLink}
+              activeProps={{ className: ui.navLinkActive }}
+            >
+              <Icon size={18} aria-hidden />
+              {label}
+            </Link>
+          ))}
         </nav>
         <div className={ui.sidebarFooter}>
           <div className={ui.serverChip}>
@@ -132,7 +126,7 @@ export function Shell() {
   );
 }
 
-type PaletteRoute = "/" | "/pull-requests" | "/workspace" | "/settings";
+type PaletteRoute = (typeof surfaces)[number]["to"];
 
 function CommandPalette({
   projects,
@@ -148,42 +142,13 @@ function CommandPalette({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const commands: Array<{
-    id: string;
-    label: string;
-    meta: string;
-    icon: React.ReactNode;
-    run: () => void;
-  }> = [
-    {
-      id: "projects",
-      label: "Open Projects",
-      meta: "surface",
-      icon: <Boxes size={16} />,
-      run: () => onNavigate("/"),
-    },
-    {
-      id: "pull-requests",
-      label: "Open Pull Requests",
-      meta: "surface",
-      icon: <GitPullRequest size={16} />,
-      run: () => onNavigate("/pull-requests"),
-    },
-    {
-      id: "workspace",
-      label: "Open Workspace",
-      meta: "surface",
-      icon: <Workflow size={16} />,
-      run: () => onNavigate("/workspace"),
-    },
-    {
-      id: "settings",
-      label: "Open Settings",
-      meta: "surface",
-      icon: <Settings size={16} />,
-      run: () => onNavigate("/settings"),
-    },
-  ];
+  const commands = surfaces.map(({ id, to, label, icon: Icon }) => ({
+    id,
+    label: `Open ${label}`,
+    meta: "surface",
+    icon: <Icon size={16} />,
+    run: () => onNavigate(to),
+  }));
   const projectItems = projects.map((project) => ({
     id: `project:${project.id}`,
     label: projectName(project),
