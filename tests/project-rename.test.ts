@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
 import type { Project } from "../src/domain";
@@ -10,14 +9,13 @@ import {
   InvalidProjectRenameError,
   renameProjectWithRunner,
 } from "../src/project/rename";
+import { createTestWorkspace } from "./helpers/workspace";
 
 type Runner = Parameters<typeof createProjectRenamePlanWithRunner>[3];
 
 async function tempWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-rename-"));
-  await mkdir(join(root, "_herakles"), { recursive: true });
-  await writeFile(
-    join(root, "_herakles", "herakles.toml"),
+  return createTestWorkspace(
+    "herakles-rename-",
     `version = 2
 [github]
 owners = ["frostney"]
@@ -38,7 +36,6 @@ pinned = true
 source = "local"
 `,
   );
-  return root;
 }
 
 function hostedProject(root: string): Project {

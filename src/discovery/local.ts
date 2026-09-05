@@ -9,23 +9,10 @@ const ignoredDirectories = new Set(["_herakles", ".git", "node_modules"]);
 const lifecycleFolderSet = new Set<string>(lifecycleFolders);
 
 export async function scanLocalRepositories(root: string): Promise<LocalRepository[]> {
-  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
-  const repositories: LocalRepository[] = [];
-  for (const entry of entries) {
-    if (!isCandidateDirectory(entry)) continue;
-    const path = join(root, entry.name);
-    if (existsSync(join(path, ".git"))) {
-      repositories.push(await localRepository(entry.name, path));
-      continue;
-    }
-    if (lifecycleFolderSet.has(entry.name)) {
-      repositories.push(...(await scanLifecycleFolder(path)));
-    }
-  }
-  return repositories.sort((a, b) => a.name.localeCompare(b.name));
+  return (await scanDirectory(root, 0)).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function scanLifecycleFolder(path: string): Promise<LocalRepository[]> {
+async function scanDirectory(path: string, depth: number): Promise<LocalRepository[]> {
   const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
   const repositories: LocalRepository[] = [];
   for (const entry of entries) {
@@ -33,21 +20,8 @@ async function scanLifecycleFolder(path: string): Promise<LocalRepository[]> {
     const childPath = join(path, entry.name);
     if (existsSync(join(childPath, ".git"))) {
       repositories.push(await localRepository(entry.name, childPath));
-      continue;
-    }
-    const groupEntries = await readdir(childPath, { withFileTypes: true }).catch(() => []);
-    for (const groupEntry of groupEntries) {
-      if (
-        !groupEntry.isDirectory() ||
-        groupEntry.name.startsWith(".") ||
-        ignoredDirectories.has(groupEntry.name)
-      ) {
-        continue;
-      }
-      const groupRepoPath = join(childPath, groupEntry.name);
-      if (existsSync(join(groupRepoPath, ".git"))) {
-        repositories.push(await localRepository(groupEntry.name, groupRepoPath));
-      }
+    } else if (depth === 0 ? lifecycleFolderSet.has(entry.name) : depth < 2) {
+      repositories.push(...(await scanDirectory(childPath, depth + 1)));
     }
   }
   return repositories;

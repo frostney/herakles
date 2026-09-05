@@ -1,16 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCommand } from "../src/utils/command";
+import { createTestWorkspace } from "./helpers/workspace";
 
 const cliPath = join(import.meta.dir, "..", "src", "cli", "main.ts");
 
 async function tempWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-cli-"));
-  await mkdir(join(root, "_herakles"), { recursive: true });
-  await writeFile(
-    join(root, "_herakles", "herakles.toml"),
+  return createTestWorkspace(
+    "herakles-cli-",
     `version = 2
 
 [github]
@@ -21,7 +20,6 @@ source = "local"
 state = "open-source"
 `,
   );
-  return root;
 }
 
 async function runCli(cwd: string, args: string[]) {

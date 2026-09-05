@@ -76,7 +76,6 @@ type LineCountCacheFile = {
 type DiskCacheState = {
   cache: LineCountCacheFile;
   dirty: boolean;
-  loaded: boolean;
   revision: number;
   /** Serializes flushes for this cache file so concurrent callers cannot overwrite a newer revision. */
   flushPromise?: Promise<void> | undefined;
@@ -243,32 +242,17 @@ function countFile(path: string, totals: ProjectLineCounts) {
 
 function isSourceLine(line: string): boolean {
   const trimmed = line.trim();
-  if (!trimmed) return false;
-  if (
-    trimmed.startsWith("//") ||
-    trimmed.startsWith("#") ||
-    trimmed.startsWith("--") ||
-    trimmed.startsWith(";") ||
-    trimmed.startsWith("/*") ||
-    trimmed.startsWith("*") ||
-    trimmed.startsWith("*/") ||
-    trimmed.startsWith("<!--") ||
-    trimmed.startsWith("-->")
-  ) {
-    return false;
-  }
-  return true;
+  return trimmed.length > 0 && !/^(?:\/\/|#|--|;|\/\*|\*|<!--)/.test(trimmed);
 }
 
 function ensureDiskCache(cacheDir: string): DiskCacheState {
   const path = cacheFilePath(cacheDir);
   const existing = diskCaches.get(path);
-  if (existing?.loaded) return existing;
+  if (existing) return existing;
 
   const state: DiskCacheState = {
     cache: { version: 1, projects: {} },
     dirty: false,
-    loaded: true,
     revision: 0,
   };
   if (existsSync(path)) {

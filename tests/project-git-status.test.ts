@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import type { Project } from "../src/domain";
 import { readDefaultBranchBehind, syncDefaultBranch } from "../src/project/gitStatus";
+import { withEnvironment } from "./helpers/environment";
 
 function project(path: string): Project {
   return {
@@ -94,14 +95,6 @@ async function withFakeGit(
 ) {
   const bin = await mkdtemp(join(tmpdir(), "herakles-fake-git-status-"));
   const logPath = join(bin, "git.log");
-  const previousPath = process.env.PATH;
-  const previousLog = process.env.HERAKLES_GIT_LOG;
-  const previousBehind = process.env.HERAKLES_GIT_BEHIND;
-  const previousBranch = process.env.HERAKLES_GIT_BRANCH;
-  const previousStatus = process.env.HERAKLES_GIT_STATUS;
-  const previousFastForwardExit = process.env.HERAKLES_GIT_FF_EXIT;
-  const previousFetchExit = process.env.HERAKLES_GIT_FETCH_EXIT;
-  const previousFetchError = process.env.HERAKLES_GIT_FETCH_ERROR;
   await writeFile(
     join(bin, "git"),
     `#!/bin/sh
@@ -129,32 +122,17 @@ exit 1
 `,
   );
   await chmod(join(bin, "git"), 0o755);
-  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
-  process.env.HERAKLES_GIT_LOG = logPath;
-  process.env.HERAKLES_GIT_BEHIND = options.behind;
-  process.env.HERAKLES_GIT_BRANCH = options.currentBranch ?? "main";
-  process.env.HERAKLES_GIT_STATUS = options.status ?? "";
-  process.env.HERAKLES_GIT_FF_EXIT = options.fastForwardExit ?? "0";
-  process.env.HERAKLES_GIT_FETCH_EXIT = options.fetchExit ?? "0";
-  process.env.HERAKLES_GIT_FETCH_ERROR = options.fetchError ?? "";
-  try {
-    await run(logPath);
-  } finally {
-    process.env.PATH = previousPath;
-    restoreEnv("HERAKLES_GIT_LOG", previousLog);
-    restoreEnv("HERAKLES_GIT_BEHIND", previousBehind);
-    restoreEnv("HERAKLES_GIT_BRANCH", previousBranch);
-    restoreEnv("HERAKLES_GIT_STATUS", previousStatus);
-    restoreEnv("HERAKLES_GIT_FF_EXIT", previousFastForwardExit);
-    restoreEnv("HERAKLES_GIT_FETCH_EXIT", previousFetchExit);
-    restoreEnv("HERAKLES_GIT_FETCH_ERROR", previousFetchError);
-  }
-}
-
-function restoreEnv(key: string, value: string | undefined) {
-  if (value === undefined) {
-    delete process.env[key];
-    return;
-  }
-  process.env[key] = value;
+  await withEnvironment(
+    {
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      HERAKLES_GIT_LOG: logPath,
+      HERAKLES_GIT_BEHIND: options.behind,
+      HERAKLES_GIT_BRANCH: options.currentBranch ?? "main",
+      HERAKLES_GIT_STATUS: options.status ?? "",
+      HERAKLES_GIT_FF_EXIT: options.fastForwardExit ?? "0",
+      HERAKLES_GIT_FETCH_EXIT: options.fetchExit ?? "0",
+      HERAKLES_GIT_FETCH_ERROR: options.fetchError ?? "",
+    },
+    () => run(logPath),
+  );
 }

@@ -7,18 +7,16 @@ import { projectConfigBodySchema, projectConfigChangesFromPayload } from "../src
 import { routeApi } from "../src/api/routes";
 import type { HeraklesEvent } from "../src/domain";
 import { fakeGhRepositoryJson, withFakeGhScript } from "./helpers/gh";
+import { createTestWorkspace } from "./helpers/workspace";
 
 async function tempWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-api-"));
-  await mkdir(join(root, "_herakles"), { recursive: true });
-  await writeFile(
-    join(root, "_herakles", "herakles.toml"),
+  return createTestWorkspace(
+    "herakles-api-",
     `version = 2
 [github]
 owners = []
 `,
   );
-  return root;
 }
 
 async function waitForFile(path: string) {
@@ -92,13 +90,6 @@ async function projectUpDryRun(workspaceRoot: string, projectId: string) {
     { workspaceRoot },
   );
   return { response, body: await response?.json() };
-}
-
-async function _withHostedPublicToolAndScratch(workspaceRoot: string, run: () => Promise<void>) {
-  await configureGithubOwner(workspaceRoot);
-  await addLocalGitProject(workspaceRoot, "scratch");
-  await trackHostedProject(workspaceRoot, "public-tool", "frostney/public-tool");
-  await withFakeGhRepo({ name: "public-tool" }, run);
 }
 
 async function withTrackedPublicTool(workspaceRoot: string, run: () => Promise<void>) {

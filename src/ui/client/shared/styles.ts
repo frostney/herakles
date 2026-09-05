@@ -1,26 +1,16 @@
-import cerberusArt from "../assets/cerberus.png" with { type: "file" };
-import columnArt from "../assets/column.png" with { type: "file" };
-import fleeceArt from "../assets/fleece.png" with { type: "file" };
 import heraklesHeroArt from "../assets/herakles-hero.png" with { type: "file" };
 import heraklesMascotArt from "../assets/herakles-mascot.png" with { type: "file" };
 import hydraArt from "../assets/hydra.png" with { type: "file" };
 import lionArt from "../assets/lion.png" with { type: "file" };
 import medusaHeadArt from "../assets/medusa-head.png" with { type: "file" };
 import owlArt from "../assets/owl.png" with { type: "file" };
-import wreathArt from "../assets/wreath.png" with { type: "file" };
-import yarnBallArt from "../assets/yarn-ball.png" with { type: "file" };
 export const assets = {
-  cerberus: cerberusArt,
-  column: columnArt,
-  fleece: fleeceArt,
   heraklesHero: heraklesHeroArt,
   heraklesMascot: heraklesMascotArt,
   hydra: hydraArt,
   lion: lionArt,
   medusaHead: medusaHeadArt,
   owl: owlArt,
-  wreath: wreathArt,
-  yarnBall: yarnBallArt,
 };
 
 export function classNames(...classes: Array<string | false | null | undefined>) {
@@ -79,21 +69,13 @@ export const ui = {
   panelHead:
     "mb-[var(--space-4)] flex items-center justify-between gap-[var(--space-3)] max-[820px]:flex-col max-[820px]:items-stretch",
   panelTitle: "m-0 font-display text-[var(--text-2xl)] font-bold text-[var(--text-strong)]",
-  card: "min-w-0 overflow-hidden rounded-[var(--radius-lg)] border-[1.5px] border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-[var(--lift-1)]",
-  cardHead:
-    "flex items-center justify-between gap-[var(--space-3)] border-b-[1.5px] border-dashed border-[var(--thread)] px-[var(--space-5)] py-[var(--space-4)] max-[820px]:flex-col max-[820px]:items-stretch",
-  cardTitle: "font-sans text-[var(--text-md)] font-semibold text-[var(--text-strong)]",
-  cardBody: "min-w-0 p-[var(--space-5)]",
-  cardBodyTight: "min-w-0 p-[var(--space-3)]",
   metrics: "flex flex-wrap items-start gap-x-[var(--space-10)] gap-y-[var(--space-5)]",
-  split: "grid grid-cols-[repeat(2,minmax(0,1fr))] gap-[var(--space-5)] max-[960px]:grid-cols-1",
   list: "grid gap-[var(--space-2)]",
   listRow:
     "flex min-w-0 items-center justify-between gap-[var(--space-3)] rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-[var(--space-3)] py-[var(--space-3)] shadow-[var(--lift-1)] max-[720px]:flex-col max-[720px]:items-stretch",
   listRowMain: "min-w-0 grid gap-1",
   listTitle: "font-sans text-[var(--text-sm)] font-semibold text-[var(--text-strong)]",
   muted: "text-[var(--text-muted)]",
-  faint: "text-[var(--text-faint)]",
   mono: "font-mono text-[var(--text-xs)] text-[var(--text-faint)]",
   link: "text-[var(--primary-hover)] underline decoration-[var(--primary-soft-border)] decoration-2 underline-offset-4 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)] focus:outline-none focus-visible:rounded-[var(--radius-xs)] focus-visible:shadow-[var(--ring)]",
   emptyText:

@@ -1,14 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { doctor } from "../src/app";
+import { createTestWorkspace } from "./helpers/workspace";
 
 async function tempWorkspace() {
-  const root = await mkdtemp(join(tmpdir(), "herakles-doctor-"));
-  await mkdir(join(root, "_herakles"), { recursive: true });
-  await writeFile(
-    join(root, "_herakles", "herakles.toml"),
+  const root = await createTestWorkspace(
+    "herakles-doctor-",
     `version = 2
 [github]
 owners = []

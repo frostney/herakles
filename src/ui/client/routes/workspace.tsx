@@ -22,7 +22,7 @@ import {
   ValidationResultPanel,
   VisualBanner,
 } from "../shared/components";
-import { useRefreshOnEvents, useResource } from "../shared/hooks";
+import { useAction, useRefreshOnEvents, useResource } from "../shared/hooks";
 import { assets, feedbackToneClass, ui } from "../shared/styles";
 import { shouldScaffoldFromConfiguration, workspaceDriftItems } from "../upPlanPresentation";
 
@@ -31,9 +31,7 @@ export function WorkspaceScreen() {
   const [upPlan, refreshUpPlan] = useResource(getUpPlan);
   const [doctor, refreshDoctor] = useResource(getDoctor);
   const [upResult, setUpResult] = useState<UpRunResult>();
-  const [message, setMessage] = useState("");
-  const [messageKind, setMessageKind] = useState<"success" | "error">("success");
-  const [busy, setBusy] = useState(false);
+  const { busy, message, setMessage, runAction } = useAction();
   useRefreshOnEvents(refreshStatus, [
     "projects-refresh-finished",
     "up-finished",
@@ -50,21 +48,16 @@ export function WorkspaceScreen() {
     "validation-updated",
   ]);
   const runUp = async (dryRun: boolean) => {
-    setBusy(true);
-    setMessage("");
-    try {
+    await runAction(async () => {
       setUpResult(await postUp({ dryRun }));
       refreshStatus();
       refreshUpPlan();
       refreshDoctor();
-      setMessageKind("success");
-      setMessage(dryRun ? "Workspace dry run complete." : "Workspace sync complete.");
-    } catch (error) {
-      setMessageKind("error");
-      setMessage(String(error));
-    } finally {
-      setBusy(false);
-    }
+      setMessage({
+        kind: "success",
+        text: dryRun ? "Workspace dry run complete." : "Workspace sync complete.",
+      });
+    });
   };
   return (
     <Screen
@@ -91,7 +84,7 @@ export function WorkspaceScreen() {
         </>
       }
     >
-      {message && <p className={feedbackToneClass(messageKind)}>{message}</p>}
+      {message.text && <p className={feedbackToneClass(message.kind)}>{message.text}</p>}
       {status.status === "ready" && <WorkspaceHealthBanner status={status.data} />}
       <div className={ui.metrics}>
         {status.status === "ready" ? (

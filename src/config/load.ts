@@ -15,32 +15,17 @@ export type LoadedConfig = {
   };
 };
 
-async function readToml(path: string): Promise<{
-  config: Record<string, unknown>;
-  rawToml: string;
-}> {
-  const content = await readFile(path, "utf8");
-  return {
-    config: TOML.parse(content) as Record<string, unknown>,
-    rawToml: content,
-  };
-}
-
 export async function loadConfig(workspaceRoot: string): Promise<LoadedConfig> {
   const paths = resolveWorkspacePaths(workspaceRoot);
   if (!existsSync(paths.syncedConfigPath)) {
     throw HeraklesWorkspaceNotFoundError.at(paths.workspaceRoot);
   }
-  const synced = await readToml(paths.syncedConfigPath);
-  const config = heraklesConfigSchema.parse(synced.config);
-  const source: LoadedConfig["source"] = {
-    syncedConfigPath: paths.syncedConfigPath,
-  };
+  const rawToml = await readFile(paths.syncedConfigPath, "utf8");
   return {
-    config,
-    rawToml: synced.rawToml,
+    config: heraklesConfigSchema.parse(TOML.parse(rawToml)),
+    rawToml,
     paths,
-    source,
+    source: { syncedConfigPath: paths.syncedConfigPath },
   };
 }
 

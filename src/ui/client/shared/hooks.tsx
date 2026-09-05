@@ -83,3 +83,23 @@ export function useWorkbenchTheme() {
   };
   return { cycle, preference };
 }
+
+export function useAction(formatError: (error: unknown) => string = String) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string }>({
+    kind: "success",
+    text: "",
+  });
+  const runAction = async (action: () => Promise<void>) => {
+    setBusy(true);
+    setMessage({ kind: "success", text: "" });
+    try {
+      await action();
+    } catch (error) {
+      setMessage({ kind: "error", text: formatError(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, message, setMessage, runAction };
+}

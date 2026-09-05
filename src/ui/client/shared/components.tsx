@@ -102,8 +102,6 @@ export function Modal({
   title,
   children,
   onClose,
-  closeOnBackdrop = false,
-  stateful = true,
   icon,
   size = "lg",
   designSystem = false,
@@ -113,109 +111,83 @@ export function Modal({
   title: string;
   children: React.ReactNode;
   onClose: () => void;
-  closeOnBackdrop?: boolean;
-  stateful?: boolean;
   icon?: React.ReactNode;
-  size?: "md" | "lg" | "xl";
+  size?: "lg" | "xl";
   designSystem?: boolean;
   footer?: React.ReactNode;
   scrollBody?: boolean;
 }) {
-  const dialogRef = useRef<HTMLElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = `modal-title-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  useModalFocus(dialogRef, onClose, !stateful);
-  if (designSystem) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[rgba(8,6,4,0.66)] p-[var(--space-6)] backdrop-blur-[3px] max-[720px]:p-[var(--space-3)]">
-        <button
-          type="button"
-          className="absolute inset-0 cursor-default"
-          aria-label="Close"
-          onClick={() => {
-            if (closeOnBackdrop) onClose();
-          }}
-        />
-        <dialog
-          ref={(node) => {
-            dialogRef.current = node;
-          }}
-          className={classNames(
-            "relative z-10 m-0 grid max-h-[calc(100dvh-var(--space-12))] w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-0 text-[var(--text-body)] shadow-[var(--shadow-xl)] max-[720px]:max-h-[calc(100dvh-var(--space-6))]",
-            size === "md" && "max-w-[460px]",
-            size === "lg" && "max-w-[640px]",
-            size === "xl" && "max-w-[760px]",
-          )}
-          open
-          aria-modal="true"
-          aria-labelledby={titleId}
-          tabIndex={-1}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-[var(--space-3)] px-[var(--space-6)] pt-[var(--space-5)] max-[720px]:px-[var(--space-4)]">
-            {icon ? (
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] border-[1.5px] border-[var(--primary-soft-border)] bg-[var(--primary-soft)] text-[var(--primary-hover)] shadow-[0_3px_0_var(--lift-edge)]">
-                {icon}
-              </span>
-            ) : null}
-            <h2
-              id={titleId}
-              className="m-0 font-display text-[var(--text-4xl)] leading-none font-bold text-[var(--text-strong)]"
-            >
-              {title}
-            </h2>
-            <span>
-              <IconButton label={`Close ${title}`} icon={<X size={17} />} onClick={onClose} />
-            </span>
-          </div>
-          <div
-            className={classNames(
-              "min-h-0 min-w-0 px-[var(--space-6)] pb-[var(--space-5)] pt-[var(--space-3)] max-[720px]:px-[var(--space-4)]",
-              Boolean(icon) && "pl-[calc(var(--space-6)+52px)] max-[720px]:pl-[var(--space-4)]",
-              scrollBody && "max-h-[56vh] overflow-y-auto",
-            )}
-          >
-            {children}
-          </div>
-          {footer ? (
-            <div className="flex flex-wrap items-center justify-end gap-[var(--space-2)] border-t border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-[var(--space-6)] py-[var(--space-4)] max-[720px]:px-[var(--space-4)]">
-              {footer}
-            </div>
-          ) : null}
-        </dialog>
-      </div>
-    );
-  }
+  useModalFocus(dialogRef, onClose, false);
+  const close = <IconButton label={`Close ${title}`} icon={<X size={17} />} onClick={onClose} />;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[rgba(8,6,4,0.66)] p-[var(--space-5)] backdrop-blur-[3px]">
-      <button
-        type="button"
-        className="absolute inset-0 cursor-default"
-        aria-label="Close"
-        onClick={() => {
-          if (closeOnBackdrop) onClose();
-        }}
-      />
+    <div
+      className={
+        designSystem
+          ? "fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[rgba(8,6,4,0.66)] p-[var(--space-6)] backdrop-blur-[3px] max-[720px]:p-[var(--space-3)]"
+          : "fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[rgba(8,6,4,0.66)] p-[var(--space-5)] backdrop-blur-[3px]"
+      }
+    >
+      <button type="button" className="absolute inset-0 cursor-default" aria-label="Close" />
       <dialog
-        ref={(node) => {
-          dialogRef.current = node;
-        }}
-        className="relative z-10 m-0 grid max-h-[calc(100dvh-var(--space-10))] w-full max-w-[760px] gap-[var(--space-4)] overflow-auto rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-[var(--space-5)] text-[var(--text-body)] shadow-[var(--shadow-xl)]"
+        ref={dialogRef}
+        className={
+          designSystem
+            ? classNames(
+                "relative z-10 m-0 grid max-h-[calc(100dvh-var(--space-12))] w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-0 text-[var(--text-body)] shadow-[var(--shadow-xl)] max-[720px]:max-h-[calc(100dvh-var(--space-6))]",
+                size === "lg" ? "max-w-[640px]" : "max-w-[760px]",
+              )
+            : "relative z-10 m-0 grid max-h-[calc(100dvh-var(--space-10))] w-full max-w-[760px] gap-[var(--space-4)] overflow-auto rounded-[var(--radius-xl)] border-2 border-[var(--border-strong)] bg-[var(--surface-overlay)] p-[var(--space-5)] text-[var(--text-body)] shadow-[var(--shadow-xl)]"
+        }
         open
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-[var(--space-3)]">
+        <div
+          className={
+            designSystem
+              ? "grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-[var(--space-3)] px-[var(--space-6)] pt-[var(--space-5)] max-[720px]:px-[var(--space-4)]"
+              : "flex items-center justify-between gap-[var(--space-3)]"
+          }
+        >
+          {designSystem && icon ? (
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] border-[1.5px] border-[var(--primary-soft-border)] bg-[var(--primary-soft)] text-[var(--primary-hover)] shadow-[0_3px_0_var(--lift-edge)]">
+              {icon}
+            </span>
+          ) : null}
+
           <h2
             id={titleId}
             className="m-0 font-display text-[var(--text-4xl)] leading-none font-bold text-[var(--text-strong)]"
           >
             {title}
           </h2>
-          <IconButton label={`Close ${title}`} icon={<X size={17} />} onClick={onClose} />
+
+          {designSystem ? <span>{close}</span> : close}
         </div>
-        {children}
+        {designSystem ? (
+          <>
+            <div
+              className={classNames(
+                "min-h-0 min-w-0 px-[var(--space-6)] pb-[var(--space-5)] pt-[var(--space-3)] max-[720px]:px-[var(--space-4)]",
+                Boolean(icon) && "pl-[calc(var(--space-6)+52px)] max-[720px]:pl-[var(--space-4)]",
+                scrollBody && "max-h-[56vh] overflow-y-auto",
+              )}
+            >
+              {children}
+            </div>
+            {footer ? (
+              <div className="flex flex-wrap items-center justify-end gap-[var(--space-2)] border-t border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-[var(--space-6)] py-[var(--space-4)] max-[720px]:px-[var(--space-4)]">
+                {footer}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          children
+        )}
       </dialog>
     </div>
   );
@@ -629,5 +601,14 @@ export function IconButton({
     >
       {icon}
     </button>
+  );
+}
+
+export function TextField({ label, ...input }: { label: string } & React.ComponentProps<"input">) {
+  return (
+    <label className={ui.label}>
+      <span className={ui.labelText}>{label}</span>
+      <input className={ui.input} {...input} />
+    </label>
   );
 }

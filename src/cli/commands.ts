@@ -5,7 +5,8 @@ import * as app from "../app";
 import { initConfig } from "../config/init";
 import { selectHeraklesWorkspace } from "../config/workspace";
 import type { ProjectRenamePlan, ProjectRenameResult, ProjectState } from "../domain";
-import { startUiServer } from "../ui/server/server";
+import { startUiCommand, type UiFlags } from "../ui/server/command";
+import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
 import { printJson, printTable } from "./output";
 
 type CommonFlags = {
@@ -14,18 +15,8 @@ type CommonFlags = {
 };
 
 const commonFlags = {
-  root: {
-    kind: "parsed",
-    parse: String,
-    optional: true,
-    brief: "Workspace root containing _herakles/herakles.toml.",
-    placeholder: "path",
-  },
-  json: {
-    kind: "boolean",
-    optional: true,
-    brief: "Print JSON output.",
-  },
+  root: optionalFlag(String, "Workspace root containing _herakles/herakles.toml.", "path"),
+  json: booleanFlag("Print JSON output."),
 } as const;
 
 const numberParser = (value: string) => {
@@ -34,12 +25,6 @@ const numberParser = (value: string) => {
     throw new Error(`Expected a number, received: ${value}`);
   }
   return parsed;
-};
-
-const looseBooleanParser = (value: string) => {
-  if (["1", "true", "yes", "on"].includes(value.toLowerCase())) return true;
-  if (["0", "false", "no", "off"].includes(value.toLowerCase())) return false;
-  throw new Error(`Expected a boolean, received: ${value}`);
 };
 
 function root(flags: CommonFlags) {
@@ -204,35 +189,18 @@ function buildAddProjectInput(input: {
   state: ProjectState | undefined;
   tags: string[] | undefined;
 }) {
+  const common = commonProjectOptions(input);
   return input.source === "github"
-    ? buildGitHubAddProjectInput(input)
-    : buildLocalAddProjectInput(input);
-}
-
-function buildGitHubAddProjectInput(input: {
-  repo: string | undefined;
-  group: string | undefined;
-  state: ProjectState | undefined;
-  tags: string[] | undefined;
-}) {
-  return {
-    source: "github" as const,
-    repo: requireProjectValue(input.repo, "GitHub repo is required."),
-    ...commonProjectOptions(input),
-  };
-}
-
-function buildLocalAddProjectInput(input: {
-  name: string | undefined;
-  group: string | undefined;
-  state: ProjectState | undefined;
-  tags: string[] | undefined;
-}) {
-  return {
-    source: "local" as const,
-    name: requireProjectValue(input.name, "Local project name is required."),
-    ...commonProjectOptions(input),
-  };
+    ? {
+        source: "github" as const,
+        repo: requireProjectValue(input.repo, "GitHub repo is required."),
+        ...common,
+      }
+    : {
+        source: "local" as const,
+        name: requireProjectValue(input.name, "Local project name is required."),
+        ...common,
+      };
 }
 
 function commonProjectOptions(input: {
@@ -272,48 +240,14 @@ const addProjectCommand = buildCommand<
   parameters: {
     flags: {
       ...commonFlags,
-      source: {
-        kind: "parsed",
-        parse: projectSourceParser,
-        optional: true,
-        brief: "Project source.",
-        placeholder: "github|local",
-      },
-      repo: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Hosted repository as owner/name.",
-        placeholder: "owner/name",
-      },
-      name: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Local project name.",
-        placeholder: "name",
-      },
-      group: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Optional project group inside the lifecycle folder.",
-        placeholder: "group",
-      },
-      state: {
-        kind: "parsed",
-        parse: projectStateParser,
-        optional: true,
-        brief: "Lifecycle state.",
-        placeholder: "state",
-      },
+      source: optionalFlag(projectSourceParser, "Project source.", "github|local"),
+      repo: optionalFlag(String, "Hosted repository as owner/name.", "owner/name"),
+      name: optionalFlag(String, "Local project name.", "name"),
+      group: optionalFlag(String, "Optional project group inside the lifecycle folder.", "group"),
+      state: optionalFlag(projectStateParser, "Lifecycle state.", "state"),
       tag: {
-        kind: "parsed",
-        parse: String,
+        ...optionalFlag(String, "Project tag. Repeat for multiple tags.", "tag"),
         variadic: true,
-        optional: true,
-        brief: "Project tag. Repeat for multiple tags.",
-        placeholder: "tag",
       },
     },
   },
@@ -336,11 +270,7 @@ const removeProjectCommand = buildCommand<CommonFlags & { yes?: boolean }, [stri
   parameters: {
     flags: {
       ...commonFlags,
-      yes: {
-        kind: "boolean",
-        optional: true,
-        brief: "Skip confirmation.",
-      },
+      yes: booleanFlag("Skip confirmation."),
     },
     positional: {
       kind: "tuple",
@@ -373,34 +303,26 @@ const projectsImportCommand = buildCommand<
     flags: {
       ...commonFlags,
       repo: {
-        kind: "parsed",
-        parse: String,
+        ...optionalFlag(
+          String,
+          "Hosted repository as owner/name. Repeat for multiple repositories.",
+          "owner/name",
+        ),
         variadic: true,
-        optional: true,
-        brief: "Hosted repository as owner/name. Repeat for multiple repositories.",
-        placeholder: "owner/name",
       },
-      state: {
-        kind: "parsed",
-        parse: projectStateParser,
-        optional: true,
-        brief: "Lifecycle state to apply to every imported project.",
-        placeholder: "state",
-      },
-      group: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "Project group to apply to imported projects.",
-        placeholder: "group",
-      },
+      state: optionalFlag(
+        projectStateParser,
+        "Lifecycle state to apply to every imported project.",
+        "state",
+      ),
+      group: optionalFlag(String, "Project group to apply to imported projects.", "group"),
       tag: {
-        kind: "parsed",
-        parse: String,
+        ...optionalFlag(
+          String,
+          "Project tag to apply to imported projects. Repeat for multiple tags.",
+          "tag",
+        ),
         variadic: true,
-        optional: true,
-        brief: "Project tag to apply to imported projects. Repeat for multiple tags.",
-        placeholder: "tag",
       },
     },
   },
@@ -438,16 +360,8 @@ const repoSetStateCommand = buildCommand<
   parameters: {
     flags: {
       ...commonFlags,
-      dryRun: {
-        kind: "boolean",
-        optional: true,
-        brief: "Print the project config plan without changing synced config.",
-      },
-      force: {
-        kind: "boolean",
-        optional: true,
-        brief: "Allow an unusual lifecycle transition.",
-      },
+      dryRun: booleanFlag("Print the project config plan without changing synced config."),
+      force: booleanFlag("Allow an unusual lifecycle transition."),
     },
     positional: {
       kind: "tuple",
@@ -479,11 +393,7 @@ const repoArchiveCommand = buildCommand<
         brief: "Learning file path relative to the project.",
         placeholder: "path",
       },
-      dryRun: {
-        kind: "boolean",
-        optional: true,
-        brief: "Print the project config plan without changing synced config.",
-      },
+      dryRun: booleanFlag("Print the project config plan without changing synced config."),
     },
     positional: {
       kind: "tuple",
@@ -511,11 +421,7 @@ const projectRenameCommand = buildCommand<CommonFlags & { apply?: boolean }, [st
   parameters: {
     flags: {
       ...commonFlags,
-      apply: {
-        kind: "boolean",
-        optional: true,
-        brief: "Apply the validated GitHub, local checkout, and config rename plan.",
-      },
+      apply: booleanFlag("Apply the validated GitHub, local checkout, and config rename plan."),
     },
     positional: {
       kind: "tuple",
@@ -571,32 +477,10 @@ const projectPromoteCommand = buildCommand<
   parameters: {
     flags: {
       ...commonFlags,
-      apply: {
-        kind: "boolean",
-        optional: true,
-        brief: "Run the planned GitHub repository creation command.",
-      },
-      owner: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "GitHub owner for the promoted repository.",
-        placeholder: "owner",
-      },
-      repo: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "GitHub repository name.",
-        placeholder: "repo",
-      },
-      visibility: {
-        kind: "parsed",
-        parse: visibilityParser,
-        optional: true,
-        brief: "Hosted repository visibility.",
-        placeholder: "public|private",
-      },
+      apply: booleanFlag("Run the planned GitHub repository creation command."),
+      owner: optionalFlag(String, "GitHub owner for the promoted repository.", "owner"),
+      repo: optionalFlag(String, "GitHub repository name.", "repo"),
+      visibility: optionalFlag(visibilityParser, "Hosted repository visibility.", "public|private"),
     },
     positional: {
       kind: "tuple",
@@ -625,11 +509,7 @@ const validateCommand = buildCommand<CommonFlags & { strict?: boolean }>({
   parameters: {
     flags: {
       ...commonFlags,
-      strict: {
-        kind: "boolean",
-        optional: true,
-        brief: "Treat warnings that need cloned local evidence as errors.",
-      },
+      strict: booleanFlag("Treat warnings that need cloned local evidence as errors."),
     },
   },
   async func(flags) {
@@ -673,11 +553,7 @@ const upCommand = buildCommand<CommonFlags & { dryRun?: boolean }>({
   parameters: {
     flags: {
       ...commonFlags,
-      dryRun: {
-        kind: "boolean",
-        optional: true,
-        brief: "Explain workspace actions without running git.",
-      },
+      dryRun: booleanFlag("Explain workspace actions without running git."),
     },
   },
   async func(flags) {
@@ -703,53 +579,19 @@ const doctorCommand = buildCommand<CommonFlags>({
   },
 });
 
-const uiCommand = buildCommand<{
-  root?: string;
-  host?: string;
-  port?: number;
-  open?: boolean;
-  noOpen?: boolean;
-}>({
+const uiCommand = buildCommand<UiFlags>({
   docs: { brief: "Start the local Herakles browser UI." },
   parameters: {
     flags: {
       root: commonFlags.root,
-      host: {
-        kind: "parsed",
-        parse: String,
-        optional: true,
-        brief: "UI host.",
-        placeholder: "host",
-      },
-      port: {
-        kind: "parsed",
-        parse: numberParser,
-        optional: true,
-        brief: "UI port.",
-        placeholder: "port",
-      },
-      open: {
-        kind: "parsed",
-        parse: looseBooleanParser,
-        optional: true,
-        brief: "Open the UI in a browser.",
-        placeholder: "boolean",
-      },
-      noOpen: {
-        kind: "boolean",
-        optional: true,
-        brief: "Do not open the UI in a browser.",
-      },
+      host: optionalFlag(String, "UI host.", "host"),
+      port: optionalFlag(numberParser, "UI port.", "port"),
+      open: optionalFlag(looseBooleanParser, "Open the UI in a browser.", "boolean"),
+      noOpen: booleanFlag("Do not open the UI in a browser."),
     },
   },
   async func(flags) {
-    const openBrowser = flags.noOpen === true ? false : flags.open;
-    await startUiServer({
-      workspaceRoot: root(flags),
-      ...(flags.host === undefined ? {} : { host: flags.host }),
-      ...(flags.port === undefined ? {} : { port: flags.port }),
-      ...(openBrowser === undefined ? {} : { openBrowser }),
-    });
+    await startUiCommand(flags);
   },
 });
 

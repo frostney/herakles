@@ -1,5 +1,6 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export const lifecycleFolders = [
   "experiment",
@@ -50,9 +51,23 @@ export function resolveInside(base: string, relativePath: string): string {
   }
   const root = resolve(base);
   const target = resolve(root, relativePath);
-  const offset = relative(root, target);
-  if (offset === ".." || offset.startsWith(`..${sep}`) || isAbsolute(offset)) {
+  if (!pathIsInside(root, target)) {
     throw new Error(`Path escapes ${root}: ${relativePath}`);
   }
   return target;
+}
+
+export function nearestExistingAncestor(path: string): string {
+  let current = path;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+  return current;
+}
+
+export function pathIsInside(base: string, path: string): boolean {
+  const offset = relative(base, path);
+  return offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset);
 }

@@ -7,6 +7,7 @@ import type {
   PullRequestSummary,
 } from "../domain";
 import { runCommand } from "../utils/command";
+import { definedProperties } from "../utils/definedProperties";
 
 type Runner = typeof runCommand;
 
@@ -217,19 +218,13 @@ function enrichRepositoryCounts(normalized: GitHubRepository, repo: GhRepo) {
   }
 }
 
-export async function listGitHubRepositories(config: HeraklesConfig): Promise<GitHubRepository[]> {
-  return listGitHubRepositoriesWithRunner(config, runCommand);
-}
+export const listGitHubRepositoriesWithRunner = listGitHubRepositories;
+
+export const listImportableGitHubRepositoriesWithRunner = listImportableGitHubRepositories;
 
 export async function listImportableGitHubRepositories(
   config: HeraklesConfig,
-): Promise<GitHubRepository[]> {
-  return listImportableGitHubRepositoriesWithRunner(config, runCommand);
-}
-
-export async function listImportableGitHubRepositoriesWithRunner(
-  config: HeraklesConfig,
-  runner: Runner,
+  runner: Runner = runCommand,
 ): Promise<GitHubRepository[]> {
   return listGitHubRepositoriesWithRunner(config, runner, {
     enrichProjectMetrics: false,
@@ -239,17 +234,11 @@ export async function listImportableGitHubRepositoriesWithRunner(
   });
 }
 
+export const listOpenPullRequestsForRepoWithRunner = listOpenPullRequestsForRepo;
+
 export async function listOpenPullRequestsForRepo(
   repo: string,
-): Promise<
-  Array<Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState">>
-> {
-  return listOpenPullRequestsForRepoWithRunner(repo, runCommand);
-}
-
-export async function listOpenPullRequestsForRepoWithRunner(
-  repo: string,
-  runner: Runner,
+  runner: Runner = runCommand,
 ): Promise<
   Array<Omit<PullRequestSummary, "projectId" | "projectPinned" | "projectSlug" | "projectState">>
 > {
@@ -320,22 +309,22 @@ async function enrichRestPullRequest(
   }
   const [reviews, statusChecks, checkRuns] = await Promise.all([
     readRestReviews(repoPath, pullRequest.number, runner),
-    readRestStatusChecks(repoPath, headSha, runner),
-    readRestCheckRuns(repoPath, headSha, runner),
+    readRestChecks(repoPath, headSha, "statuses", runner),
+    readRestChecks(repoPath, headSha, "check_runs", runner),
   ]);
-  return {
+  return definedProperties({
     number: pullRequest.number,
     title: pullRequest.title,
-    ...(pullRequest.user === undefined ? {} : { author: pullRequest.user }),
-    ...(pullRequest.draft === undefined ? {} : { isDraft: pullRequest.draft }),
-    ...(pullRequest.state === undefined ? {} : { state: pullRequest.state }),
-    ...(pullRequest.head?.ref === undefined ? {} : { headRefName: pullRequest.head.ref }),
-    ...(pullRequest.base?.ref === undefined ? {} : { baseRefName: pullRequest.base.ref }),
-    ...(pullRequest.updated_at === undefined ? {} : { updatedAt: pullRequest.updated_at }),
-    ...(pullRequest.html_url === undefined ? {} : { url: pullRequest.html_url }),
+    author: pullRequest.user,
+    isDraft: pullRequest.draft,
+    state: pullRequest.state,
+    headRefName: pullRequest.head?.ref,
+    baseRefName: pullRequest.base?.ref,
+    updatedAt: pullRequest.updated_at,
+    url: pullRequest.html_url,
     reviewDecision: restReviewDecision(pullRequest, reviews),
     statusCheckRollup: [...statusChecks, ...checkRuns],
-  };
+  });
 }
 
 async function readRestReviews(
@@ -350,28 +339,24 @@ async function readRestReviews(
   );
 }
 
-async function readRestStatusChecks(
+async function readRestChecks(
   repoPath: string,
   headSha: string,
+  collection: "statuses" | "check_runs",
   runner: Runner,
 ): Promise<GhStatusCheck[]> {
+  const endpoint = collection === "statuses" ? "status" : "check-runs";
   const result = await runner(
-    restPaginatedArgs(`${repoPath}/commits/${encodeURIComponent(headSha)}/status?per_page=100`),
+    restPaginatedArgs(
+      `${repoPath}/commits/${encodeURIComponent(headSha)}/${endpoint}?per_page=100`,
+    ),
     { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
   );
-  return restCheckPages(result.stdout, "statuses", "combined status");
-}
-
-async function readRestCheckRuns(
-  repoPath: string,
-  headSha: string,
-  runner: Runner,
-): Promise<GhStatusCheck[]> {
-  const result = await runner(
-    restPaginatedArgs(`${repoPath}/commits/${encodeURIComponent(headSha)}/check-runs?per_page=100`),
-    { timeoutMs: GH_PULL_REQUEST_TIMEOUT_MS },
+  return restCheckPages(
+    result.stdout,
+    collection,
+    collection === "statuses" ? "combined status" : "check runs",
   );
-  return restCheckPages(result.stdout, "check_runs", "check runs");
 }
 
 function restCheckPages(
@@ -389,9 +374,9 @@ function restCheckPages(
   });
 }
 
-export async function listGitHubRepositoriesWithRunner(
+export async function listGitHubRepositories(
   config: HeraklesConfig,
-  runner: Runner,
+  runner: Runner = runCommand,
   options: ListGitHubRepositoriesOptions = {},
 ): Promise<GitHubRepository[]> {
   const repos = new Map<string, GitHubRepository>();
@@ -436,8 +421,12 @@ async function addLatestActivityDates(
   repos: Map<string, GitHubRepository>,
   runner: Runner,
 ): Promise<void> {
-  await forEachWithLimit([...repos.values()], GH_ENRICH_CONCURRENCY, async (repo) => {
-    const issueOrPullAt = await readLatestIssueOrPullActivityDate(repo, runner);
+  await mapWithLimit([...repos.values()], GH_ENRICH_CONCURRENCY, async (repo) => {
+    const issueOrPullAt = await readGitHubDate(
+      `repos/${repo.nameWithOwner}/issues?state=all&per_page=1&sort=updated&direction=desc`,
+      ".[0].updated_at",
+      runner,
+    );
     const latestActivityAt = latestDate([
       issueOrPullAt,
       repo.pushedAt,
@@ -448,20 +437,15 @@ async function addLatestActivityDates(
   });
 }
 
-async function readLatestIssueOrPullActivityDate(
-  repo: GitHubRepository,
+async function readGitHubDate(
+  endpoint: string,
+  jq: string,
   runner: Runner,
 ): Promise<string | undefined> {
   try {
-    const result = await runner([
-      "gh",
-      "api",
-      `repos/${repo.nameWithOwner}/issues?state=all&per_page=1&sort=updated&direction=desc`,
-      "--jq",
-      ".[0].updated_at",
-    ]);
-    const updatedAt = result.stdout.trim();
-    return Number.isNaN(Date.parse(updatedAt)) ? undefined : updatedAt;
+    const result = await runner(["gh", "api", endpoint, "--jq", jq]);
+    const date = result.stdout.trim();
+    return Number.isNaN(Date.parse(date)) ? undefined : date;
   } catch {
     return undefined;
   }
@@ -480,30 +464,15 @@ async function addMainlineCommitDates(
   repos: Map<string, GitHubRepository>,
   runner: Runner,
 ): Promise<void> {
-  await forEachWithLimit([...repos.values()], GH_ENRICH_CONCURRENCY, async (repo) => {
-    const committedAt = await readMainlineCommitDate(repo, runner);
+  await mapWithLimit([...repos.values()], GH_ENRICH_CONCURRENCY, async (repo) => {
+    if (!repo.defaultBranchRef) return;
+    const committedAt = await readGitHubDate(
+      `repos/${repo.nameWithOwner}/commits/${encodeURIComponent(repo.defaultBranchRef)}`,
+      ".commit.committer.date",
+      runner,
+    );
     if (committedAt) repo.mainlineCommittedAt = committedAt;
   });
-}
-
-async function readMainlineCommitDate(
-  repo: GitHubRepository,
-  runner: Runner,
-): Promise<string | undefined> {
-  if (!repo.defaultBranchRef) return undefined;
-  try {
-    const result = await runner([
-      "gh",
-      "api",
-      `repos/${repo.nameWithOwner}/commits/${encodeURIComponent(repo.defaultBranchRef)}`,
-      "--jq",
-      ".commit.committer.date",
-    ]);
-    const committedAt = result.stdout.trim();
-    return Number.isNaN(Date.parse(committedAt)) ? undefined : committedAt;
-  } catch {
-    return undefined;
-  }
 }
 
 async function addDraftPullRequestCounts(
@@ -584,16 +553,6 @@ function parseDraftPullRequestCounts(stdout: string): Map<string, number> {
     counts.set(nameWithOwner, (counts.get(nameWithOwner) ?? 0) + 1);
   }
   return counts;
-}
-
-async function forEachWithLimit<T>(
-  items: readonly T[],
-  limit: number,
-  task: (item: T) => Promise<void>,
-): Promise<void> {
-  await mapWithLimit(items, limit, async (item) => {
-    await task(item);
-  });
 }
 
 async function mapWithLimit<T, R>(
@@ -736,27 +695,27 @@ function normalizeRestRepository(repository: GhRestRepository): GhRepo {
   if (!repository.name || !repository.full_name || !owner) {
     throw new Error("GitHub REST repository response did not include its repository identity");
   }
-  return {
+  return definedProperties({
     name: repository.name,
     nameWithOwner: repository.full_name,
     owner,
-    ...(repository.ssh_url === undefined ? {} : { sshUrl: repository.ssh_url }),
-    ...(repository.html_url === undefined ? {} : { url: repository.html_url }),
+    sshUrl: repository.ssh_url,
+    url: repository.html_url,
     ...(repository.visibility === undefined
       ? {}
       : { visibility: repository.visibility.toUpperCase() }),
-    ...(repository.private === undefined ? {} : { isPrivate: repository.private }),
-    ...(repository.archived === undefined ? {} : { isArchived: repository.archived }),
+    isPrivate: repository.private,
+    isArchived: repository.archived,
     repositoryTopics: repository.topics ?? [],
-    ...(repository.language === undefined ? {} : { primaryLanguage: repository.language }),
+    primaryLanguage: repository.language,
     ...(repository.default_branch === undefined
       ? {}
       : { defaultBranchRef: repository.default_branch }),
     ...(repository.description ? { description: repository.description } : {}),
     ...(repository.homepage ? { homepageUrl: repository.homepage } : {}),
-    ...(repository.pushed_at === undefined ? {} : { pushedAt: repository.pushed_at }),
-    ...(repository.updated_at === undefined ? {} : { updatedAt: repository.updated_at }),
-  };
+    pushedAt: repository.pushed_at,
+    updatedAt: repository.updated_at,
+  });
 }
 
 async function readRestLanguages(repoPath: string, runner: Runner): Promise<GhLanguage[]> {
