@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import type { Project } from "../../domain";
 import type { HeraklesEvent } from "./api";
 import { getProjects } from "./api";
-import { projectName } from "./routes/projects";
 import {
   EventContext,
   useEventStreamStatus,
@@ -151,7 +150,7 @@ function CommandPalette({
   }));
   const projectItems = projects.map((project) => ({
     id: `project:${project.id}`,
-    label: projectName(project),
+    label: project.repo,
     meta: project.state,
     icon: <Boxes size={16} />,
     run: () => onProject(project.id),

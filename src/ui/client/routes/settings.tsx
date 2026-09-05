@@ -32,12 +32,11 @@ export function SettingsScreen() {
     useState<ProjectDiscoveryRefreshResult>();
   const [validationResult, setValidationResult] = useState<ValidationResult>();
   const [upResult, setUpResult] = useState<UpRunResult>();
-  useRefreshOnEvents(refreshStatus, [
-    "projects-refresh-finished",
-    "up-finished",
-    "validation-updated",
-  ]);
-  useRefreshOnEvents(refreshDoctor, [
+  const refreshWorkspace = () => {
+    refreshStatus();
+    refreshDoctor();
+  };
+  useRefreshOnEvents(refreshWorkspace, [
     "projects-refresh-finished",
     "up-finished",
     "validation-updated",
@@ -45,8 +44,7 @@ export function SettingsScreen() {
   const refreshProjects = async () => {
     await runAction(async () => {
       setProjectDiscoveryResult(await postProjectsRefresh());
-      refreshStatus();
-      refreshDoctor();
+      refreshWorkspace();
       setMessage({ kind: "success", text: "Projects refreshed." });
     });
   };
@@ -63,8 +61,7 @@ export function SettingsScreen() {
   const runUp = async (dryRun: boolean) => {
     await runAction(async () => {
       setUpResult(await postUp({ dryRun }));
-      refreshStatus();
-      refreshDoctor();
+      refreshWorkspace();
       setMessage({
         kind: "success",
         text: dryRun ? "Workspace up dry run complete." : "Workspace up complete.",
