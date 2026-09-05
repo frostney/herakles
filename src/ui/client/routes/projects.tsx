@@ -157,8 +157,7 @@ export function Projects() {
     refresh();
     refreshUpPlan();
   };
-  useRefreshOnEvents(refresh, ["projects-refresh-finished", "up-finished", "validation-updated"]);
-  useRefreshOnEvents(refreshUpPlan, [
+  useRefreshOnEvents(refreshProjects, [
     "projects-refresh-finished",
     "up-finished",
     "validation-updated",
@@ -1323,7 +1322,7 @@ function ProjectCard({
                 "block overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[0.875rem] font-semibold",
               )}
             >
-              {projectName(project)}
+              {project.repo}
             </Link>
           </strong>
           <ProjectRepositoryLink project={project} />
@@ -1681,22 +1680,19 @@ const githubLanguageColors: Record<string, string> = {
 
 function ProjectAvatar({ project }: { project: Project }) {
   const [failed, setFailed] = useState(false);
-  const initials = repoInitials(projectName(project));
-  if (failed) {
-    return (
-      <span className={projectLogoClass} aria-hidden>
-        {initials}
-      </span>
-    );
-  }
+  const initials = repoInitials(project.repo);
   return (
     <span className={projectLogoClass} aria-hidden>
-      <img
-        className="h-full w-full object-contain"
-        src={projectIconUrl(project.id)}
-        alt=""
-        onError={() => setFailed(true)}
-      />
+      {failed ? (
+        initials
+      ) : (
+        <img
+          className="h-full w-full object-contain"
+          src={projectIconUrl(project.id)}
+          alt=""
+          onError={() => setFailed(true)}
+        />
+      )}
     </span>
   );
 }
@@ -1705,23 +1701,8 @@ function yesNo(value: boolean) {
   return value ? "yes" : "no";
 }
 
-export function projectName(project: Project) {
-  return project.repo;
-}
-
 function lifecycleAccent(state: ProjectState) {
-  switch (state) {
-    case "open-source":
-      return "var(--lc-open-source)";
-    case "experiment":
-      return "var(--lc-experiment)";
-    case "candidate":
-      return "var(--lc-candidate)";
-    case "commercial":
-      return "var(--lc-commercial)";
-    case "archived":
-      return "var(--lc-archived)";
-  }
+  return `var(--lc-${state})`;
 }
 
 function LifecycleBadge({ state }: { state: ProjectState }) {
@@ -1883,7 +1864,7 @@ function ProjectMetadataPanel({ project }: { project: Project }) {
   const items = projectDetailItems(project);
   return (
     <section className={ui.panel}>
-      <h2>{projectName(project)}</h2>
+      <h2>{project.repo}</h2>
       <div className={ui.detailGrid}>
         {items.map((item) => (
           <DetailItem
@@ -2032,29 +2013,23 @@ function ProjectStateControls({ project, onApplied }: { project: Project; onAppl
     <>
       <div className={ui.formGrid}>
         <div className="grid gap-1 self-end">
-          <strong className={ui.listTitle}>{projectName(project)}</strong>
+          <strong className={ui.listTitle}>{project.repo}</strong>
           <span className={ui.mono}>
             {project.source === "github" && project.owner
               ? `${project.owner}/${project.repo}`
               : project.source}
           </span>
         </div>
-        <label className={ui.label}>
+        <label className={ui.label} htmlFor={`project-state-${project.id}`}>
           <span className={ui.labelText}>State</span>
-          <select
-            className={ui.input}
+          <StateSelect
+            id={`project-state-${project.id}`}
             value={state}
-            onChange={(event) => {
-              setState(event.target.value as Project["state"]);
+            onChange={(value) => {
+              setState(value);
               setPreviewKey("");
             }}
-          >
-            {["experiment", "candidate", "commercial", "open-source", "archived"].map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+          />
         </label>
         <TextField
           label="Group"

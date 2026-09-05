@@ -6,6 +6,7 @@ import { initConfig } from "../config/init";
 import { selectHeraklesWorkspace } from "../config/workspace";
 import type { ProjectRenamePlan, ProjectRenameResult, ProjectState } from "../domain";
 import { startUiCommand, type UiFlags } from "../ui/server/command";
+import { definedProperties } from "../utils/definedProperties";
 import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
 import { printJson, printTable } from "./output";
 
@@ -189,7 +190,7 @@ function buildAddProjectInput(input: {
   state: ProjectState | undefined;
   tags: string[] | undefined;
 }) {
-  const common = commonProjectOptions(input);
+  const common = definedProperties({ group: input.group, state: input.state, tags: input.tags });
   return input.source === "github"
     ? {
         source: "github" as const,
@@ -201,18 +202,6 @@ function buildAddProjectInput(input: {
         name: requireProjectValue(input.name, "Local project name is required."),
         ...common,
       };
-}
-
-function commonProjectOptions(input: {
-  state: ProjectState | undefined;
-  group: string | undefined;
-  tags: string[] | undefined;
-}) {
-  return {
-    ...(input.group === undefined ? {} : { group: input.group }),
-    ...(input.state === undefined ? {} : { state: input.state }),
-    ...(input.tags === undefined ? {} : { tags: input.tags }),
-  };
 }
 
 function requireProjectValue(value: string | undefined, message: string): string {

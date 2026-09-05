@@ -32,17 +32,12 @@ export function WorkspaceScreen() {
   const [doctor, refreshDoctor] = useResource(getDoctor);
   const [upResult, setUpResult] = useState<UpRunResult>();
   const { busy, message, setMessage, runAction } = useAction();
-  useRefreshOnEvents(refreshStatus, [
-    "projects-refresh-finished",
-    "up-finished",
-    "validation-updated",
-  ]);
-  useRefreshOnEvents(refreshUpPlan, [
-    "projects-refresh-finished",
-    "up-finished",
-    "validation-updated",
-  ]);
-  useRefreshOnEvents(refreshDoctor, [
+  const refreshWorkspace = () => {
+    refreshStatus();
+    refreshUpPlan();
+    refreshDoctor();
+  };
+  useRefreshOnEvents(refreshWorkspace, [
     "projects-refresh-finished",
     "up-finished",
     "validation-updated",
@@ -50,9 +45,7 @@ export function WorkspaceScreen() {
   const runUp = async (dryRun: boolean) => {
     await runAction(async () => {
       setUpResult(await postUp({ dryRun }));
-      refreshStatus();
-      refreshUpPlan();
-      refreshDoctor();
+      refreshWorkspace();
       setMessage({
         kind: "success",
         text: dryRun ? "Workspace dry run complete." : "Workspace sync complete.",

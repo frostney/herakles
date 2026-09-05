@@ -1,9 +1,6 @@
 import { z } from "zod";
 import type { status } from "../app";
-import type {
-  ProjectConfigPlan as CoreProjectConfigPlan,
-  ProjectConfigChanges,
-} from "../config/projects";
+import type { ProjectConfigChanges } from "../config/projects";
 import type { ProjectDiscovery } from "../discovery";
 import type { UpExecution } from "../up/execute";
 import { definedProperties } from "../utils/definedProperties";
@@ -39,7 +36,7 @@ export const projectRenameBodySchema = z
 
 export type ProjectConfigPayload = z.infer<typeof projectConfigBodySchema>;
 export type ProjectConfigValues = ProjectConfigChanges;
-export type ProjectConfigPlan = CoreProjectConfigPlan;
+export type { ProjectConfigPlan } from "../config/projects";
 
 export type StatusPayload = Awaited<ReturnType<typeof status>>;
 export type UpRunResult = UpExecution[];

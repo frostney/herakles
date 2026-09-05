@@ -51,8 +51,7 @@ const importProjectsBodySchema = z
     ),
   })
   .strict();
-const removeProjectBodySchema = z.object({ projectId: nonEmptyString }).strict();
-const resolveCanonicalPathBodySchema = z.object({ projectId: nonEmptyString }).strict();
+const projectIdBodySchema = z.object({ projectId: nonEmptyString }).strict();
 const openProjectBodySchema = z
   .object({
     projectId: nonEmptyString,
@@ -63,7 +62,6 @@ const openProjectBodySchema = z
 const projectUpBodySchema = z
   .object({ projectId: nonEmptyString, dryRun: z.boolean().optional() })
   .strict();
-const syncDefaultBranchBodySchema = z.object({ projectId: nonEmptyString }).strict();
 const configTomlBodySchema = z.object({ toml: z.string() }).strict();
 const localPromotionBodySchema = z
   .object({
@@ -104,21 +102,19 @@ const getRoutes: Record<string, ApiHandler> = {
 
 const postRoutes: Record<string, ApiHandler> = {
   "/api/projects/refresh": ({ options }) => routeProjectsRefresh(options.workspaceRoot),
-  "/api/projects/add": (context) => routeAddProject(context),
-  "/api/projects/import": (context) => routeImportProjects(context),
-  "/api/projects/remove": (context) => routeRemoveProject(context),
-  "/api/projects/resolve-canonical-path": (context) => routeResolveCanonicalPath(context),
-  "/api/projects/open": (context) => routeOpenProject(context),
-  "/api/projects/up": (context) => routeProjectUp(context),
-  "/api/projects/sync-default-branch": (context) => routeSyncDefaultBranch(context),
+  "/api/projects/add": routeAddProject,
+  "/api/projects/import": routeImportProjects,
+  "/api/projects/remove": routeRemoveProject,
+  "/api/projects/resolve-canonical-path": routeResolveCanonicalPath,
+  "/api/projects/open": routeOpenProject,
+  "/api/projects/up": routeProjectUp,
+  "/api/projects/sync-default-branch": routeSyncDefaultBranch,
   "/api/projects/promote-plan": (context) => routeProjectPromotionAction(context, false),
   "/api/projects/promote": (context) => routeProjectPromotionAction(context, true),
   "/api/projects/rename-plan": (context) => routeProjectRenameAction(context, false),
   "/api/projects/rename": (context) => routeProjectRenameAction(context, true),
-  "/api/config/toml/plan": (context) =>
-    routeConfigToml(context, context.options.workspaceRoot, false),
-  "/api/config/toml/apply": (context) =>
-    routeConfigToml(context, context.options.workspaceRoot, true),
+  "/api/config/toml/plan": (context) => routeConfigToml(context, false),
+  "/api/config/toml/apply": (context) => routeConfigToml(context, true),
   "/api/validate": ({ options, url }) =>
     routeValidation(options.workspaceRoot, { strict: isStrict(url) }),
   "/api/up/plan": ({ options }) => routeUp(options.workspaceRoot, true),
@@ -139,7 +135,7 @@ export async function routeApi(req: Request, options: ApiOptions): Promise<Respo
       req.method === "GET"
         ? await routeGet(context)
         : req.method === "POST"
-          ? await routePost(context)
+          ? await postRoutes[path]?.(context)
           : undefined;
     if (routed) return routed;
     return json({ error: "not found" }, { status: 404 });
@@ -183,11 +179,6 @@ async function routeGet(context: ApiContext): Promise<Response | undefined> {
   }
 }
 
-async function routePost(context: ApiContext): Promise<Response | undefined> {
-  const handler = postRoutes[context.path];
-  if (handler) return handler(context);
-}
-
 async function routeProjectsRefresh(workspaceRoot: string): Promise<Response> {
   emitApiEvent("projects-refresh-started", "project refresh started");
   const discovery = await app.projectDiscoveryRefresh(workspaceRoot);
@@ -215,12 +206,12 @@ async function routeImportProjects(context: ApiContext): Promise<Response> {
 }
 
 async function routeRemoveProject(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, removeProjectBodySchema);
+  const body = await readJsonBody(context, projectIdBodySchema);
   return json(await app.removeProject(context.options.workspaceRoot, body.projectId));
 }
 
 async function routeResolveCanonicalPath(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, resolveCanonicalPathBodySchema);
+  const body = await readJsonBody(context, projectIdBodySchema);
   const result = await app.resolveProjectCanonicalPath(
     context.options.workspaceRoot,
     body.projectId,
@@ -269,7 +260,7 @@ async function routeProjectUp(context: ApiContext): Promise<Response> {
 }
 
 async function routeSyncDefaultBranch(context: ApiContext): Promise<Response> {
-  const body = await readJsonBody(context, syncDefaultBranchBodySchema);
+  const body = await readJsonBody(context, projectIdBodySchema);
   emitApiEvent("up-started", `default branch sync started for ${body.projectId}`, {
     projectId: body.projectId,
   });
@@ -294,12 +285,9 @@ async function routeSyncDefaultBranch(context: ApiContext): Promise<Response> {
   }
 }
 
-async function routeConfigToml(
-  context: ApiContext,
-  workspaceRoot: string,
-  apply: boolean,
-): Promise<Response> {
+async function routeConfigToml(context: ApiContext, apply: boolean): Promise<Response> {
   const body = await readJsonBody(context, configTomlBodySchema);
+  const { workspaceRoot } = context.options;
   const result = apply
     ? await app.applyConfigToml(workspaceRoot, body.toml)
     : await app.configTomlPlan(workspaceRoot, body.toml);
