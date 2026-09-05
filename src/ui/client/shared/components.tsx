@@ -129,7 +129,7 @@ export function Modal({
           : "fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[rgba(8,6,4,0.66)] p-[var(--space-5)] backdrop-blur-[3px]"
       }
     >
-      <button type="button" className="absolute inset-0 cursor-default" aria-label="Close" />
+      <div className="absolute inset-0 cursor-default" aria-hidden />
       <dialog
         ref={dialogRef}
         className={
