@@ -112,6 +112,10 @@ The nightly GitHub release uses Electrobun's canary build channel internally, so
 
 Do not include auto-update feeds, delta-update publishing, signing credentials, notarization credentials, macOS x64 packaging, Windows packaging, or Linux packaging in the first release workflow. Add those only after the unsigned macOS arm64 artifact flow is proven.
 
+## Code Review (CodeRabbit)
+
+CodeRabbit reads `.coderabbit.config.ts`, which inherits the central `frostney/coderabbit` settings and the web-UI settings (`inheritance: true`) and excludes the vendored Agent Skills from review, using the shared `excludeVendoredSkills` function from `frostney/coderabbit`. Every skill listed in `skills-lock.json` is installed from upstream by the skills CLI, so findings on it belong upstream. A skill under `.agents/skills` that the lock does not list is project-authored and is reviewed like any other file. The config reads the lock through `skills-lock.yaml`, a symlink, because the config sandbox imports `.yaml` but not `.json`. Only CodeRabbit resolves the config's imports, so Biome and Fallow skip the file.
+
 ## Tool Choices
 
 Herakles prefers Bun APIs for TOML, serving, bundling, tests, subprocesses, and runtime services. Stricli powers the CLI. Biome 2.5 handles formatting and linting. TypeScript 7 type-checks with `bunx tsc --noEmit`. Fallow handles repository quality evidence in CI.

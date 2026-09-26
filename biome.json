@@ -32,7 +32,8 @@
       "!**/dist",
       "!**/_cache",
       "!**/_reports",
-      "!**/_worktrees"
+      "!**/_worktrees",
+      "!.coderabbit.config.ts"
     ]
   }
 }
