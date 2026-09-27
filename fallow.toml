@@ -7,6 +7,10 @@ entry = [
 
 ignoreDependencies = ["bun-plugin-tailwind"]
 
+# CodeRabbit reads .coderabbit.config.ts itself; nothing in the project imports
+# it, and its @coderabbitai/config import resolves only inside CodeRabbit.
+ignorePatterns = [".coderabbit.config.ts"]
+
 [health]
 maxCyclomatic = 20
 maxCognitive = 20
