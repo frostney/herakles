@@ -19,6 +19,12 @@
       "skillPath": "create-pr/SKILL.md",
       "computedHash": "30a0cb563364cec7dd058b929e3f44ce4de9b5f9922857b23f8743e5c659c151"
     },
+    "delivery-wait": {
+      "source": "frostney/known-good-route",
+      "sourceType": "github",
+      "skillPath": "delivery-wait/SKILL.md",
+      "computedHash": "ca2bd70b6c078ab2c3e556bea5d4f7278edcbde20d859b2886f4555852444883"
+    },
     "git-workflow": {
       "source": "frostney/known-good-route",
       "sourceType": "github",
