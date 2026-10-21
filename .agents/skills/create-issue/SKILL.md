@@ -1,131 +1,100 @@
 ---
 name: create-issue
 description: >-
-  Creates a well-structured GitHub issue from a tagline or short description in
-  any repository, investigating for duplicates and invoking the grill skill
-  (grill-with-docs / grill-me) as a mandatory gate before drafting, using the
-  project's issue template and label conventions, and capturing UI/UX context
-  (screenshots, design references, accessibility, responsive, theme) when the
-  change is user-facing. Use when the user runs /create-issue or asks to file a
-  GitHub issue.
+  Investigates and creates a project-aligned GitHub issue from a tagline or short
+  description, using the repository's template, evidence, and labels; shows a
+  draft first only when asked. Use when asked to file, open, or create a GitHub
+  issue, or when the user runs /create-issue.
 license: Unlicense OR MIT
 compatibility: >-
-  Requires the GitHub CLI (gh) authenticated to the target repository and
-  network access.
+  Requires Python 3.11 or newer, the GitHub CLI (gh) 2.99 or newer
+  authenticated to the target repository with permission to create issues
+  (triage access to apply labels, write access to create one), the internal
+  `template-check` skill, and network access.
+metadata:
+  agents-role: entry-point
+  agents-text: File a project-aligned GitHub issue from a short description.
 ---
 
 # Create issue
 
-## Instructions
+Turn the user's input into an implementation-ready issue grounded in the current
+repository, then create it. A request to file an issue authorizes creating it
+once the gates below pass.
 
-Create a GitHub issue in the current repository from the user's tagline or short description.
+Reuse authorization and settled decisions within their scope across turns.
+Before a required pause, complete independent authorized work, then link the
+exact skill file as a Markdown link and quote the rule requiring a new decision
+or authority verbatim in a block quote.
 
-### Non-negotiable gates (do not skip, do not rationalize)
+## Gates
 
-These gates are mandatory. Do not skip them because the tagline "looks clear" or because creating an issue feels like a quick task.
+- Investigate before drafting: read the applicable project instructions and
+  vision, search open and closed issues for duplicates of the outcome as well
+  as the mechanism, and inspect the affected code, tests, and docs.
+- For material unresolved requirements or a requested interview, use the actual
+  registered `grill-with-docs` or `grill-me` loop; prefer `grill-with-docs`.
+  Reuse settled decisions. If neither is available, investigate directly and
+  ask only for missing facts that affect the issue.
+- Stop before drafting when the request conflicts with project vision, is a
+  duplicate, or needs material facts that cannot be established. For a
+  duplicate, return the existing issue and stop without asking whether to file
+  the same request anyway or mutate the existing issue.
+- Before posting, resolve the authenticated GitHub username and exact model name
+  from the current GitHub account and agent environment. Stop if either is
+  unavailable; never guess or substitute a generic label.
 
-1. **GATE A — Grill before drafting.** When a grill skill is registered, you **must** invoke it (step 4) before drafting the issue body. Do not draft without it.
-2. **GATE B — Investigate before drafting.** You **must** complete the investigation in step 3 (search for duplicates, read the implementation area) before drafting. Do not draft from the tagline alone.
+## Draft review
 
-**Forbidden rationalizations** — if you catch yourself writing any of these, stop and follow the gate instead:
+Choose the template, title, labels, and body from project evidence and create
+the issue without draft approval. Show the draft for approval first only when
+the user asks for it, for example with `/create-issue draft` or "show me the
+draft first", including in a later turn; that request lasts for its stated
+scope. `automatic` is accepted and changes nothing. Resolve a material
+ambiguity by asking about that point under the gates above, not by falling back
+to a full draft review.
 
-- ❌ "The tagline is clear enough, I'll just draft it." → No. Grill and investigate first; a sharper issue comes from the questions you haven't asked yet.
-- ❌ "Grill isn't necessary for a simple issue." → No. If it's registered, run it.
-- ❌ "I treated `grill-with-docs` as 'answer with doc-grounding' instead of actually running the grilling loop." → No. Invoking grill means **executing the grill skill itself** — its real, interactive question loop — not answering in a doc-grounded style, not paraphrasing what it would ask. Load the skill and run it.
-- ❌ "I'll ask a couple of clarifying questions of my own; that's basically grilling." → No. That is not the grill skill. Run the actual `grill-with-docs` / `grill-me` skill.
+## Workflow
 
-### Use the grill skill for thoroughness (always when available)
+1. Discover the repository's issue templates and existing label conventions.
+2. Investigate the request and resolve any remaining material question using
+   the gates above. Ground any progress claim in evidence gathered this run.
+3. Draft against the matching template. Keep every template heading verbatim
+   and in order; under a heading with nothing to say, write a one-line `None`
+   or the reason. Within those headings, keep only decision-, implementation-,
+   and verification-relevant content:
+   - a specific plain-language title;
+   - problem, current and expected behavior, scope, constraints, and required
+     behavior;
+   - reproduction and regression expectations for bugs;
+   - user/test impact, likely affected area, and related work where relevant.
+4. For UI/UX work or local screenshots and videos, read
+   [references/ui-evidence.md](references/ui-evidence.md); never commit
+   evidence media to the repository. Put non-media evidence such as probe
+   output inside a collapsed `<details>` block.
+5. Choose only existing labels unless the user asks to create one.
+6. When a draft review request still applies and that exact draft is not yet
+   approved,
+   show the proposed title, labels, and body, ask the user to approve or revise
+   it, and stop; create the issue only after approval.
+7. End the issue body with this visually separate GitHub Note, replacing both
+   values with the exact identities resolved for this run:
 
-Before drafting, the agent **always invokes the grill skill** when it is registered in this environment — not only when something is ambiguous. This is GATE A above. The grill output is folded into the issue body so the result is more thorough than the raw tagline would produce.
+   > [!NOTE]
+   > Created on behalf of @username using ModelName.
 
-**Invoking the grill skill means literally running that skill — not imitating its spirit.** `grill-with-docs` and `grill-me` are separate skills with their own multi-question interrogation loop. To invoke one you **read its `SKILL.md` and execute its procedure**: actually ask the user the grilling questions it generates and wait for the answers, iterating until the loop completes. The following are **NOT** invoking it and are forbidden substitutes:
+8. Run [`template-check`](../template-check/SKILL.md#running-a-check) on the
+   draft with `--kind issue --body FILE`, adding `--repo a private repository` outside
+   the target repository's checkout and `--template-name` when the
+   repository has several templates, and fix every heading problem it
+   reports.
+   Create the issue with the available GitHub tooling, verify the returned
+   issue's repository and intended content, run `template-check` again with
+   `--issue N` on the live body and edit the issue to fix any problem, and
+   return its URL. If the write response is lost or interrupted, search for
+   the issue before retrying. Report an unresolved write as uncertain; a
+   request being accepted or delegated is not proof that the issue was
+   created.
 
-- Treating the mention of `grill-with-docs` as a style instruction — "answer with doc-grounding," "be thorough," "cite the docs" — and then proceeding. ❌
-- Summarizing or paraphrasing the questions grilling *would* ask instead of asking them. ❌
-- Asking one or two clarifying questions of your own and calling that grilling. ❌
-- Skipping it because you believe you already understand the tagline. ❌
-
-If you cannot run the grill skill, do not silently downgrade it to "doc-grounded answering" — say explicitly that no grill skill was found (see discovery hint) and proceed on the input as given.
-
-- **`/grill-with-docs` is preferred.** Use `/grill-me` only when `/grill-with-docs` is not registered.
-- Discovery hint: look for a skill or command named `grill-with-docs` or `grill-me` (e.g. `~/.cursor/skills/grill-with-docs/`, `~/.cursor/skills/grill-me/`, `.cursor/skills/...`, `.agents/skills/...`).
-- If neither is registered, state explicitly that no grill skill was found, then proceed with the workflow on the input as given.
-
-When this workflow invokes an external grill skill, treat it as a nested issue-shaping dependency: obey that skill's procedure exactly, do not implement product code during the grill sub-session unless that skill explicitly requires documentation/context updates, then return to this workflow and draft the issue.
-
-### Active context declaration
-
-Do not declare the active context at invocation time. First resolve the issue template, investigate duplicates/related code, read project/area context, discover matching skills, and run the grill skill when available. Then, immediately before drafting the issue, briefly state the context and skills that are now active, for example:
-
-```text
-Active context before drafting: AGENTS.md, project-area/AGENTS.md, project-area/CONTEXT.md, docs/adr/0003-..., react-stack, convex, grill-with-docs. No matching <domain> skill found.
-```
-
-This is a gate immediately before drafting: actively search for relevant project, stack, domain, and grill context before the declaration. If the declaration is missing any discovered context, load it before continuing. A context note before grill does not satisfy this gate; the active context must be restated with the issue draft.
-
-### Steps
-
-1. Parse the tagline or short description. If missing, ask.
-2. Resolve the issue template:
-   - Search `.github/ISSUE_TEMPLATE/`, `.github/ISSUE_TEMPLATE/default.md`, and `.github/ISSUE_TEMPLATE.md`.
-   - Prefer `.github/ISSUE_TEMPLATE/` when multiple templates are discovered; pick the one matching the issue type (bug, feature, chore, etc.).
-   - Fall back to `.github/ISSUE_TEMPLATE/default.md` or `.github/ISSUE_TEMPLATE.md` when discovered.
-   - Absence protocol: after the template search finds no issue template, state that no project issue template was found and use a minimal structure: Summary, Reproduction (bugs), Current vs Expected, Scope, Related.
-3. **Investigate before drafting (GATE B):**
-   - Search code, docs, tests, and existing open/closed issues for duplicates and related work.
-   - Read the implementation area the issue touches. Do not draft from the tagline alone.
-   - If the tagline cannot become a concrete issue without guessing, stop and ask.
-4. **Run the grill skill (GATE A).** When `grill-with-docs` / `grill-me` is registered, **read that skill and execute its actual question loop now** on the tagline plus your investigation findings — ask the questions, wait for answers, iterate to completion — then fold its output into the issue body. Provide the grill skill with the project, stack, domain, docs, ADR, and investigation context discovered in steps 2–3. Do not substitute a "doc-grounded" answer or your own ad-hoc questions for the skill. Do not implement product code during the grill sub-session unless the grill skill explicitly requires documentation/context updates. If no grill skill is registered, say so explicitly and continue.
-5. **Declare active context, then draft the issue.** Before drafting, state the active context/skills discovered and used in steps 2–4, including any applicable project, stack, domain, docs, ADR, and grill skills. If the declaration reveals a relevant missing skill or context file, load it before continuing. A good issue typically includes:
-   - A specific, plain-language title with no area prefix (use labels for area/type).
-   - A short problem summary.
-   - For bugs: reproduction command or minimal code/UI sample; current vs expected behavior.
-   - Project context (spec, RFC, related issue) when relevant.
-   - Test impact, user impact, or blocked work.
-   - Likely fix area, scope notes, constraints, and related issues.
-6. **If the change is UI/UX, also include:**
-   - Affected screens, routes, or components.
-   - Current visual state: screenshot, short recording, or precise description (layout, copy, state).
-   - Expected visual state: screenshot, mock, design link (Figma, etc.), or precise description.
-   - Accessibility expectations: keyboard navigation, focus order, visible focus, ARIA roles/labels, color contrast (target WCAG AA or the project's standard), motion / `prefers-reduced-motion`.
-   - Responsive scope: which breakpoints and devices apply, and which themes (light/dark/system).
-   - Design system or component library in use, and the specific tokens or components involved.
-7. Choose labels by matching existing repo conventions. Use labels (not title prefixes) for area and type. Do not invent labels unless the user asks.
-8. Show the title, labels, and body to the user before creating, unless the user asked to create without review.
-9. Resolve the repository ID, then create the issue with GraphQL:
-
-   ```bash
-   REPOSITORY_ID=$(gh api graphql \
-     -f query='query($owner:String!,$name:String!){repository(owner:$owner,name:$name){id}}' \
-     -f owner="$OWNER" -f name="$REPO" --jq '.data.repository.id')
-
-   gh api graphql \
-     -f query='mutation($repositoryId:ID!, $title:String!, $body:String!, $labelIds:[ID!]) {
-       createIssue(input: {
-         repositoryId: $repositoryId,
-         title: $title,
-         body: $body,
-         labelIds: $labelIds
-       }) {
-         issue { url number }
-       }
-     }' \
-     -F repositoryId="$REPOSITORY_ID" \
-     -f title="$ISSUE_TITLE" \
-     -f body="$ISSUE_BODY"
-   ```
-
-   When labels were selected, append one `-F labelIds[]="$LABEL_ID"` argument per label ID.
-
-10. If GraphQL is rate-limited or unavailable, fall back to REST:
-
-    ```bash
-    gh api "repos/$OWNER/$REPO/issues" \
-      -f title="$ISSUE_TITLE" \
-      -f body="$ISSUE_BODY" \
-      --jq '.html_url'
-    ```
-
-    When labels were selected, append one `-f labels[]="$LABEL_NAME"` argument per label name.
-
-11. Return the issue URL.
+Lead with the outcome. Omit boilerplate, repeated summaries, and a narration of
+the workflow; template headings and their one-line `None` are not boilerplate.
