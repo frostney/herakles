@@ -1,3 +1,5 @@
+import tailwind from "bun-plugin-tailwind";
+
 const packageJson = (await Bun.file("package.json").json()) as { version: string };
 
 const config = {
@@ -13,6 +15,7 @@ const config = {
     targets: process.env.HERAKLES_DESKTOP_TARGETS ?? "current",
     bun: {
       entrypoint: "src/ui/desktop/main.ts",
+      plugins: [tailwind],
     },
     mac: {
       codesign: false,
