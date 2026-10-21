@@ -5,13 +5,13 @@
       "source": "frostney/known-good-route",
       "sourceType": "github",
       "skillPath": "address-feedback/SKILL.md",
-      "computedHash": "7f2b4c9bc46a076c5691c6aeb7eb8cadaa233e6e8db99c2499aeab135818bccc"
+      "computedHash": "afc78e5b63ba2f719e261140069cac24d1d30778b569c044627f74ba9ab36959"
     },
     "create-issue": {
       "source": "frostney/known-good-route",
       "sourceType": "github",
       "skillPath": "create-issue/SKILL.md",
-      "computedHash": "c604dd104d2099fc3281572e2a08a55b6bb10f21856a22c08bbbc345d689e1bc"
+      "computedHash": "753072231bd3a6c7f8795e82f0c148cc2e8cfc2ffc5ff335a78a303c47d014ea"
     },
     "create-pr": {
       "source": "frostney/known-good-route",
@@ -23,7 +23,7 @@
       "source": "frostney/known-good-route",
       "sourceType": "github",
       "skillPath": "git-workflow/SKILL.md",
-      "computedHash": "1c3b96f2f04e5330a7276e1502dd0aecd712732b0fb810969b6b429474663876"
+      "computedHash": "467b1062ba9ac191371d559b6343b6260fac9b5464530ba57e86ddfbdc8ef192"
     },
     "grill-with-docs": {
       "source": "mattpocock/skills",
