@@ -6,6 +6,7 @@
 - Run `herakles init` once for a Herakles Workspace.
 - Add or import projects, then let `herakles up` scaffold missing hosted project folders.
 - Preview and apply same-owner hosted project renames through one coordinated flow.
+- Move `_herakles/herakles.toml` between machines with `herakles config show` and `herakles config apply`.
 - Use the UI for add/import, pull request review, project settings, drift checks, and config exchange.
 
 ## Install
@@ -81,6 +82,26 @@ bun run herakles projects rename frostney-tool frostney/new-tool --root ~/Code -
 ```
 
 The plan shows the GitHub rename, local origin update, Canonical Checkout Path move, and alphabetized tracked-project config re-key. Apply refuses dirty worktrees and can resume safely when an earlier attempt completed only some steps. Project Settings exposes the same preview-before-apply flow in the Workbench.
+
+## Config Exchange
+
+Config Exchange copies `_herakles/herakles.toml` text into or out of a Herakles Workspace. It moves configuration text only, not repositories, runtime state, or remote commands.
+
+Print the stored TOML. The output is the file byte for byte, so redirecting it round-trips:
+
+```sh
+bun run herakles config show --root ~/Code > herakles.toml
+bun run herakles config show --root ~/Code --json   # { path, toml }
+```
+
+Validate and apply TOML from another machine:
+
+```sh
+bun run herakles config apply --root ~/Code herakles.toml
+cat herakles.toml | bun run herakles config apply --root ~/Code --yes -
+```
+
+`apply` parses the TOML with Bun's parser and the Herakles schema, then normalizes tracked project order. Invalid input prints each issue to stderr, exits 1, and writes nothing. If the normalized TOML equals the current file it prints `No changes.`. Otherwise it previews a line diff and asks for confirmation; `--yes` skips the prompt, and reading from stdin (`-`) requires `--yes`. With `--json`, the preview and prompt go to stderr and stdout carries the plan (declined) or the applied result. The Workbench Settings screen offers a copy-paste editor for the same exchange.
 
 ## Spin Up
 
