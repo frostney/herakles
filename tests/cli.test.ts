@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import packageJson from "../package.json" with { type: "json" };
 import { runCommand } from "../src/utils/command";
 import { createTestWorkspace } from "./helpers/workspace";
 
@@ -32,6 +33,15 @@ async function runCli(cwd: string, args: string[]) {
 async function runStatus(cwd: string, args: string[] = []) {
   return runCli(cwd, ["status", "--json", ...args]);
 }
+
+describe("CLI version", () => {
+  test("prints the package.json version", async () => {
+    const result = await runCli(process.cwd(), ["--version"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe(packageJson.version);
+  });
+});
 
 describe("CLI workspace discovery", () => {
   test("shows a tracked project from inside its Herakles Workspace checkout", async () => {
