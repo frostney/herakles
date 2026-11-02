@@ -78,7 +78,7 @@ export const heraklesConfigSchema = z
         include_forks: z.boolean().default(false),
         include_archived: z.boolean().default(true),
       })
-      .default({}),
+      .prefault({}),
     defaults: z
       .object({
         state_for_public: projectStateSchema.default("open-source" satisfies ProjectState),
@@ -90,13 +90,13 @@ export const heraklesConfigSchema = z
           .default(["ROADMAP.md", "docs/ROADMAP.md", "TODO.md"]),
         learning_files: z.array(relativePathSchema).default(["LEARNING.md", "docs/LEARNING.md"]),
       })
-      .default({}),
-    up: z.object({ exclude_topics: z.array(z.string()).default(["no-up"]) }).default({}),
+      .prefault({}),
+    up: z.object({ exclude_topics: z.array(z.string()).default(["no-up"]) }).prefault({}),
     ui: z
       .object({
         enabled: z.boolean().default(true),
       })
-      .default({}),
+      .prefault({}),
     project: z.record(configKeySchema, projectConfigSchema).default({}),
   })
   .strict();

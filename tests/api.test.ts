@@ -1072,6 +1072,25 @@ group = "clients"
 
     await expectInvalidBody(response, "visibility");
   });
+
+  test("invalid config project key reports the key rule message", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await appendFile(
+      join(workspaceRoot, "_herakles", "herakles.toml"),
+      `
+[project."bad key"]
+source = "local"
+`,
+    );
+
+    const response = await routeApi(new Request("http://x/api/status"), { workspaceRoot });
+    const body = await response?.json();
+
+    expect(response?.status).toBe(400);
+    expect(body.issues).toEqual([
+      { path: "project.bad key", message: "Config keys must be path-safe identifiers." },
+    ]);
+  });
 });
 
 async function withFakeGhPromotion(run: (logPath: string) => Promise<void>) {
