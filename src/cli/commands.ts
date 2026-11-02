@@ -4,7 +4,12 @@ import { buildCommand, buildRouteMap } from "@stricli/core";
 import * as app from "../app";
 import { initConfig } from "../config/init";
 import { selectHeraklesWorkspace } from "../config/workspace";
-import type { ProjectRenamePlan, ProjectRenameResult, ProjectState } from "../domain";
+import type {
+  ProjectDefaultBranchSyncResult,
+  ProjectRenamePlan,
+  ProjectRenameResult,
+  ProjectState,
+} from "../domain";
 import { startUiCommand, type UiFlags } from "../ui/server/command";
 import { definedProperties } from "../utils/definedProperties";
 import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
@@ -493,6 +498,44 @@ const projectPromoteCommand = buildCommand<
   },
 });
 
+function printDefaultBranchSync(result: ProjectDefaultBranchSyncResult) {
+  const behind =
+    result.behindBefore === undefined && result.behindAfter === undefined
+      ? ""
+      : `${result.behindBefore ?? "?"} -> ${result.behindAfter ?? "?"}`;
+  printTable([
+    {
+      project: result.projectId,
+      branch: result.branch,
+      status: result.status,
+      message: result.message.replace(/\s*\n\s*/g, " ").trim(),
+      behind,
+    },
+  ]);
+}
+
+const projectsSyncCommand = buildCommand<CommonFlags, [string]>({
+  docs: { brief: "Fetch and fast-forward a project's local default branch." },
+  parameters: {
+    flags: commonFlags,
+    positional: {
+      kind: "tuple",
+      parameters: [
+        {
+          parse: String,
+          brief: "Hosted project, slug, or repository name.",
+          placeholder: "project",
+        },
+      ],
+    },
+  },
+  async func(flags, id) {
+    const result = await app.syncProjectDefaultBranch(root(flags), id);
+    shouldJson(flags) ? printJson(result) : printDefaultBranchSync(result);
+    if (result.status === "failed") process.exitCode = 1;
+  },
+});
+
 const validateCommand = buildCommand<CommonFlags & { strict?: boolean }>({
   docs: { brief: "Validate resolved projects." },
   parameters: {
@@ -604,6 +647,7 @@ export const rootRoute = buildRouteMap({
         archive: repoArchiveCommand,
         promote: projectPromoteCommand,
         rename: projectRenameCommand,
+        sync: projectsSyncCommand,
       },
     }),
     up: upCommand,

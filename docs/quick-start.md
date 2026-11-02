@@ -82,6 +82,16 @@ bun run herakles projects rename frostney-tool frostney/new-tool --root ~/Code -
 
 The plan shows the GitHub rename, local origin update, Canonical Checkout Path move, and alphabetized tracked-project config re-key. Apply refuses dirty worktrees and can resume safely when an earlier attempt completed only some steps. Project Settings exposes the same preview-before-apply flow in the Workbench.
 
+## Sync A Project's Default Branch
+
+Fetch and fast-forward a hosted project's local default branch:
+
+```sh
+bun run herakles projects sync frostney-tool --root ~/Code
+```
+
+The command reports `done`, `skipped` (for example a dirty worktree or a branch that cannot be fast-forwarded), or `failed`, and a `failed` result exits with code 1 while `done` and `skipped` exit with code 0. Pass `--json` for the typed result. It never moves or pushes repositories and only fast-forwards; the fetch prunes stale remote-tracking refs. Only hosted projects can be synchronised, and an unknown or local project is reported as an error.
+
 ## Spin Up
 
 Preview workspace changes:

@@ -60,4 +60,4 @@ Settings exposes project refresh, validation, doctor checks, and Config Exchange
 
 The UI server exposes `/api/events` as a server-sent event stream. Events are emitted around typed Herakles operations such as project refresh, up, and validation. The stream is a live status surface, not a command channel or persistence layer.
 
-Project cards may expose narrow repository maintenance actions, such as fetching and fast-forwarding the local default branch. These actions report typed success, skipped, or failed results and emit terminal UI status events; they are not substitutes for Spin Up Workspace and do not broaden the UI into a generic shell surface.
+Project cards and the CLI may expose narrow repository maintenance actions, such as fetching and fast-forwarding the local default branch (`herakles projects sync <project>`). These actions share one service and report typed success, skipped, or failed results (the CLI exits non-zero on failed) and the UI emits terminal status events; they are not substitutes for Spin Up Workspace and do not broaden the UI into a generic shell surface.

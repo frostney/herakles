@@ -7,6 +7,7 @@ export type FakeGhRepository = {
   owner?: string;
   isArchived?: boolean;
   description?: string;
+  defaultBranchRef?: string;
 };
 
 export async function withFakeGhScript(prefix: string, script: string, run: () => Promise<void>) {
@@ -35,6 +36,9 @@ export function fakeGhRepositoryJson(repo: FakeGhRepository): string {
         visibility: "PUBLIC",
         isArchived: repo.isArchived === true,
         ...(repo.description === undefined ? {} : { description: repo.description }),
+        ...(repo.defaultBranchRef === undefined
+          ? {}
+          : { defaultBranchRef: { name: repo.defaultBranchRef } }),
         repositoryTopics: [],
         languages: [],
       },
