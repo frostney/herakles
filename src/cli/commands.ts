@@ -59,7 +59,7 @@ function printProjectUpResults(results: Awaited<ReturnType<typeof app.upProject>
 
 function printImportProjectResult(
   plans: Awaited<ReturnType<typeof app.importHostedProjects>>,
-  up: Awaited<ReturnType<typeof app.upProject>>[],
+  up: Awaited<ReturnType<typeof app.upProjects>>,
 ) {
   printTable(plans.map((plan) => ({ id: plan.projectId, action: plan.action })));
   for (const result of up) {
@@ -342,16 +342,10 @@ const projectsImportCommand = buildCommand<
           ...(flags.tag === undefined ? {} : { tags: flags.tag }),
         })),
       );
-      // Checkouts run concurrently and each plans one item, so the count is the number of
-      // finished checkouts: counting starts would read [3/3] while every clone is still running.
-      let finished = 0;
-      const up = await Promise.all(
-        result.map((plan) =>
-          app.upProject(root(flags), plan.projectId, {
-            onItemStart: (item) => progress.step(item, finished, result.length),
-            onProgress: (done) => progress.step(done.item, ++finished, result.length),
-          }),
-        ),
+      const up = await app.upProjects(
+        root(flags),
+        result.map((plan) => plan.projectId),
+        { onItemStart: progress.itemStart },
       );
       return { result, up };
     });

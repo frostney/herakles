@@ -121,6 +121,33 @@ describe("workspace up execution", () => {
     }
   });
 
+  test("a throwing progress hook cannot abort the run or fail an item", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-hook-"));
+    const first = project(join(root, "first"));
+    const second = { ...project(join(root, "second")), slug: "frostney-second" };
+    const items: UpPlan["items"] = [
+      { action: "skip", reason: "first", project: first },
+      { action: "skip", reason: "second", project: second },
+    ];
+    const started: string[] = [];
+
+    const results = await executeUpPlan(
+      { generatedAt: "2026-06-13T00:00:00.000Z", items },
+      {
+        onItemStart: (item) => {
+          started.push(item.project.slug);
+          throw new Error("start hook");
+        },
+        onProgress: async () => {
+          throw new Error("progress hook");
+        },
+      },
+    );
+
+    expect(started).toEqual(["frostney-tool", "frostney-second"]);
+    expect(results.map((result) => result.status)).toEqual(["skipped", "skipped"]);
+  });
+
   test("keeps non-fast-forwardable clones as skipped up results", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-up-nonff-"));
     const clone = join(root, "tool");

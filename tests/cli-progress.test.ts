@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   createProgressReporter,
+  type ProgressInterrupt,
   type ProgressStream,
   type ProgressTimer,
   type ProgressTimerHandle,
@@ -52,7 +53,7 @@ describe("progress reporter", () => {
   test("draws a resolving spinner line in place on a TTY", () => {
     const { stream, writes } = fakeStream(true);
     const clock = fakeTimer();
-    const progress = createProgressReporter({ stream, timer: clock.timer });
+    const progress = createProgressReporter({ stream, env: {}, timer: clock.timer });
 
     progress.start();
     expect(writes).toEqual([`${CLEAR}⠋ Resolving workspace…`]);
@@ -68,7 +69,7 @@ describe("progress reporter", () => {
   test("shows the item counter, action and project slug after the first item starts", () => {
     const { stream, writes } = fakeStream(true);
     const clock = fakeTimer();
-    const progress = createProgressReporter({ stream, timer: clock.timer });
+    const progress = createProgressReporter({ stream, env: {}, timer: clock.timer });
 
     progress.start();
     progress.itemStart(item("clone", "frostney-foo"), 2, 42);
@@ -78,21 +79,10 @@ describe("progress reporter", () => {
     expect(writes.at(-1)).toBe(`${CLEAR}⠙ [3/42] clone frostney-foo`);
   });
 
-  test("step shows a caller-supplied count, for progress counted across plans", () => {
-    const { stream, writes } = fakeStream(true);
-    const progress = createProgressReporter({ stream, timer: fakeTimer().timer });
-
-    progress.start();
-    progress.step(item("clone", "frostney-a"), 0, 5);
-    expect(writes.at(-1)).toBe(`${CLEAR}⠋ [0/5] clone frostney-a`);
-    progress.step(item("clone", "frostney-b"), 2, 5);
-    expect(writes.at(-1)).toBe(`${CLEAR}⠋ [2/5] clone frostney-b`);
-  });
-
   test("clears the line on stop, stops the timer, and does not keep the process alive", () => {
     const { stream, writes } = fakeStream(true);
     const clock = fakeTimer();
-    const progress = createProgressReporter({ stream, timer: clock.timer });
+    const progress = createProgressReporter({ stream, env: {}, timer: clock.timer });
 
     progress.start();
     expect(clock.unrefs()).toBe(1);
@@ -110,7 +100,7 @@ describe("progress reporter", () => {
 
   test("keeps the line within the terminal width so it can be redrawn in place", () => {
     const { stream, writes } = fakeStream(true, 20);
-    const progress = createProgressReporter({ stream, timer: fakeTimer().timer });
+    const progress = createProgressReporter({ stream, env: {}, timer: fakeTimer().timer });
 
     progress.start();
     progress.itemStart(item("clone", "frostney-a-very-long-project-name"), 0, 1);
@@ -123,7 +113,7 @@ describe("progress reporter", () => {
   test("writes nothing and starts no timer when the stream is not a TTY", () => {
     const { stream, writes } = fakeStream(false);
     const clock = fakeTimer();
-    const progress = createProgressReporter({ stream, timer: clock.timer });
+    const progress = createProgressReporter({ stream, env: {}, timer: clock.timer });
 
     progress.start();
     progress.itemStart(item("clone", "frostney-foo"), 0, 1);
@@ -134,20 +124,76 @@ describe("progress reporter", () => {
     expect(clock.cleared()).toBe(0);
   });
 
-  test("an explicit isTTY flag overrides the stream", () => {
+  test("writes nothing under TERM=dumb or when CI is set to a truthy value", () => {
+    const disabled = [{ TERM: "dumb" }, { CI: "true" }, { CI: "1" }, { CI: "yes" }];
+    for (const env of disabled) {
+      const { stream, writes } = fakeStream(true);
+      const clock = fakeTimer();
+      const progress = createProgressReporter({ stream, env, timer: clock.timer });
+
+      progress.start();
+      progress.itemStart(item("clone", "frostney-foo"), 0, 1);
+      progress.stop();
+
+      expect(writes).toEqual([]);
+      expect(clock.active()).toBe(false);
+    }
+  });
+
+  test("still draws with a normal TERM and an unset, empty, 0 or false CI", () => {
+    for (const env of [{ TERM: "xterm-256color" }, { CI: "" }, { CI: "0" }, { CI: "false" }, {}]) {
+      const { stream, writes } = fakeStream(true);
+      const progress = createProgressReporter({ stream, env, timer: fakeTimer().timer });
+
+      progress.start();
+
+      expect(writes).toEqual([`${CLEAR}⠋ Resolving workspace…`]);
+    }
+  });
+
+  test("Ctrl-C clears the line and exits 130; the handler is removed on stop", () => {
     const { stream, writes } = fakeStream(true);
-    const progress = createProgressReporter({ stream, isTTY: false, timer: fakeTimer().timer });
+    const handlers = new Set<() => void>();
+    const exits: number[] = [];
+    const interrupt: ProgressInterrupt = {
+      on: (handler) => handlers.add(handler),
+      off: (handler) => handlers.delete(handler),
+      exit: (code) => exits.push(code),
+    };
+    const progress = createProgressReporter({ stream, timer: fakeTimer().timer, interrupt });
 
+    expect(handlers.size).toBe(0);
     progress.start();
-    progress.stop();
+    expect(handlers.size).toBe(1);
 
-    expect(writes).toEqual([]);
+    for (const handler of handlers) handler();
+    expect(writes.at(-1)).toBe(CLEAR);
+    expect(exits).toEqual([130]);
+    expect(handlers.size).toBe(0);
+
+    const clean = createProgressReporter({ stream, timer: fakeTimer().timer, interrupt });
+    clean.start();
+    clean.stop();
+    expect(handlers.size).toBe(0);
+    expect(exits).toEqual([130]);
+  });
+
+  test("a non-interactive run installs no Ctrl-C handler", () => {
+    const { stream } = fakeStream(false);
+    let installed = 0;
+    const interrupt: ProgressInterrupt = {
+      on: () => installed++,
+      off: () => {},
+      exit: () => {},
+    };
+    createProgressReporter({ stream, timer: fakeTimer().timer, interrupt }).start();
+    expect(installed).toBe(0);
   });
 
   test("withProgress clears the line before returning and when the run throws", async () => {
     const ok = fakeStream(true);
     await expect(
-      withProgress(async () => "done", { stream: ok.stream, timer: fakeTimer().timer }),
+      withProgress(async () => "done", { stream: ok.stream, env: {}, timer: fakeTimer().timer }),
     ).resolves.toBe("done");
     expect(ok.writes.at(-1)).toBe(CLEAR);
 
@@ -159,7 +205,7 @@ describe("progress reporter", () => {
           progress.itemStart(item("clone", "frostney-foo"), 0, 1);
           throw new Error("boom");
         },
-        { stream: failed.stream, timer: clock.timer },
+        { stream: failed.stream, env: {}, timer: clock.timer },
       ),
     ).rejects.toThrow("boom");
     expect(failed.writes.at(-1)).toBe(CLEAR);

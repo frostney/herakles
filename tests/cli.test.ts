@@ -122,3 +122,52 @@ state = "open-source"
     });
   });
 });
+
+describe("CLI projects import", () => {
+  test("non-TTY import keeps the { projects, up } JSON shape with one result array per project", async () => {
+    const root = await createTestWorkspace(
+      "herakles-cli-import-",
+      `version = 2
+
+[github]
+owners = []
+`,
+    );
+    const script = `#!/bin/sh
+if [ "$1 $2" = "repo clone" ]; then mkdir -p "$4"; exit 0; fi
+exit 1
+`;
+
+    await withFakeGhScript("herakles-cli-import-gh-", script, async () => {
+      const result = await runCli(root, [
+        "projects",
+        "import",
+        "--repo",
+        "frostney/herakles",
+        "--repo",
+        "frostney/known-good-route",
+        "--json",
+        "--root",
+        root,
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting the absence of control characters
+      expect(result.stdout).not.toMatch(/[\x1b\r]/);
+      const output = JSON.parse(result.stdout) as {
+        projects: Array<{ projectId: string }>;
+        up: Array<Array<{ status: string; item: { project: { slug: string } } }>>;
+      };
+      expect(output.projects.map((plan) => plan.projectId)).toEqual([
+        "frostney-herakles",
+        "frostney-known-good-route",
+      ]);
+      expect(output.up.map((group) => group.map((entry) => entry.item.project.slug))).toEqual([
+        ["frostney-herakles"],
+        ["frostney-known-good-route"],
+      ]);
+      expect(output.up.flat().map((entry) => entry.status)).toEqual(["done", "done"]);
+    });
+  });
+});

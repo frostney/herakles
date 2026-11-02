@@ -12,9 +12,12 @@ export type UpExecution = {
 
 export type UpExecuteOptions = {
   dryRun?: boolean;
-  /** Fires before each item runs (dry runs included) with its zero-based index and the item count. */
+  /**
+   * Fires before each item runs (dry runs included) with its zero-based index and the item count.
+   * Errors from the hook are ignored: a progress hook cannot abort the run.
+   */
   onItemStart?: (item: UpPlanItem, index: number, total: number) => void | Promise<void>;
-  /** Fires after each item finishes. */
+  /** Fires after each item finishes. Errors from the hook are ignored. */
   onProgress?: (result: UpExecution) => void | Promise<void>;
 };
 
@@ -25,7 +28,7 @@ export async function executeUpPlan(
   const results: UpExecution[] = [];
   const total = plan.items.length;
   for (const [index, item] of plan.items.entries()) {
-    await options.onItemStart?.(item, index, total);
+    await ignoreHookError(() => options.onItemStart?.(item, index, total));
     if (options.dryRun) {
       await pushResult(results, { item, status: "planned", message: item.reason }, options);
       continue;
@@ -53,7 +56,16 @@ async function pushResult(
   options: Pick<UpExecuteOptions, "onProgress">,
 ) {
   results.push(result);
-  await options.onProgress?.(result);
+  await ignoreHookError(() => options.onProgress?.(result));
+}
+
+// Progress hooks only report; a throwing hook must neither stop the loop nor fail an item.
+async function ignoreHookError(hook: () => void | Promise<void> | undefined) {
+  try {
+    await hook();
+  } catch {
+    // ignored on purpose
+  }
 }
 
 async function executeItem(item: UpPlanItem): Promise<UpExecution> {

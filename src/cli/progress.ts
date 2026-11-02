@@ -19,36 +19,64 @@ export type ProgressTimer = {
   clear(handle: ProgressTimerHandle): void;
 };
 
+export type ProgressInterrupt = {
+  /** Registers a one-shot handler for Ctrl-C. */
+  on(handler: () => void): void;
+  /** Removes the handler registered with `on`. */
+  off(handler: () => void): void;
+  exit(code: number): void;
+};
+
 export type ProgressOptions = {
   stream?: ProgressStream;
-  isTTY?: boolean;
   timer?: ProgressTimer;
+  /** Environment used to decide whether progress is wanted. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+  interrupt?: ProgressInterrupt;
 };
 
 export type ProgressReporter = {
-  /** Starts the live line with a spinner and a label. No-op unless the stream is a TTY. */
-  start(label?: string): void;
+  /** Starts the live line with a spinner. No-op unless progress is enabled. */
+  start(): void;
   /** Shows `[index+1/total] action slug`. Safe to pass directly as an `onItemStart` hook. */
   itemStart(item: UpPlanItem, index: number, total: number): void;
-  /** Shows `[current/total] action slug` for callers that count across several plans. */
-  step(item: UpPlanItem, current: number, total: number): void;
   /** Stops the spinner and clears the live line. Safe to call more than once. */
   stop(): void;
 };
+
+const SIGINT_EXIT_CODE = 130;
 
 const globalTimer: ProgressTimer = {
   set: (callback, ms) => setInterval(callback, ms),
   clear: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
 };
 
+const globalInterrupt: ProgressInterrupt = {
+  on: (handler) => process.once("SIGINT", handler),
+  off: (handler) => process.off("SIGINT", handler),
+  exit: (code) => process.exit(code),
+};
+
 /**
- * Live progress on stderr. Output is limited to a TTY so scripted stdout and
+ * Progress is for people: it needs a TTY on stderr, and is off for `TERM=dumb` and CI, where
+ * cursor control does not work or the output is a log.
+ */
+function progressEnabled(stream: ProgressStream, env: Record<string, string | undefined>): boolean {
+  if (stream.isTTY !== true) return false;
+  if (env.TERM === "dumb") return false;
+  const ci = env.CI?.trim().toLowerCase();
+  return !(ci && ci !== "0" && ci !== "false");
+}
+
+/**
+ * Live progress on stderr. Output is limited to an interactive terminal so scripted stdout and
  * stderr stay byte-identical to a run without progress.
  */
 export function createProgressReporter(options: ProgressOptions = {}): ProgressReporter {
   const stream = options.stream ?? process.stderr;
-  const enabled = options.isTTY ?? stream.isTTY === true;
+  const enabled = progressEnabled(stream, options.env ?? process.env);
   const timer = options.timer ?? globalTimer;
+  const interrupt = options.interrupt ?? globalInterrupt;
   let handle: ProgressTimerHandle | undefined;
   let label = RESOLVING_LABEL;
   let frame = 0;
@@ -66,30 +94,39 @@ export function createProgressReporter(options: ProgressOptions = {}): ProgressR
     drawn = false;
   }
 
-  function step(item: UpPlanItem, current: number, total: number) {
-    if (!enabled || !handle) return;
-    label = `[${current}/${total}] ${item.action} ${item.project.slug}`;
-    draw();
+  // Ctrl-C would otherwise leave the spinner line behind the shell prompt.
+  function onInterrupt() {
+    stop();
+    interrupt.exit(SIGINT_EXIT_CODE);
+  }
+
+  function stop() {
+    if (handle) {
+      timer.clear(handle);
+      interrupt.off(onInterrupt);
+    }
+    handle = undefined;
+    clear();
   }
 
   return {
-    start(initialLabel = RESOLVING_LABEL) {
+    start() {
       if (!enabled || handle) return;
-      label = initialLabel;
+      label = RESOLVING_LABEL;
       draw();
       handle = timer.set(() => {
         frame += 1;
         draw();
       }, SPINNER_INTERVAL_MS);
       handle.unref?.();
+      interrupt.on(onInterrupt);
     },
-    itemStart: (item, index, total) => step(item, index + 1, total),
-    step,
-    stop() {
-      if (handle) timer.clear(handle);
-      handle = undefined;
-      clear();
+    itemStart(item, index, total) {
+      if (!enabled || !handle) return;
+      label = `[${index + 1}/${total}] ${item.action} ${item.project.slug}`;
+      draw();
     },
+    stop,
   };
 }
 
