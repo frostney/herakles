@@ -123,6 +123,7 @@ export type PullRequestCollection = {
   generatedAt: string;
   pullRequests: PullRequestSummary[];
   failures: PullRequestCollectionFailure[];
+  projectsRead: number;
   skippedLocalProjects: number;
 };
 

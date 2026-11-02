@@ -85,7 +85,7 @@ export class InvalidProjectOpenDestinationError extends Error {
 
 const workspaceLoads = new Map<string, WorkspaceLoad>();
 const pullRequestCacheTtlMs = 60_000;
-const pullRequestCacheVersion = 3;
+const pullRequestCacheVersion = 4;
 const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
 
 export { InvalidProjectRenameError };
@@ -237,6 +237,7 @@ async function collectPullRequests(workspaceRoot: string): Promise<PullRequestCo
         a.projectSlug.localeCompare(b.projectSlug),
     ),
     failures,
+    projectsRead: hosted.length - failures.length,
     skippedLocalProjects: state.projects.length - hosted.length,
   };
 }

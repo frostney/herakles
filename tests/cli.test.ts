@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { failureReason, truncateText } from "../src/cli/output";
 import { runCommand } from "../src/utils/command";
 import { withFakeGhScript } from "./helpers/gh";
 import { createTestWorkspace } from "./helpers/workspace";
@@ -148,7 +149,7 @@ function pullRequestsJson(name: string, node: Record<string, unknown>) {
   ]);
 }
 
-function fakePullRequestGh(logPath: string) {
+function fakePullRequestGh(logPath: string, publicTitle = "Improve Workbench") {
   return `#!/bin/sh
 if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
   case "$3" in
@@ -163,7 +164,7 @@ if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   if echo "$*" | grep -q "name=public-tool"; then
     echo '${pullRequestsJson("public-tool", {
       number: 12,
-      title: "Improve Workbench",
+      title: publicTitle,
       isDraft: true,
       headRefName: "codex/workbench",
       updatedAt: "2026-06-24T10:00:00Z",
@@ -190,6 +191,12 @@ exit 1
 `;
 }
 
+// Fails every read the way a real `gh` does: the error carries the whole argv, query included.
+const failingGh = `#!/bin/sh
+echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2
+exit 1
+`;
+
 async function graphqlCalls(path: string) {
   return existsSync(path) ? (await readFile(path, "utf8")).split("\n").filter(Boolean).length : 0;
 }
@@ -215,14 +222,14 @@ describe("CLI prs", () => {
         "url",
       ]);
       expect(lines).toHaveLength(4);
-      expect(lines[2]).toMatch(
+      expect(lines[2]?.trimEnd()).toMatch(
         /^\* frostney\/starred-tool\s+#8\s+Older starred work\s+frostney\s+open\s+approved\s+passing\s+2026-06-20T10:00:00Z\s+https:\/\/github\.com\/frostney\/starred-tool\/pull\/8$/,
       );
-      expect(lines[3]).toMatch(
+      expect(lines[3]?.trimEnd()).toMatch(
         /^frostney\/public-tool\s+#12\s+Improve Workbench\s+frostney\s+draft\s+review-required\s+pending\s+2026-06-24T10:00:00Z\s+https:\/\/github\.com\/frostney\/public-tool\/pull\/12$/,
       );
       expect(result.stderr.trim().split("\n")).toEqual([
-        expect.stringMatching(/^frostney\/broken-tool: .*GitHub REST fallback failed/),
+        `${repoSlug("broken-tool")}: pull requests unavailable`,
       ]);
     });
   });
@@ -258,6 +265,85 @@ describe("CLI prs", () => {
     });
   });
 
+  test("shortens long titles in the table but not in --json", async () => {
+    const root = await pullRequestWorkspace();
+    const title = `Rework the ${"very ".repeat(30)}long title`;
+    await withFakeGhScript(
+      "herakles-cli-prs-gh-",
+      fakePullRequestGh(join(root, "gh.log"), title),
+      async () => {
+        const table = await runCli(root, ["prs", "--root", root]);
+        const row = table.stdout.split("\n").find((line) => line.includes("#12")) ?? "";
+        const shown = row.match(/Rework\S*(?: \S+)*…/)?.[0] ?? "";
+        expect(shown.length).toBe(60);
+        expect(table.stdout).not.toContain("long title");
+
+        const json = await runCli(root, ["prs", "--root", root, "--json", "--refresh"]);
+        expect(
+          JSON.parse(json.stdout).pullRequests.find((pr: { number: number }) => pr.number === 12)
+            .title,
+        ).toBe(title);
+      },
+    );
+  });
+
+  test("exits 1 with a qualified message and short failure lines when every read fails", async () => {
+    const root = await pullRequestWorkspace();
+    await withFakeGhScript("herakles-cli-prs-gh-", failingGh, async () => {
+      const result = await runCli(root, ["prs", "--root", root]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout.trim()).toBe(
+        "No open pull requests found; 3 project(s) could not be read.",
+      );
+      const lines = result.stderr.trim().split("\n");
+      expect(lines).toHaveLength(3);
+      for (const line of lines) {
+        expect(line).toMatch(/^frostney\/[a-z-]+: .*Bad Gateway/);
+        expect(line).not.toContain("query");
+        expect(line.length).toBeLessThan(260);
+      }
+    });
+  });
+
+  test("exits 1 with --json when every read fails", async () => {
+    const root = await pullRequestWorkspace();
+    await withFakeGhScript("herakles-cli-prs-gh-", failingGh, async () => {
+      const result = await runCli(root, ["prs", "--root", root, "--json"]);
+      const body = JSON.parse(result.stdout);
+
+      expect(result.exitCode).toBe(1);
+      expect(body.projectsRead).toBe(0);
+      expect(body.failures).toHaveLength(3);
+    });
+  });
+
+  test("notes a cached result on stderr only when it is not fresh", async () => {
+    const root = await pullRequestWorkspace();
+    await withFakeGhScript(
+      "herakles-cli-prs-gh-",
+      fakePullRequestGh(join(root, "gh.log")),
+      async () => {
+        const first = await runCli(root, ["prs", "--root", root]);
+        expect(first.stderr).not.toContain("Cached result");
+
+        const cachePath = join(root, "_herakles", "cache", "pull-requests.json");
+        const entry = JSON.parse(await readFile(cachePath, "utf8"));
+        entry.value.generatedAt = "2026-01-01T00:00:00.000Z";
+        await writeFile(cachePath, JSON.stringify(entry));
+
+        const cached = await runCli(root, ["prs", "--root", root]);
+        expect(cached.exitCode).toBe(0);
+        expect(cached.stderr).toContain(
+          "Cached result from 2026-01-01T00:00:00.000Z; use --refresh to read again.",
+        );
+
+        const refreshed = await runCli(root, ["prs", "--root", root, "--refresh"]);
+        expect(refreshed.stderr).not.toContain("Cached result");
+      },
+    );
+  });
+
   test("prints a clear message when there are no open pull requests", async () => {
     const root = await tempWorkspace();
 
@@ -266,5 +352,32 @@ describe("CLI prs", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe("No open pull requests.");
     expect(result.stderr).toBe("");
+  });
+});
+
+describe("CLI failure formatting", () => {
+  const query =
+    "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { pullRequests(first: 50) { nodes { number title } } } }";
+
+  test("keeps only the reason after the last `failed with`, not the gh argv or query", () => {
+    const message =
+      `GitHub GraphQL read failed for octocat/Hello-World: gh api graphql -f query=${query} -f owner=octocat failed with 1: HTTP 502\n` +
+      `GitHub REST fallback failed for octocat/Hello-World: gh api repos/octocat/Hello-World/pulls failed with 1: HTTP 404: Not Found (https://api.github.com/repos/octocat/Hello-World/pulls)`;
+
+    expect(failureReason(message)).toBe(
+      "HTTP 404: Not Found (https://api.github.com/repos/octocat/Hello-World/pulls)",
+    );
+  });
+
+  test("falls back to the last non-empty line and caps long reasons", () => {
+    expect(failureReason("something broke\nsecond line\n\n")).toBe("second line");
+    expect(failureReason(`gh failed with 1: ${"x".repeat(500)}`)).toHaveLength(200);
+    expect(failureReason(`gh failed with 1: ${"x".repeat(500)}`).endsWith("…")).toBe(true);
+    expect(failureReason("gh x failed with 1: ")).toBe("no error output (see --json)");
+  });
+
+  test("truncates text to a maximum length ending in an ellipsis", () => {
+    expect(truncateText("short", 10)).toBe("short");
+    expect(truncateText("abcdefghij", 5)).toBe("abcd…");
   });
 });

@@ -81,7 +81,7 @@ A tracked project the user has marked as important for Workbench attention and o
 _Avoid_: Pinned repository
 
 **Pull Request Review**:
-The Herakles Workbench surface for reviewing open pull requests across tracked hosted projects. It is a triage view over hosted repository work, not a replacement for GitHub review.
+The review of open pull requests across tracked hosted projects, done from the Herakles Workbench or `herakles prs`. It is a triage view over hosted repository work, not a replacement for GitHub review.
 _Avoid_: Task list, internal project list
 
 **Hosted Visibility**:

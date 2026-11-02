@@ -13,7 +13,7 @@ import type {
 import { startUiCommand, type UiFlags } from "../ui/server/command";
 import { definedProperties } from "../utils/definedProperties";
 import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
-import { printJson, printTable } from "./output";
+import { failureReason, printJson, printTable, truncateText } from "./output";
 
 type CommonFlags = {
   root?: string;
@@ -573,6 +573,10 @@ const doctorCommand = buildCommand<CommonFlags>({
   },
 });
 
+const pullRequestTitleMaxLength = 60;
+// A fresh read stamps generatedAt just before printing; anything older came from the cache.
+const pullRequestFreshWindowMs = 5_000;
+
 const pullRequestsCommand = buildCommand<CommonFlags & { refresh?: boolean }>({
   docs: { brief: "Review open pull requests across tracked hosted projects." },
   parameters: {
@@ -583,20 +587,32 @@ const pullRequestsCommand = buildCommand<CommonFlags & { refresh?: boolean }>({
   },
   async func(flags) {
     const result = await app.pullRequests(root(flags), { refresh: flags.refresh === true });
-    if (shouldJson(flags)) return printJson(result);
-    printPullRequests(result);
+    if (shouldJson(flags)) printJson(result);
+    else printPullRequests(result);
+    noteCachedPullRequests(result);
+    if (result.projectsRead === 0 && result.failures.length > 0) process.exitCode = 1;
   },
 });
 
+function noteCachedPullRequests(result: PullRequestCollection) {
+  const age = Date.now() - Date.parse(result.generatedAt);
+  if (!(age > pullRequestFreshWindowMs)) return;
+  console.error(`Cached result from ${result.generatedAt}; use --refresh to read again.`);
+}
+
 function printPullRequests(result: PullRequestCollection) {
   if (result.pullRequests.length === 0) {
-    console.log("No open pull requests.");
+    console.log(
+      result.failures.length === 0
+        ? "No open pull requests."
+        : `No open pull requests found; ${result.failures.length} project(s) could not be read.`,
+    );
   } else {
     printTable(
       result.pullRequests.map((pullRequest) => ({
         project: `${pullRequest.projectPinned ? "* " : ""}${pullRequest.owner}/${pullRequest.repo}`,
         pr: `#${pullRequest.number}`,
-        title: singleLine(pullRequest.title),
+        title: truncateText(singleLine(pullRequest.title), pullRequestTitleMaxLength),
         author: pullRequest.author,
         state: pullRequest.isDraft ? "draft" : "open",
         review: pullRequest.reviewStatus,
@@ -607,7 +623,7 @@ function printPullRequests(result: PullRequestCollection) {
     );
   }
   for (const failure of result.failures) {
-    console.error(`${failure.repo}: ${singleLine(failure.message)}`);
+    console.error(`${failure.repo}: ${failureReason(failure.message)}`);
   }
 }
 
