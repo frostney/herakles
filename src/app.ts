@@ -607,10 +607,12 @@ export async function upProjects(
   });
   const targets = [...new Set(resolved)];
   const plan = applyValidationIssuesToUpPlan(createUpPlan(targets), targets, state.validation);
-  const executions = await executeUpPlan(plan, options);
-  return resolved.map((target) =>
-    executions.filter((execution) => execution.item.project.id === target.id),
-  );
+  const byProject = new Map<string, UpExecution[]>();
+  for (const execution of await executeUpPlan(plan, options)) {
+    const id = execution.item.project.id;
+    byProject.set(id, [...(byProject.get(id) ?? []), execution]);
+  }
+  return resolved.map((target) => byProject.get(target.id) ?? []);
 }
 
 export async function syncProjectDefaultBranch(
