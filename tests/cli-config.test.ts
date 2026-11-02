@@ -199,7 +199,39 @@ describe("herakles config apply", () => {
 
     const result = await runCli(root, ["apply", join(root, "missing.toml"), "--yes"]);
 
-    expect(result.exitCode).not.toBe(0);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.trim()).toStartWith(`Cannot read ${join(root, "missing.toml")}:`);
+    expect(result.stderr).not.toContain("    at ");
+    expect(await readFile(configPath, "utf8")).toBe(currentToml);
+  });
+
+  test("keeps stdout empty for invalid TOML with --json", async () => {
+    const { root, configPath } = await setup();
+
+    const result = await runCli(root, ["apply", "-", "--yes", "--json"], "version = [\n");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("error:");
+    expect(await readFile(configPath, "utf8")).toBe(currentToml);
+  });
+
+  test("applies stdin input with --yes --json", async () => {
+    const { root, configPath } = await setup();
+
+    const result = await runCli(root, ["apply", "-", "--yes", "--json"], changedToml);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({ applied: true });
+    expect(await readFile(configPath, "utf8")).toBe(normalizedChangedToml);
+  });
+
+  test("previews and applies a change that only adds a trailing newline", async () => {
+    const { root, configPath, inputPath } = await setup(currentToml.trimEnd());
+    await writeFile(inputPath, currentToml);
+
+    const result = await runCli(root, ["apply", inputPath, "--yes"]);
+
+    expect(result.stdout).toContain("(only the end-of-file newline differs)");
     expect(await readFile(configPath, "utf8")).toBe(currentToml);
   });
 

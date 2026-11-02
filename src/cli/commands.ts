@@ -154,7 +154,7 @@ function projectSourceParser(value: string): "github" | "local" {
 
 async function prompt(question: string, promptOutput: NodeJS.WritableStream = output) {
   const rl = createInterface({ input, output: promptOutput });
-  // End of input counts as an empty answer instead of leaving the prompt pending.
+  // End of input while the prompt waits counts as an empty answer instead of hanging.
   const endOfInput = new Promise<string>((resolve) => rl.once("close", () => resolve("")));
   try {
     return (await Promise.race([rl.question(question).catch(() => ""), endOfInput])).trim();
@@ -512,8 +512,14 @@ function failCommand(message: string) {
   process.exitCode = 1;
 }
 
-function readConfigInput(file: string): Promise<string> {
-  return file === "-" ? Bun.stdin.text() : readFile(file, "utf8");
+async function readConfigInput(file: string): Promise<string | undefined> {
+  if (file === "-") return Bun.stdin.text();
+  try {
+    return await readFile(file, "utf8");
+  } catch (error) {
+    failCommand(`Cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`);
+    return undefined;
+  }
 }
 
 function configPreview(current: string, planned: string): string {
@@ -542,6 +548,25 @@ async function confirmConfigApply(
   return answer.toLowerCase() === "yes";
 }
 
+async function applyConfigPlan(
+  workspaceRoot: string,
+  plan: Awaited<ReturnType<typeof app.configTomlPlan>>,
+  flags: CommonFlags & { yes?: boolean },
+) {
+  const current = await app.configToml(workspaceRoot);
+  const json = shouldJson(flags);
+  if (plan.toml === current.toml) {
+    json ? printJson(plan) : console.log("No changes.");
+    return;
+  }
+  if (!(await confirmConfigApply(plan, current.toml, flags))) {
+    json ? printJson(plan) : console.log("Apply cancelled.");
+    return;
+  }
+  const result = await app.applyConfigToml(workspaceRoot, plan.toml);
+  json ? printJson(result) : console.log(`Applied ${result.path}.`);
+}
+
 const configApplyCommand = buildCommand<CommonFlags & { yes?: boolean }, [string]>({
   docs: {
     brief: "Validate TOML and apply it as _herakles/herakles.toml after a preview.",
@@ -563,20 +588,11 @@ const configApplyCommand = buildCommand<CommonFlags & { yes?: boolean }, [string
   async func(flags, file) {
     if (file === "-" && flags.yes !== true) return failCommand("stdin input requires --yes");
     const workspaceRoot = root(flags);
-    const plan = await app.configTomlPlan(workspaceRoot, await readConfigInput(file));
+    const incoming = await readConfigInput(file);
+    if (incoming === undefined) return;
+    const plan = await app.configTomlPlan(workspaceRoot, incoming);
     if (!plan.validation.valid) return reportConfigIssues(plan.validation.issues);
-    const current = await app.configToml(workspaceRoot);
-    const json = shouldJson(flags);
-    if (plan.toml === current.toml) {
-      json ? printJson(plan) : console.log("No changes.");
-      return;
-    }
-    if (!(await confirmConfigApply(plan, current.toml, flags))) {
-      json ? printJson(plan) : console.log("Apply cancelled.");
-      return;
-    }
-    const result = await app.applyConfigToml(workspaceRoot, plan.toml);
-    json ? printJson(result) : console.log(`Applied ${result.path}.`);
+    await applyConfigPlan(workspaceRoot, plan, flags);
   },
 });
 
