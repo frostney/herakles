@@ -29,11 +29,11 @@ async function syncWorkspace() {
     `version = 2
 
 [github]
-owners = ["frostney"]
+owners = ["acme"]
 
-[project."tool"]
+[project."widget"]
 source = "github"
-repo = "a private repository"
+repo = "acme/widget"
 state = "open-source"
 
 [project."spike"]
@@ -44,7 +44,7 @@ state = "experiment"
   const scratch = await mkdtemp(join(tmpdir(), "herakles-sync-upstream-"));
   const upstream = join(scratch, "upstream.git");
   const publisher = join(scratch, "publisher");
-  const checkout = join(root, "open-source", "tool");
+  const checkout = join(root, "open-source", "widget");
   await git(scratch, ["init", "--bare", "-b", "main", upstream]);
   await git(scratch, ["clone", upstream, publisher]);
   await git(publisher, ["checkout", "-b", "main"]);
@@ -66,7 +66,7 @@ async function publishUpstreamCommit(
 }
 
 async function withFakeGh(run: () => Promise<void>) {
-  const listing = fakeGhRepositoryJson({ name: "tool", defaultBranchRef: "main" });
+  const listing = fakeGhRepositoryJson({ name: "widget", owner: "acme", defaultBranchRef: "main" });
   await withFakeGhScript(
     "herakles-sync-gh-",
     `#!/usr/bin/env bash
@@ -83,7 +83,7 @@ exit 1
   );
 }
 
-function runSync(root: string, args: string[] = ["tool"]) {
+function runSync(root: string, args: string[] = ["widget"]) {
   return runCommand(
     [process.execPath, "run", cliPath, "projects", "sync", "--root", root, ...args],
     {
@@ -105,7 +105,7 @@ describe("herakles projects sync", () => {
       const [header, , row] = result.stdout.trim().split("\n");
       expect(header?.split(/\s{2,}/)).toEqual(["project", "branch", "status", "message", "behind"]);
       expect(row?.split(/\s{2,}/)).toEqual([
-        "github:frostney/tool",
+        "github:acme/widget",
         "main",
         "done",
         "default branch fast-forwarded",
@@ -122,11 +122,11 @@ describe("herakles projects sync", () => {
     const { root } = workspace;
     await publishUpstreamCommit(workspace, "two.txt");
     await withFakeGh(async () => {
-      const result = await runSync(root, ["tool", "--json"]);
+      const result = await runSync(root, ["widget", "--json"]);
 
       expect(result.exitCode).toBe(0);
       expect(JSON.parse(result.stdout)).toEqual({
-        projectId: "github:frostney/tool",
+        projectId: "github:acme/widget",
         branch: "main",
         status: "done",
         message: "default branch fast-forwarded",
@@ -142,7 +142,7 @@ describe("herakles projects sync", () => {
     await publishUpstreamCommit(workspace, "two.txt");
     await writeFile(join(checkout, "scratch.txt"), "untracked\n");
     await withFakeGh(async () => {
-      const result = await runSync(root, ["tool", "--json"]);
+      const result = await runSync(root, ["widget", "--json"]);
 
       expect(result.exitCode).toBe(0);
       expect(JSON.parse(result.stdout)).toMatchObject({
@@ -160,7 +160,7 @@ describe("herakles projects sync", () => {
     await publishUpstreamCommit(workspace, "two.txt");
     await commitFile(checkout, "local.txt", "local\n");
     await withFakeGh(async () => {
-      const result = await runSync(root, ["tool", "--json"]);
+      const result = await runSync(root, ["widget", "--json"]);
 
       expect(result.exitCode).toBe(0);
       expect(JSON.parse(result.stdout)).toMatchObject({
