@@ -90,7 +90,7 @@ When a hosted clone lives at a path other than its canonical checkout path, vali
 bun run herakles projects fix-path tool --root ~/Code
 ```
 
-The command prints the project, the existing path and the canonical path, then asks for confirmation. Pass `--yes` to skip the prompt, or `--json` for the plan or result object (the prompt then goes to stderr). A declined or closed prompt moves nothing. It refuses a slug or repository name shared by several tracked projects (use the full project id), anything outside the Herakles Workspace, and any existing canonical path including a dangling symlink, and it never deletes or duplicates repositories. The Workbench Use Canonical Path action runs the same checks.
+The command prints the project, the existing path and the canonical path, then asks for confirmation. Pass `--yes` to skip both the plan output and the prompt, or `--json` for the plan or result object (the prompt then goes to stderr). A declined or closed prompt moves nothing. It refuses a slug or repository name shared by several tracked projects (use the full project id), anything outside the Herakles Workspace, and any existing canonical path including a dangling symlink, and it never deletes or duplicates repositories. The Workbench Use Canonical Path action runs the same checks.
 
 ## Spin Up
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync } from "node:fs";
-import { mkdir, readlink, rename, symlink } from "node:fs/promises";
+import { mkdir, readlink, rename, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { applyCanonicalPath, canonicalPathPlan, resolveProjectCanonicalPath } from "../src/app";
 import {
@@ -228,6 +228,36 @@ describe("canonical path plan and apply", () => {
       ).rejects.toThrow("rename failed");
       expect(existsSync(join(workspaceRoot, "open-source"))).toBe(true);
       expect(existsSync(duplicatePath)).toBe(true);
+    });
+  });
+
+  test("a failed rename keeps a created parent directory that is no longer empty", async () => {
+    const { workspaceRoot, duplicatePath } = await hostedPathMismatchWorkspace();
+    const parent = join(workspaceRoot, "open-source");
+
+    await withFakeGhHostedClone(async () => {
+      const plan = await canonicalPathPlan(workspaceRoot, mismatchProjectId);
+
+      await expect(
+        applyCanonicalPath(workspaceRoot, plan, {
+          rename: async () => {
+            await writeFile(join(parent, "unrelated.txt"), "keep");
+            throw new Error("rename failed");
+          },
+        }),
+      ).rejects.toThrow("rename failed");
+      expect(existsSync(join(parent, "unrelated.txt"))).toBe(true);
+      expect(existsSync(duplicatePath)).toBe(true);
+    });
+  });
+
+  test("an exact project id wins over ambiguity checks", async () => {
+    const { workspaceRoot } = await ambiguousOwnersWorkspace();
+
+    await withFakeGhHostedClone(async () => {
+      await expect(canonicalPathPlan(workspaceRoot, "github:acme/herakles")).rejects.toThrow(
+        "No hosted clone path mismatch for project: github:acme/herakles",
+      );
     });
   });
 
