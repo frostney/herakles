@@ -1,17 +1,15 @@
 #!/usr/bin/env bun
 import { mkdir } from "node:fs/promises";
-import tailwind from "bun-plugin-tailwind";
 
 const allTargets = {
   cli: { entrypoint: "./src/cli/main.ts", outfile: "./dist/herakles" },
-  ui: { entrypoint: "./src/ui/server/main.ts", outfile: "./dist/herakles-ui" },
 } as const;
 
 type TargetName = keyof typeof allTargets;
 
 function selectedTargets(argv: string[]): TargetName[] {
-  const names = argv.filter((arg) => arg === "cli" || arg === "ui") as TargetName[];
-  return names.length > 0 ? names : (["cli", "ui"] as TargetName[]);
+  const names = argv.filter((arg) => arg === "cli") as TargetName[];
+  return names.length > 0 ? names : (["cli"] as TargetName[]);
 }
 
 const targets = selectedTargets(Bun.argv.slice(2)).map((name) => allTargets[name]);
@@ -22,7 +20,6 @@ let failed = false;
 for (const target of targets) {
   const result = await Bun.build({
     entrypoints: [target.entrypoint],
-    plugins: [tailwind],
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
     },

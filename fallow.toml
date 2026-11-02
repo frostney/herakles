@@ -1,11 +1,4 @@
-entry = [
-  "electrobun.config.ts",
-  "src/cli/main.ts",
-  "src/ui/desktop/main.ts",
-  "src/ui/server/main.ts",
-]
-
-ignoreDependencies = ["bun-plugin-tailwind"]
+entry = ["src/cli/main.ts"]
 
 # CodeRabbit reads .coderabbit.config.ts itself; nothing in the project imports
 # it, and its @coderabbitai/config import resolves only inside CodeRabbit.

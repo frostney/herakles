@@ -1,6 +1,6 @@
 # Herakles
 
-Herakles is a Bun-first TypeScript orchestrator for a personal Herakles Workspace: `_herakles/herakles.toml`, lifecycle folders, GitHub-backed projects, and local experiments from one CLI and local browser UI.
+Herakles is a Bun-first TypeScript orchestrator for a personal Herakles Workspace: `_herakles/herakles.toml`, lifecycle folders, GitHub-backed projects, and local experiments from one CLI.
 
 ## Install
 
@@ -18,20 +18,14 @@ bun run herakles add --root ~/Code --repo frostney/tool
 bun run herakles up --root ~/Code
 ```
 
-Open the local UI:
-
-```sh
-bun run ui -- --root ~/Code --no-open
-```
-
-Build standalone CLI/UI executables with Bun (`dist/herakles`, `dist/herakles-ui`), then run or put them on `PATH`:
+Build a standalone CLI executable with Bun (`dist/herakles`), then run it or put it on `PATH`:
 
 ```sh
 bun run build
 ./dist/herakles --help
 ```
 
-See [Quick Start](docs/quick-start.md) for add/import, rename, drift, and UI flows, and [Deployment](docs/deployment.md) for bundled executable details.
+See [Quick Start](docs/quick-start.md) for add/import, rename, and drift flows, and [Deployment](docs/deployment.md) for bundled executable details.
 
 ## Background
 

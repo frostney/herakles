@@ -16,8 +16,6 @@ export type ProjectLineCounts = {
   sloc: number;
 };
 
-export type ProjectOpenTarget = "filesystem" | "github" | "codex" | "terminal";
-
 type RepositoryMetadata = {
   url?: string;
   primaryLanguage?: string;
@@ -176,23 +174,6 @@ export type DoctorResult = {
   checks: DoctorCheck[];
 };
 
-export type HeraklesEventType =
-  | "connected"
-  | "projects-refresh-started"
-  | "projects-refresh-finished"
-  | "up-started"
-  | "up-progress"
-  | "up-finished"
-  | "validation-updated";
-
-export type HeraklesEvent = {
-  id: number;
-  type: HeraklesEventType;
-  generatedAt: string;
-  message: string;
-  payload?: Record<string, unknown>;
-};
-
 export type LocalPromotionPlan = {
   projectId: string;
   localPath: string;
@@ -257,9 +238,4 @@ export type ProjectRenameResult = {
   status: "renamed" | "failed";
   message: string;
   steps: ProjectRenameStepResult[];
-};
-
-export type ProjectDetail = {
-  project: Project;
-  validationIssues: ValidationIssue[];
 };

@@ -6,7 +6,7 @@
 - Run `herakles init` once for a Herakles Workspace.
 - Add or import projects, then let `herakles up` scaffold missing hosted project folders.
 - Preview and apply same-owner hosted project renames through one coordinated flow.
-- Use the UI for add/import, pull request review, project settings, drift checks, and config exchange.
+- Use the CLI for add/import, rename, drift checks, and workspace spin-up.
 
 ## Install
 
@@ -32,8 +32,8 @@ bun run herakles init --root ~/Code
 
 After initialization, Herakles discovers the Herakles Workspace by looking for
 `_herakles/herakles.toml` in the current directory and its ancestors. CLI
-commands and the UI can therefore be started from a managed project without
-passing `--root`:
+commands can therefore be run from a managed project without passing
+`--root`:
 
 ```sh
 cd ~/Code/open-source/tool
@@ -80,7 +80,7 @@ Apply the validated plan:
 bun run herakles projects rename frostney-tool frostney/new-tool --root ~/Code --apply
 ```
 
-The plan shows the GitHub rename, local origin update, Canonical Checkout Path move, and alphabetized tracked-project config re-key. Apply refuses dirty worktrees and can resume safely when an earlier attempt completed only some steps. Project Settings exposes the same preview-before-apply flow in the Workbench.
+The plan shows the GitHub rename, local origin update, Canonical Checkout Path move, and alphabetized tracked-project config re-key. Apply refuses dirty worktrees and can resume safely when an earlier attempt completed only some steps.
 
 ## Spin Up
 
@@ -97,11 +97,3 @@ bun run herakles up --root ~/Code
 ```
 
 `up` does not silently move, delete, or duplicate repositories. Workspace drift is reported so the user can choose to scaffold from configuration or sync the workspace.
-
-## Open The UI
-
-```sh
-bun run ui -- --root ~/Code --no-open
-```
-
-The UI covers project add/import, pull request review, project settings, workspace drift, validation, doctor checks, and Config Exchange.

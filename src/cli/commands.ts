@@ -5,9 +5,8 @@ import * as app from "../app";
 import { initConfig } from "../config/init";
 import { selectHeraklesWorkspace } from "../config/workspace";
 import type { ProjectRenamePlan, ProjectRenameResult, ProjectState } from "../domain";
-import { startUiCommand, type UiFlags } from "../ui/server/command";
 import { definedProperties } from "../utils/definedProperties";
-import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
+import { booleanFlag, optionalFlag } from "./flags";
 import { printJson, printTable } from "./output";
 
 type CommonFlags = {
@@ -19,14 +18,6 @@ const commonFlags = {
   root: optionalFlag(String, "Workspace root containing _herakles/herakles.toml.", "path"),
   json: booleanFlag("Print JSON output."),
 } as const;
-
-const numberParser = (value: string) => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    throw new Error(`Expected a number, received: ${value}`);
-  }
-  return parsed;
-};
 
 function root(flags: CommonFlags) {
   return selectHeraklesWorkspace(flags.root);
@@ -568,22 +559,6 @@ const doctorCommand = buildCommand<CommonFlags>({
   },
 });
 
-const uiCommand = buildCommand<UiFlags>({
-  docs: { brief: "Start the local Herakles browser UI." },
-  parameters: {
-    flags: {
-      root: commonFlags.root,
-      host: optionalFlag(String, "UI host.", "host"),
-      port: optionalFlag(numberParser, "UI port.", "port"),
-      open: optionalFlag(looseBooleanParser, "Open the UI in a browser.", "boolean"),
-      noOpen: booleanFlag("Do not open the UI in a browser."),
-    },
-  },
-  async func(flags) {
-    await startUiCommand(flags);
-  },
-});
-
 export const rootRoute = buildRouteMap({
   docs: { brief: "Herakles workspace orchestrator." },
   routes: {
@@ -608,6 +583,5 @@ export const rootRoute = buildRouteMap({
     }),
     up: upCommand,
     doctor: doctorCommand,
-    ui: uiCommand,
   },
 });
