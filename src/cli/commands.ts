@@ -9,6 +9,7 @@ import { startUiCommand, type UiFlags } from "../ui/server/command";
 import { definedProperties } from "../utils/definedProperties";
 import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
 import { printJson, printTable } from "./output";
+import { withProgress } from "./progress";
 
 type CommonFlags = {
   root?: string;
@@ -247,7 +248,11 @@ const addProjectCommand = buildCommand<
     });
     const result = await app.addProject(root(flags), input);
     const up =
-      input.source === "github" ? await app.upProject(root(flags), result.projectId) : undefined;
+      input.source === "github"
+        ? await withProgress((progress) =>
+            app.upProject(root(flags), result.projectId, { onItemStart: progress.itemStart }),
+          )
+        : undefined;
     shouldJson(flags)
       ? printJson(up ? { project: result, up } : result)
       : printAddProjectResult(result.toml, up);
@@ -327,16 +332,27 @@ const projectsImportCommand = buildCommand<
       shouldJson(flags) ? printJson(rows) : printTable(rows);
       return;
     }
-    const result = await app.importHostedProjects(
-      root(flags),
-      repos.map((repo) => ({
-        repo,
-        ...(flags.state === undefined ? {} : { state: flags.state }),
-        ...(flags.group === undefined ? {} : { group: flags.group }),
-        ...(flags.tag === undefined ? {} : { tags: flags.tag }),
-      })),
-    );
-    const up = await Promise.all(result.map((plan) => app.upProject(root(flags), plan.projectId)));
+    const { result, up } = await withProgress(async (progress) => {
+      const result = await app.importHostedProjects(
+        root(flags),
+        repos.map((repo) => ({
+          repo,
+          ...(flags.state === undefined ? {} : { state: flags.state }),
+          ...(flags.group === undefined ? {} : { group: flags.group }),
+          ...(flags.tag === undefined ? {} : { tags: flags.tag }),
+        })),
+      );
+      // Checkouts run concurrently and each plans one item, so count starts across projects.
+      let started = 0;
+      const up = await Promise.all(
+        result.map((plan) =>
+          app.upProject(root(flags), plan.projectId, {
+            onItemStart: (item) => progress.itemStart(item, started++, result.length),
+          }),
+        ),
+      );
+      return { result, up };
+    });
     shouldJson(flags) ? printJson({ projects: result, up }) : printImportProjectResult(result, up);
   },
 });
@@ -546,7 +562,9 @@ const upCommand = buildCommand<CommonFlags & { dryRun?: boolean }>({
     },
   },
   async func(flags) {
-    const result = await app.up(root(flags), { dryRun: flags.dryRun === true });
+    const result = await withProgress((progress) =>
+      app.up(root(flags), { dryRun: flags.dryRun === true, onItemStart: progress.itemStart }),
+    );
     if (shouldJson(flags)) return printJson(result);
     printTable(
       result.map((entry) => ({

@@ -47,7 +47,7 @@ import {
   InvalidProjectRenameError,
 } from "./project/rename";
 import { resolveProjects } from "./project/resolve";
-import { executeUpPlan, type UpExecution } from "./up/execute";
+import { executeUpPlan, type UpExecuteOptions } from "./up/execute";
 import { createUpPlan } from "./up/plan";
 import { definedProperties } from "./utils/definedProperties";
 
@@ -582,7 +582,7 @@ async function applyTrackedProjectConfigPlan(
 export async function upProject(
   workspaceRoot: string,
   projectId: string,
-  options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},
+  options: UpExecuteOptions = {},
 ) {
   const state = await loadWorkspace(workspaceRoot);
   const target = findProject(state.projects, projectId);
@@ -749,10 +749,7 @@ export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
   );
 }
 
-export async function up(
-  workspaceRoot: string,
-  options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},
-) {
+export async function up(workspaceRoot: string, options: UpExecuteOptions = {}) {
   return executeUpPlan(await upPlan(workspaceRoot), options);
 }
 

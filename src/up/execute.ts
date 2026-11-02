@@ -10,12 +10,22 @@ export type UpExecution = {
   message: string;
 };
 
+export type UpExecuteOptions = {
+  dryRun?: boolean;
+  /** Fires before each item runs (dry runs included) with its zero-based index and the item count. */
+  onItemStart?: (item: UpPlanItem, index: number, total: number) => void | Promise<void>;
+  /** Fires after each item finishes. */
+  onProgress?: (result: UpExecution) => void | Promise<void>;
+};
+
 export async function executeUpPlan(
   plan: UpPlan,
-  options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},
+  options: UpExecuteOptions = {},
 ): Promise<UpExecution[]> {
   const results: UpExecution[] = [];
-  for (const item of plan.items) {
+  const total = plan.items.length;
+  for (const [index, item] of plan.items.entries()) {
+    await options.onItemStart?.(item, index, total);
     if (options.dryRun) {
       await pushResult(results, { item, status: "planned", message: item.reason }, options);
       continue;
@@ -40,7 +50,7 @@ export async function executeUpPlan(
 async function pushResult(
   results: UpExecution[],
   result: UpExecution,
-  options: { onProgress?: (result: UpExecution) => void | Promise<void> },
+  options: Pick<UpExecuteOptions, "onProgress">,
 ) {
   results.push(result);
   await options.onProgress?.(result);
