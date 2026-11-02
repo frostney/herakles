@@ -4,7 +4,12 @@ import { buildCommand, buildRouteMap } from "@stricli/core";
 import * as app from "../app";
 import { initConfig } from "../config/init";
 import { selectHeraklesWorkspace } from "../config/workspace";
-import type { ProjectRenamePlan, ProjectRenameResult, ProjectState } from "../domain";
+import type {
+  ProjectRenamePlan,
+  ProjectRenameResult,
+  ProjectState,
+  PullRequestCollection,
+} from "../domain";
 import { startUiCommand, type UiFlags } from "../ui/server/command";
 import { definedProperties } from "../utils/definedProperties";
 import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
@@ -568,6 +573,48 @@ const doctorCommand = buildCommand<CommonFlags>({
   },
 });
 
+const pullRequestsCommand = buildCommand<CommonFlags & { refresh?: boolean }>({
+  docs: { brief: "Review open pull requests across tracked hosted projects." },
+  parameters: {
+    flags: {
+      ...commonFlags,
+      refresh: booleanFlag("Bypass the cached pull request reads."),
+    },
+  },
+  async func(flags) {
+    const result = await app.pullRequests(root(flags), { refresh: flags.refresh === true });
+    if (shouldJson(flags)) return printJson(result);
+    printPullRequests(result);
+  },
+});
+
+function printPullRequests(result: PullRequestCollection) {
+  if (result.pullRequests.length === 0) {
+    console.log("No open pull requests.");
+  } else {
+    printTable(
+      result.pullRequests.map((pullRequest) => ({
+        project: `${pullRequest.projectPinned ? "* " : ""}${pullRequest.owner}/${pullRequest.repo}`,
+        pr: `#${pullRequest.number}`,
+        title: singleLine(pullRequest.title),
+        author: pullRequest.author,
+        state: pullRequest.isDraft ? "draft" : "open",
+        review: pullRequest.reviewStatus,
+        checks: pullRequest.checkStatus,
+        updated: pullRequest.updatedAt,
+        url: pullRequest.url,
+      })),
+    );
+  }
+  for (const failure of result.failures) {
+    console.error(`${failure.repo}: ${singleLine(failure.message)}`);
+  }
+}
+
+function singleLine(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 const uiCommand = buildCommand<UiFlags>({
   docs: { brief: "Start the local Herakles browser UI." },
   parameters: {
@@ -607,6 +654,7 @@ export const rootRoute = buildRouteMap({
       },
     }),
     up: upCommand,
+    prs: pullRequestsCommand,
     doctor: doctorCommand,
     ui: uiCommand,
   },

@@ -6,6 +6,7 @@
 - Run `herakles init` once for a Herakles Workspace.
 - Add or import projects, then let `herakles up` scaffold missing hosted project folders.
 - Preview and apply same-owner hosted project renames through one coordinated flow.
+- Review open pull requests across tracked hosted projects with `herakles prs`.
 - Use the UI for add/import, pull request review, project settings, drift checks, and config exchange.
 
 ## Install
@@ -97,6 +98,16 @@ bun run herakles up --root ~/Code
 ```
 
 `up` does not silently move, delete, or duplicate repositories. Workspace drift is reported so the user can choose to scaffold from configuration or sync the workspace.
+
+## Review Pull Requests
+
+```sh
+bun run herakles prs --root ~/Code
+```
+
+`prs` lists open pull requests across tracked hosted projects, starred projects first (marked `*`), then by most recently updated. The table shows project, pull request number, title, author, draft or open state, review status, check status, last update, and URL. Local experiments are skipped.
+
+Projects whose GitHub read failed are reported on stderr, one line per project, after the table; the command still exits 0 when only some projects failed. Reads are cached briefly under `_herakles/cache`; pass `--refresh` to bypass the cache. Pass `--json` for the full result, including failures.
 
 ## Open The UI
 

@@ -18,6 +18,12 @@ bun run herakles add --root ~/Code --repo frostney/tool
 bun run herakles up --root ~/Code
 ```
 
+Review open pull requests across tracked hosted projects from the terminal:
+
+```sh
+bun run herakles prs --root ~/Code
+```
+
 Open the local UI:
 
 ```sh
