@@ -16,6 +16,7 @@ import { normalizeProjectConfigOrder, writeConfigToml } from "./config/write";
 import { normalizeRemote, type ProjectDiscovery, refreshProjectDiscovery } from "./discovery";
 import { runDoctor } from "./doctor";
 import type {
+  CanonicalPathPlan,
   GitHubRepository,
   HostedImportCandidate,
   LocalRepository,
@@ -510,18 +511,66 @@ async function projectRenameTarget(workspaceRoot: string, projectId: string) {
   return { state, target };
 }
 
-export async function resolveProjectCanonicalPath(workspaceRoot: string, projectId: string) {
-  const state = await loadWorkspace(workspaceRoot);
-  const mismatch = hostedClonePathMismatches(state.discovery, state.projects).find(
-    (item) => item.projectId === projectId,
-  );
-  if (!mismatch) {
-    throw new Error(`No hosted clone path mismatch for project: ${projectId}`);
+/**
+ * Read-only plan for moving a hosted clone to its canonical path. Runs every
+ * safety check the move needs and changes nothing on disk.
+ */
+export async function canonicalPathPlan(
+  workspaceRoot: string,
+  projectId: string,
+): Promise<CanonicalPathPlan> {
+  return checkedCanonicalPathPlan(await loadWorkspace(workspaceRoot), projectId);
+}
+
+/**
+ * Applies a confirmed plan. Workspace state is reloaded and every check re-run,
+ * so a change since planning is refused instead of moved over.
+ */
+export async function applyCanonicalPath(workspaceRoot: string, plan: CanonicalPathPlan) {
+  const current = await freshCanonicalPathPlan(workspaceRoot, plan.projectId);
+  if (current.from !== plan.from || current.to !== plan.to) {
+    throw new Error(
+      `Canonical path plan changed since it was made for ${plan.projectId}: expected ${plan.from} -> ${plan.to}, found ${current.from} -> ${current.to}`,
+    );
   }
-  if (!pathIsInside(state.loaded.paths.workspaceRoot, mismatch.actualPath)) {
+  return moveToCanonicalPath(workspaceRoot, current);
+}
+
+export async function resolveProjectCanonicalPath(workspaceRoot: string, projectId: string) {
+  return moveToCanonicalPath(workspaceRoot, await freshCanonicalPathPlan(workspaceRoot, projectId));
+}
+
+async function freshCanonicalPathPlan(workspaceRoot: string, projectId: string) {
+  invalidateWorkspace(workspaceRoot);
+  return canonicalPathPlan(workspaceRoot, projectId);
+}
+
+async function moveToCanonicalPath(workspaceRoot: string, plan: CanonicalPathPlan) {
+  try {
+    await mkdir(dirname(plan.to), { recursive: true });
+    await rename(plan.from, plan.to);
+  } finally {
+    invalidateWorkspace(workspaceRoot);
+  }
+  return { ...plan, moved: true };
+}
+
+async function checkedCanonicalPathPlan(
+  state: WorkspaceState,
+  selector: string,
+): Promise<CanonicalPathPlan> {
+  const mismatches = hostedClonePathMismatches(state.discovery, state.projects);
+  const mismatch =
+    mismatches.find((item) => item.projectId === selector) ??
+    mismatches.find((item) => item.projectId === findProject(state.projects, selector)?.id);
+  if (!mismatch) {
+    throw new Error(`No hosted clone path mismatch for project: ${selector}`);
+  }
+  const workspace = state.loaded.paths.workspaceRoot;
+  if (!pathIsInside(workspace, mismatch.actualPath)) {
     throw new Error(`Refusing to move checkout outside workspace: ${mismatch.actualPath}`);
   }
-  if (!pathIsInside(state.loaded.paths.workspaceRoot, mismatch.expectedPath)) {
+  if (!pathIsInside(workspace, mismatch.expectedPath)) {
     throw new Error(`Refusing to move checkout outside workspace: ${mismatch.expectedPath}`);
   }
   if (!existsSync(mismatch.actualPath)) {
@@ -530,15 +579,8 @@ export async function resolveProjectCanonicalPath(workspaceRoot: string, project
   if (existsSync(mismatch.expectedPath)) {
     throw new Error(`Canonical checkout path already exists: ${mismatch.expectedPath}`);
   }
-  await assertCanonicalMoveInsideWorkspace(state.loaded.paths.workspaceRoot, mismatch);
-  await mkdir(dirname(mismatch.expectedPath), { recursive: true });
-  await rename(mismatch.actualPath, mismatch.expectedPath);
-  return {
-    projectId,
-    from: mismatch.actualPath,
-    to: mismatch.expectedPath,
-    moved: true,
-  };
+  await assertCanonicalMoveInsideWorkspace(workspace, mismatch);
+  return { projectId: mismatch.projectId, from: mismatch.actualPath, to: mismatch.expectedPath };
 }
 
 export async function importHostedProjects(

@@ -82,6 +82,16 @@ bun run herakles projects rename frostney-tool frostney/new-tool --root ~/Code -
 
 The plan shows the GitHub rename, local origin update, Canonical Checkout Path move, and alphabetized tracked-project config re-key. Apply refuses dirty worktrees and can resume safely when an earlier attempt completed only some steps. Project Settings exposes the same preview-before-apply flow in the Workbench.
 
+## Fix A Hosted Clone Path
+
+When a hosted clone lives at a path other than its canonical checkout path, validation reports `hosted-clone-path-mismatch`. Review and move it explicitly:
+
+```sh
+bun run herakles projects fix-path tool --root ~/Code
+```
+
+The command prints the project, the existing path and the canonical path, then asks for confirmation. Pass `--yes` to skip the prompt, or `--json` for the plan or result object (the prompt then goes to stderr). A declined or closed prompt moves nothing. It refuses to move anything outside the Herakles Workspace or over an existing canonical path, and it never deletes or duplicates repositories. The Workbench Use Canonical Path action runs the same checks.
+
 ## Spin Up
 
 Preview workspace changes:

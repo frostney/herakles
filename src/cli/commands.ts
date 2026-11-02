@@ -283,6 +283,58 @@ const removeProjectCommand = buildCommand<CommonFlags & { yes?: boolean }, [stri
   },
 });
 
+async function confirmMove(question: string, toStderr: boolean): Promise<boolean> {
+  const rl = createInterface({ input, output: toStderr ? process.stderr : output });
+  try {
+    const answer = await new Promise<string>((resolve) => {
+      rl.once("close", () => resolve(""));
+      rl.question(question).then(resolve, () => resolve(""));
+    });
+    return answer.trim().toLowerCase() === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
+const projectsFixPathCommand = buildCommand<CommonFlags & { yes?: boolean }, [string]>({
+  docs: {
+    brief: "Move a hosted clone at a non-canonical path to its canonical project path.",
+  },
+  parameters: {
+    flags: {
+      ...commonFlags,
+      yes: booleanFlag("Skip confirmation."),
+    },
+    positional: {
+      kind: "tuple",
+      parameters: [
+        { parse: String, brief: "Project, slug, or repository name.", placeholder: "project" },
+      ],
+    },
+  },
+  async func(flags, id) {
+    const workspaceRoot = root(flags);
+    const plan = await app.canonicalPathPlan(workspaceRoot, id);
+    if (!shouldJson(flags)) {
+      console.log(`Project: ${plan.projectId}\nFrom:    ${plan.from}\nTo:      ${plan.to}`);
+    }
+    if (flags.yes !== true) {
+      const confirmed = await confirmMove(
+        `Move ${plan.from} to ${plan.to}? This moves the existing checkout and does not delete or duplicate repositories. (yes/no): `,
+        shouldJson(flags),
+      );
+      if (!confirmed) {
+        shouldJson(flags)
+          ? printJson({ ...plan, moved: false })
+          : console.log("Fix path cancelled.");
+        return;
+      }
+    }
+    const result = await app.applyCanonicalPath(workspaceRoot, plan);
+    shouldJson(flags) ? printJson(result) : console.log(`Moved ${result.from} to ${result.to}`);
+  },
+});
+
 const projectsImportCommand = buildCommand<
   CommonFlags & { repo?: string[]; state?: ProjectState; group?: string; tag?: string[] },
   []
@@ -604,6 +656,7 @@ export const rootRoute = buildRouteMap({
         archive: repoArchiveCommand,
         promote: projectPromoteCommand,
         rename: projectRenameCommand,
+        "fix-path": projectsFixPathCommand,
       },
     }),
     up: upCommand,
