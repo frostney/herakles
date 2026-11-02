@@ -160,7 +160,12 @@ describe("progress reporter", () => {
       off: (handler) => handlers.delete(handler),
       exit: (code) => exits.push(code),
     };
-    const progress = createProgressReporter({ stream, timer: fakeTimer().timer, interrupt });
+    const progress = createProgressReporter({
+      stream,
+      env: {},
+      timer: fakeTimer().timer,
+      interrupt,
+    });
 
     expect(handlers.size).toBe(0);
     progress.start();
@@ -171,7 +176,7 @@ describe("progress reporter", () => {
     expect(exits).toEqual([130]);
     expect(handlers.size).toBe(0);
 
-    const clean = createProgressReporter({ stream, timer: fakeTimer().timer, interrupt });
+    const clean = createProgressReporter({ stream, env: {}, timer: fakeTimer().timer, interrupt });
     clean.start();
     clean.stop();
     expect(handlers.size).toBe(0);
@@ -186,7 +191,7 @@ describe("progress reporter", () => {
       off: () => {},
       exit: () => {},
     };
-    createProgressReporter({ stream, timer: fakeTimer().timer, interrupt }).start();
+    createProgressReporter({ stream, env: {}, timer: fakeTimer().timer, interrupt }).start();
     expect(installed).toBe(0);
   });
 
