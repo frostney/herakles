@@ -107,9 +107,9 @@ bun run herakles prs --root ~/Code
 
 `prs` lists open pull requests across tracked hosted projects, starred projects first (marked `*`), then by most recently updated. The table shows project, pull request number, title, author, draft or open state, review status, check status, last update, and URL. Local experiments are skipped.
 
-Titles longer than 60 characters are shortened with `…` in the table; `--json` keeps them whole. Projects whose GitHub read failed are reported on stderr, one short line per project, after the table. The command exits 0 when at least one project was read, even if others failed, and exits 1 when no project could be read, with the table output and with `--json` alike. When no pull requests are found and some reads failed, the message says how many projects could not be read instead of reporting an empty list.
+Titles longer than 60 characters are shortened with `…` in the table; `--json` keeps them whole. Projects whose GitHub read failed are reported on stderr, one short line per project, after the table. The command exits 1 only when there were hosted projects and none of them could be read, with the table output and with `--json` alike. It exits 0 when at least one project was read, even if others failed, and when the workspace has no hosted projects. When no pull requests are found and some reads failed, the message says how many projects could not be read instead of reporting an empty list.
 
-Reads are cached briefly under `_herakles/cache`. When the result comes from the cache, a one-line note on stderr gives the time it was read; pass `--refresh` to bypass the cache. Pass `--json` for the full result, including failures.
+Reads are cached briefly under `_herakles/cache`; a read where every project failed is not cached, so a rerun reads again. When the result comes from the cache, a one-line note on stderr gives the time it was read and `--json` reports `"cached": true`; pass `--refresh` to bypass the cache. Pass `--json` for the full result, including failures.
 
 ## Open The UI
 

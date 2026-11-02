@@ -6,8 +6,9 @@ import type {
   PullRequestReviewStatus,
   PullRequestSummary,
 } from "../domain";
-import { runCommand } from "../utils/command";
+import { CommandError, runCommand } from "../utils/command";
 import { definedProperties } from "../utils/definedProperties";
+import { collapseWhitespace, truncateText } from "../utils/text";
 
 type Runner = typeof runCommand;
 
@@ -996,6 +997,43 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const READ_FAILURE_REASON_MAX_LENGTH = 200;
+
+/** A GitHub read failure with a short reason that is safe to show: no argv, no query. */
+class GitHubReadError extends Error {
+  readonly reason: string;
+
+  constructor(message: string, reason: string) {
+    super(message);
+    this.name = "GitHubReadError";
+    this.reason = reason;
+  }
+}
+
+/** Reduces any error from a GitHub read to one short, human-readable line. */
+export function describeReadFailure(error: unknown): string {
+  return truncateText(readFailureReason(error), READ_FAILURE_REASON_MAX_LENGTH);
+}
+
+function readFailureReason(error: unknown): string {
+  if (error instanceof GitHubReadError) return error.reason;
+  if (error instanceof CommandError) {
+    const { failure } = error;
+    if (failure.kind === "timeout") return `timed out after ${formatDuration(failure.timeoutMs)}`;
+    const stderr = collapseWhitespace(failure.stderr).replace(/^gh: /, "");
+    return stderr || `exited with ${failure.exitCode}`;
+  }
+  return collapseWhitespace(errorMessage(error)) || "unknown error";
+}
+
+function partOfReason(error: unknown): string {
+  return truncateText(readFailureReason(error), READ_FAILURE_REASON_MAX_LENGTH / 2 - 10);
+}
+
+function formatDuration(ms: number): string {
+  return ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`;
+}
+
 async function readWithRestFallback<T>(
   subject: string,
   graphqlRead: () => Promise<T>,
@@ -1007,9 +1045,10 @@ async function readWithRestFallback<T>(
     try {
       return await restRead();
     } catch (restError) {
-      throw new Error(
+      throw new GitHubReadError(
         `GitHub GraphQL read failed for ${subject}: ${errorMessage(graphqlError)}\n` +
           `GitHub REST fallback failed for ${subject}: ${errorMessage(restError)}`,
+        `GraphQL: ${partOfReason(graphqlError)}; REST: ${partOfReason(restError)}`,
       );
     }
   }
@@ -1020,8 +1059,10 @@ function pullRequestNodes(stdout: string): GhPullRequest[] {
   const pages = Array.isArray(parsed) ? parsed : [parsed];
   const errors = pages.flatMap((page) => page.errors ?? []);
   if (errors.length > 0) {
-    throw new Error(
-      `GitHub GraphQL response contained errors: ${errors.map((error) => error.message ?? "unknown error").join("; ")}`,
+    const messages = errors.map((error) => error.message ?? "unknown error").join("; ");
+    throw new GitHubReadError(
+      `GitHub GraphQL response contained errors: ${messages}`,
+      collapseWhitespace(messages),
     );
   }
   return pages.flatMap((page) => {

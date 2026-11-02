@@ -116,11 +116,16 @@ export type PullRequestCollectionFailure = {
   projectId: string;
   projectSlug: string;
   repo: string;
+  /** Full error text for logs and the UI; may carry command arguments. */
   message: string;
+  /** One short human-readable line, safe to print. */
+  reason: string;
 };
 
 export type PullRequestCollection = {
   generatedAt: string;
+  /** True when this result was served from the cache instead of read from GitHub. */
+  cached: boolean;
   pullRequests: PullRequestSummary[];
   failures: PullRequestCollectionFailure[];
   projectsRead: number;

@@ -13,7 +13,7 @@ import type {
 import { startUiCommand, type UiFlags } from "../ui/server/command";
 import { definedProperties } from "../utils/definedProperties";
 import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
-import { failureReason, printJson, printTable, truncateText } from "./output";
+import { collapseWhitespace, printJson, printTable, truncateText } from "./output";
 
 type CommonFlags = {
   root?: string;
@@ -574,8 +574,6 @@ const doctorCommand = buildCommand<CommonFlags>({
 });
 
 const pullRequestTitleMaxLength = 60;
-// A fresh read stamps generatedAt just before printing; anything older came from the cache.
-const pullRequestFreshWindowMs = 5_000;
 
 const pullRequestsCommand = buildCommand<CommonFlags & { refresh?: boolean }>({
   docs: { brief: "Review open pull requests across tracked hosted projects." },
@@ -595,8 +593,7 @@ const pullRequestsCommand = buildCommand<CommonFlags & { refresh?: boolean }>({
 });
 
 function noteCachedPullRequests(result: PullRequestCollection) {
-  const age = Date.now() - Date.parse(result.generatedAt);
-  if (!(age > pullRequestFreshWindowMs)) return;
+  if (!result.cached) return;
   console.error(`Cached result from ${result.generatedAt}; use --refresh to read again.`);
 }
 
@@ -612,7 +609,7 @@ function printPullRequests(result: PullRequestCollection) {
       result.pullRequests.map((pullRequest) => ({
         project: `${pullRequest.projectPinned ? "* " : ""}${pullRequest.owner}/${pullRequest.repo}`,
         pr: `#${pullRequest.number}`,
-        title: truncateText(singleLine(pullRequest.title), pullRequestTitleMaxLength),
+        title: truncateText(collapseWhitespace(pullRequest.title), pullRequestTitleMaxLength),
         author: pullRequest.author,
         state: pullRequest.isDraft ? "draft" : "open",
         review: pullRequest.reviewStatus,
@@ -623,12 +620,8 @@ function printPullRequests(result: PullRequestCollection) {
     );
   }
   for (const failure of result.failures) {
-    console.error(`${failure.repo}: ${failureReason(failure.message)}`);
+    console.error(`${failure.repo}: ${failure.reason}`);
   }
-}
-
-function singleLine(value: string) {
-  return value.replace(/\s+/g, " ").trim();
 }
 
 const uiCommand = buildCommand<UiFlags>({

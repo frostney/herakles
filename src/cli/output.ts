@@ -1,3 +1,5 @@
+export { collapseWhitespace, truncateText } from "../utils/text";
+
 export function printJson(value: unknown) {
   console.log(JSON.stringify(value, null, 2));
 }
@@ -18,36 +20,4 @@ export function printTable(rows: readonly Record<string, unknown>[]) {
       columns.map((column, index) => String(row[column] ?? "").padEnd(widths[index]!)).join("  "),
     );
   }
-}
-
-export function truncateText(value: string, max: number) {
-  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
-}
-
-const failureReasonMaxLength = 200;
-
-/**
- * Reduces a service error to a short reason for one terminal line. Command errors embed the whole
- * `gh` argv, including GraphQL queries, so keep only what follows the last `failed with`.
- */
-export function failureReason(message: string) {
-  const marker = "failed with";
-  const markerIndex = message.lastIndexOf(marker);
-  const tail =
-    markerIndex === -1
-      ? lastNonEmptyLine(message)
-      : message
-          .slice(markerIndex + marker.length)
-          .replace(/^\s*\d+\s*:?/, "")
-          .replace(/\s+/g, " ")
-          .trim();
-  return truncateText(tail || "no error output (see --json)", failureReasonMaxLength);
-}
-
-function lastNonEmptyLine(value: string) {
-  const lines = value
-    .split("\n")
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  return lines.at(-1) ?? "";
 }

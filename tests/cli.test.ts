@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failureReason, truncateText } from "../src/cli/output";
+import { collapseWhitespace, truncateText } from "../src/cli/output";
 import { runCommand } from "../src/utils/command";
 import { withFakeGhScript } from "./helpers/gh";
 import { createTestWorkspace } from "./helpers/workspace";
@@ -229,7 +229,7 @@ describe("CLI prs", () => {
         /^frostney\/public-tool\s+#12\s+Improve Workbench\s+frostney\s+draft\s+review-required\s+pending\s+2026-06-24T10:00:00Z\s+https:\/\/github\.com\/frostney\/public-tool\/pull\/12$/,
       );
       expect(result.stderr.trim().split("\n")).toEqual([
-        `${repoSlug("broken-tool")}: pull requests unavailable`,
+        `${repoSlug("broken-tool")}: GraphQL: pull requests unavailable; REST: pull requests unavailable`,
       ]);
     });
   });
@@ -256,7 +256,8 @@ describe("CLI prs", () => {
       expect(firstCalls).toBeGreaterThan(0);
 
       const cached = await runCli(root, ["prs", "--root", root, "--json"]);
-      expect(JSON.parse(cached.stdout)).toEqual(body);
+      expect(body.cached).toBe(false);
+      expect(JSON.parse(cached.stdout)).toEqual({ ...body, cached: true });
       expect(await graphqlCalls(logPath)).toBe(firstCalls);
 
       const refreshed = await runCli(root, ["prs", "--root", root, "--json", "--refresh"]);
@@ -299,9 +300,11 @@ describe("CLI prs", () => {
       const lines = result.stderr.trim().split("\n");
       expect(lines).toHaveLength(3);
       for (const line of lines) {
-        expect(line).toMatch(/^frostney\/[a-z-]+: .*Bad Gateway/);
+        expect(line).toMatch(
+          /^frostney\/[a-z-]+: GraphQL: HTTP 502: Bad Gateway \(\S+\); REST: HTTP 502: Bad Gateway \(\S+\)$/,
+        );
         expect(line).not.toContain("query");
-        expect(line.length).toBeLessThan(260);
+        expect(line).not.toContain("gh api");
       }
     });
   });
@@ -318,7 +321,7 @@ describe("CLI prs", () => {
     });
   });
 
-  test("notes a cached result on stderr only when it is not fresh", async () => {
+  test("notes a cached result on stderr as soon as the service serves one", async () => {
     const root = await pullRequestWorkspace();
     await withFakeGhScript(
       "herakles-cli-prs-gh-",
@@ -327,19 +330,41 @@ describe("CLI prs", () => {
         const first = await runCli(root, ["prs", "--root", root]);
         expect(first.stderr).not.toContain("Cached result");
 
-        const cachePath = join(root, "_herakles", "cache", "pull-requests.json");
-        const entry = JSON.parse(await readFile(cachePath, "utf8"));
-        entry.value.generatedAt = "2026-01-01T00:00:00.000Z";
-        await writeFile(cachePath, JSON.stringify(entry));
-
         const cached = await runCli(root, ["prs", "--root", root]);
+        const generatedAt = JSON.parse(
+          await readFile(join(root, "_herakles", "cache", "pull-requests.json"), "utf8"),
+        ).value.generatedAt;
         expect(cached.exitCode).toBe(0);
         expect(cached.stderr).toContain(
-          "Cached result from 2026-01-01T00:00:00.000Z; use --refresh to read again.",
+          `Cached result from ${generatedAt}; use --refresh to read again.`,
         );
 
         const refreshed = await runCli(root, ["prs", "--root", root, "--refresh"]);
         expect(refreshed.stderr).not.toContain("Cached result");
+      },
+    );
+  });
+
+  test("does not cache a total failure, so a rerun after fixing gh reads fresh data", async () => {
+    const root = await pullRequestWorkspace();
+    await withFakeGhScript("herakles-cli-prs-gh-", failingGh, async () => {
+      const failed = await runCli(root, ["prs", "--root", root]);
+      expect(failed.exitCode).toBe(1);
+      expect(existsSync(join(root, "_herakles", "cache", "pull-requests.json"))).toBe(false);
+    });
+
+    await withFakeGhScript(
+      "herakles-cli-prs-gh-",
+      fakePullRequestGh(join(root, "gh.log")),
+      async () => {
+        const fixed = await runCli(root, ["prs", "--root", root]);
+        expect(fixed.exitCode).toBe(0);
+        expect(fixed.stdout).toContain("#12");
+        expect(fixed.stderr).not.toContain("Cached result");
+
+        const again = await runCli(root, ["prs", "--root", root]);
+        expect(again.exitCode).toBe(0);
+        expect(again.stderr).toContain("Cached result from ");
       },
     );
   });
@@ -355,29 +380,19 @@ describe("CLI prs", () => {
   });
 });
 
-describe("CLI failure formatting", () => {
-  const query =
-    "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { pullRequests(first: 50) { nodes { number title } } } }";
-
-  test("keeps only the reason after the last `failed with`, not the gh argv or query", () => {
-    const message =
-      `GitHub GraphQL read failed for octocat/Hello-World: gh api graphql -f query=${query} -f owner=octocat failed with 1: HTTP 502\n` +
-      `GitHub REST fallback failed for octocat/Hello-World: gh api repos/octocat/Hello-World/pulls failed with 1: HTTP 404: Not Found (https://api.github.com/repos/octocat/Hello-World/pulls)`;
-
-    expect(failureReason(message)).toBe(
-      "HTTP 404: Not Found (https://api.github.com/repos/octocat/Hello-World/pulls)",
-    );
-  });
-
-  test("falls back to the last non-empty line and caps long reasons", () => {
-    expect(failureReason("something broke\nsecond line\n\n")).toBe("second line");
-    expect(failureReason(`gh failed with 1: ${"x".repeat(500)}`)).toHaveLength(200);
-    expect(failureReason(`gh failed with 1: ${"x".repeat(500)}`).endsWith("…")).toBe(true);
-    expect(failureReason("gh x failed with 1: ")).toBe("no error output (see --json)");
-  });
-
+describe("CLI text helpers", () => {
   test("truncates text to a maximum length ending in an ellipsis", () => {
     expect(truncateText("short", 10)).toBe("short");
     expect(truncateText("abcdefghij", 5)).toBe("abcd…");
+  });
+
+  test("truncates by code point so emoji are never split", () => {
+    const text = "😀".repeat(10);
+    expect(truncateText(text, 10)).toBe(text);
+    expect(truncateText(text, 5)).toBe(`${"😀".repeat(4)}…`);
+  });
+
+  test("collapses whitespace to single spaces", () => {
+    expect(collapseWhitespace("  a\n\n b\t c  ")).toBe("a b c");
   });
 });

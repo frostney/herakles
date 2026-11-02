@@ -32,7 +32,11 @@ import type {
   ValidationIssue,
   ValidationResult,
 } from "./domain";
-import { listImportableGitHubRepositories, listOpenPullRequestsForRepo } from "./github/gh";
+import {
+  describeReadFailure,
+  listImportableGitHubRepositories,
+  listOpenPullRequestsForRepo,
+} from "./github/gh";
 import { type HostedClonePathMismatch, validateProjects } from "./lifecycle/validate";
 import {
   createLocalPromotionPlan,
@@ -63,17 +67,21 @@ type WorkspaceLoad = {
   state?: WorkspaceState;
 };
 
+// What the cache holds. `cached` is stamped on each returned copy, so a stored entry never claims
+// to be fresh.
+type PullRequestSnapshot = Omit<PullRequestCollection, "cached">;
+
 type PullRequestCacheEntry = {
   expiresAt: number;
   key: string;
-  loading?: Promise<PullRequestCollection>;
-  value?: PullRequestCollection;
+  loading?: Promise<PullRequestSnapshot>;
+  value?: PullRequestSnapshot;
 };
 
 type StoredPullRequestCacheEntry = {
   expiresAt: number;
   key: string;
-  value: PullRequestCollection;
+  value: PullRequestSnapshot;
 };
 
 export class InvalidProjectOpenDestinationError extends Error {
@@ -85,7 +93,7 @@ export class InvalidProjectOpenDestinationError extends Error {
 
 const workspaceLoads = new Map<string, WorkspaceLoad>();
 const pullRequestCacheTtlMs = 60_000;
-const pullRequestCacheVersion = 4;
+const pullRequestCacheVersion = 5;
 const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
 
 export { InvalidProjectRenameError };
@@ -164,15 +172,22 @@ export async function pullRequests(
   const cached = pullRequestCaches.get(workspaceRoot);
   const now = Date.now();
   if (!options.refresh && cached?.key === cacheKey) {
-    if (cached.value && cached.expiresAt > now) return cached.value;
-    if (cached.loading) return cached.loading;
+    if (cached.value && cached.expiresAt > now) return { ...cached.value, cached: true };
+    if (cached.loading) return { ...(await cached.loading), cached: false };
   }
   if (!options.refresh) {
     const stored = await readStoredPullRequestCache(workspaceRoot, cacheKey);
-    if (stored) return stored;
+    if (stored) return { ...stored, cached: true };
   }
   const loading = collectPullRequests(workspaceRoot)
     .then(async (value) => {
+      if (readNothing(value)) {
+        // Do not remember a total failure: fixing `gh` should take effect on the next call.
+        if (pullRequestCaches.get(workspaceRoot)?.loading === loading) {
+          pullRequestCaches.delete(workspaceRoot);
+        }
+        return value;
+      }
       const expiresAt = Date.now() + pullRequestCacheTtlMs;
       pullRequestCaches.set(workspaceRoot, {
         expiresAt,
@@ -191,10 +206,14 @@ export async function pullRequests(
       throw error;
     });
   pullRequestCaches.set(workspaceRoot, { expiresAt: 0, key: cacheKey, loading });
-  return loading;
+  return { ...(await loading), cached: false };
 }
 
-async function collectPullRequests(workspaceRoot: string): Promise<PullRequestCollection> {
+function readNothing(value: PullRequestSnapshot): boolean {
+  return value.projectsRead === 0 && value.failures.length > 0;
+}
+
+async function collectPullRequests(workspaceRoot: string): Promise<PullRequestSnapshot> {
   const state = await loadWorkspace(workspaceRoot);
   const hosted = state.projects.filter((project) => project.source === "github" && project.owner);
   const settled = await Promise.allSettled(
@@ -225,6 +244,7 @@ async function collectPullRequests(workspaceRoot: string): Promise<PullRequestCo
         projectSlug: project.slug,
         repo: `${project.owner}/${project.repo}`,
         message: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        reason: describeReadFailure(result.reason),
       });
     }
   }
@@ -254,7 +274,7 @@ async function pullRequestWorkspaceCacheKey(workspaceRoot: string): Promise<stri
 async function readStoredPullRequestCache(
   workspaceRoot: string,
   key: string,
-): Promise<PullRequestCollection | undefined> {
+): Promise<PullRequestSnapshot | undefined> {
   try {
     const raw = JSON.parse(
       await readFile(pullRequestCachePath(workspaceRoot), "utf8"),
