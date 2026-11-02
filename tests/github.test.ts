@@ -39,6 +39,11 @@ describe("github context wrappers", () => {
       github: { owners: ["frostney"] },
     });
     const repos = await listGitHubRepositoriesWithRunner(config, async (argv) => {
+      if (argv.slice(0, 4).join(" ") === "gh repo list frostney") {
+        const fields = (argv[argv.indexOf("--json") + 1] ?? "").split(",");
+        expect(fields).not.toContain("languages");
+        expect(fields).not.toContain("issues");
+      }
       if (
         argv.join(" ") === "gh api repos/frostney/tool/commits/main --jq .commit.committer.date"
       ) {
@@ -79,13 +84,8 @@ describe("github context wrappers", () => {
             visibility: "PUBLIC",
             isArchived: false,
             repositoryTopics: [],
-            languages: [
-              { size: 120, node: { name: "TypeScript" } },
-              { size: 30, node: { name: "CSS" } },
-            ],
             defaultBranchRef: { name: "main" },
             pullRequests: { totalCount: 3 },
-            issues: { totalCount: 5 },
             pushedAt: "2026-06-22T10:00:00Z",
             updatedAt: "2026-06-23T10:00:00Z",
           },
@@ -95,14 +95,8 @@ describe("github context wrappers", () => {
 
     expect(repos[0]).toMatchObject({
       nameWithOwner: "frostney/tool",
-      languages: ["TypeScript", "CSS"],
-      languageBreakdown: [
-        { name: "TypeScript", size: 120 },
-        { name: "CSS", size: 30 },
-      ],
       openPullRequests: 3,
       draftPullRequests: 2,
-      openIssues: 5,
       latestActivityAt: "2026-06-24T10:00:00Z",
       mainlineCommittedAt: "2026-06-21T10:00:00Z",
       pushedAt: "2026-06-22T10:00:00Z",
@@ -128,14 +122,8 @@ describe("github context wrappers", () => {
         { ...restGithubRepo("frostney", "archived"), archived: true },
       ]);
       if (discoveryResponse) return discoveryResponse;
-      if (endpoint === "repos/frostney/tool/languages") {
-        return ghStdout(JSON.stringify({ TypeScript: 120, CSS: 30 }));
-      }
       if (endpoint?.startsWith("repos/frostney/tool/pulls?")) {
         return ghStdout(JSON.stringify([[{ draft: true }, { draft: false }]]));
-      }
-      if (endpoint?.startsWith("repos/frostney/tool/issues?state=open")) {
-        return ghStdout(JSON.stringify([[{}, { pull_request: {} }, {}]]));
       }
       if (argv.slice(0, 3).join(" ") === "gh search prs") {
         throw new Error("GraphQL unavailable");
@@ -155,11 +143,6 @@ describe("github context wrappers", () => {
         isArchived: false,
         repositoryTopics: ["bun"],
         primaryLanguage: "TypeScript",
-        languages: ["TypeScript", "CSS"],
-        languageBreakdown: [
-          { name: "TypeScript", size: 120 },
-          { name: "CSS", size: 30 },
-        ],
         defaultBranchRef: "main",
         description: "A tool",
         homepageUrl: "https://example.com/tool",
@@ -167,9 +150,16 @@ describe("github context wrappers", () => {
         updatedAt: "2026-06-23T10:00:00Z",
         openPullRequests: 2,
         draftPullRequests: 1,
-        openIssues: 2,
       }),
     ]);
+    expect(repos[0]).not.toHaveProperty("languages");
+    expect(repos[0]).not.toHaveProperty("languageBreakdown");
+    expect(repos[0]).not.toHaveProperty("openIssues");
+    expect(
+      calls.filter((call) =>
+        call.some((arg) => arg.endsWith("/languages") || arg.includes("/issues?state=open")),
+      ),
+    ).toHaveLength(0);
     expect(
       calls.filter((call) => call.some((arg) => arg.startsWith("repos/frostney/tool/pulls?"))),
     ).toHaveLength(1);
@@ -237,7 +227,6 @@ describe("github context wrappers", () => {
               visibility: "PUBLIC",
               isArchived: false,
               repositoryTopics: [],
-              languages: [],
             },
           ]),
         };
@@ -331,7 +320,6 @@ describe("github context wrappers", () => {
           visibility: "PUBLIC",
           isArchived: false,
           repositoryTopics: [],
-          languages: [],
         }),
       };
     });
@@ -420,7 +408,6 @@ describe("github context wrappers", () => {
               visibility: "PUBLIC",
               isArchived: false,
               repositoryTopics: [],
-              languages: [],
             }),
           };
         },

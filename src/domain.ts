@@ -6,21 +6,9 @@ export type ProjectState = "experiment" | "candidate" | "commercial" | "open-sou
 
 export type UpAction = "clone" | "fetch" | "skip" | "validate";
 
-export type ProjectLanguage = {
-  name: string;
-  size: number;
-};
-
-export type ProjectLineCounts = {
-  loc: number;
-  sloc: number;
-};
-
 type RepositoryMetadata = {
   url?: string;
   primaryLanguage?: string;
-  languages: string[];
-  languageBreakdown?: ProjectLanguage[];
   defaultBranchRef?: string;
   description?: string;
   latestActivityAt?: string;
@@ -29,7 +17,6 @@ type RepositoryMetadata = {
   updatedAt?: string;
   openPullRequests?: number;
   draftPullRequests?: number;
-  openIssues?: number;
 };
 
 export type GitHubRepository = RepositoryMetadata & {
@@ -65,9 +52,7 @@ export type Project = RepositoryMetadata & {
   pinned: boolean;
   topics: string[];
   tags: string[];
-  lineCounts?: ProjectLineCounts;
   defaultBranchBehindBy?: number;
-  hasRoadmap: boolean;
   learningPath?: string;
   archiveNote?: string;
   up: boolean;

@@ -5,7 +5,7 @@
 - Local development runs Herakles from source with Bun (`bun run herakles`).
 - Shipped distribution uses a Bun `build --compile` single-file executable under `dist/`.
 - Generated caches and worktrees stay under ignored `_herakles` folders.
-- Stable releases are tag-driven.
+- Releases are tag-driven and ship the CLI executable.
 
 ## Local Runtime
 
@@ -40,7 +40,7 @@ Run a built executable directly:
 
 The binary is self-contained: copy `dist/herakles` to another directory without the source tree and run it from there.
 
-Cross-compilation for other OS/arch targets can use Bun's `--target=bun-<os>-<arch>` compile options when release automation needs multi-platform artifacts; the default `bun run build` targets the machine that runs it.
+`bun run build` compiles for the machine that runs it. `scripts/build.ts` does not take a cross-compile target, so artifacts for other operating systems or architectures must be built on that platform.
 
 ## Continuous Integration
 

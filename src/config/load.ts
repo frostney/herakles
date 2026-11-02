@@ -22,11 +22,23 @@ export async function loadConfig(workspaceRoot: string): Promise<LoadedConfig> {
   }
   const rawToml = await readFile(paths.syncedConfigPath, "utf8");
   return {
-    config: heraklesConfigSchema.parse(TOML.parse(rawToml)),
+    config: parseConfig(rawToml, paths.syncedConfigPath),
     rawToml,
     paths,
     source: { syncedConfigPath: paths.syncedConfigPath },
   };
+}
+
+function parseConfig(rawToml: string, configPath: string): HeraklesConfig {
+  const result = heraklesConfigSchema.safeParse(TOML.parse(rawToml));
+  if (result.success) return result.data;
+  const problems = result.error.issues.map(
+    (issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message}`,
+  );
+  throw new Error(
+    `Invalid Herakles config ${configPath}: ${problems.join("; ")}. Remove unrecognized tables and keys from it.`,
+    { cause: result.error },
+  );
 }
 
 export async function ensureConfigScaffold(workspaceRoot: string): Promise<WorkspacePaths> {

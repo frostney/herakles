@@ -63,15 +63,28 @@ owners = []
 
 [github]
 owners = ["synced-owner"]
-
-[ui]
-enabled = true
 `,
     );
     const loaded = await loadConfig(root);
 
     expect(loaded.config.github.owners).toEqual(["synced-owner"]);
-    expect(loaded.config.ui.enabled).toBe(true);
+  });
+
+  test("rejects the removed [ui] table and names it in the error", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[ui]
+enabled = true
+`,
+    );
+
+    await expect(loadConfig(root)).rejects.toThrow(
+      /Invalid Herakles config .*herakles\.toml: \(top level\): Unrecognized key\(s\) in object: 'ui'/,
+    );
   });
 
   test("workspace root is the folder containing the _herakles folder", async () => {

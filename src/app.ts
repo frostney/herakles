@@ -38,7 +38,6 @@ import {
   promoteLocalProject,
 } from "./local/promote";
 import { syncDefaultBranch } from "./project/gitStatus";
-import { flushLineCountCache } from "./project/lineCounts";
 import {
   createProjectRenamePlan,
   renameProject as executeProjectRename,
@@ -117,7 +116,6 @@ async function loadWorkspaceFresh(workspaceRoot: string): Promise<WorkspaceState
   const loaded = await loadConfig(workspaceRoot);
   const discovery = await refreshProjectDiscovery(loaded);
   const projects = resolveProjects(loaded, discovery);
-  await flushLineCountCache(loaded.paths.cacheDir);
   const validation = validateWorkspaceProjects(discovery, projects);
   return { loaded, discovery, projects, validation };
 }

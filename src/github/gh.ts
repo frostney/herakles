@@ -1,7 +1,6 @@
 import type { HeraklesConfig } from "../config/schema";
 import type {
   GitHubRepository,
-  ProjectLanguage,
   PullRequestCheckStatus,
   PullRequestReviewStatus,
   PullRequestSummary,
@@ -22,14 +21,12 @@ type GhRepo = {
   isArchived?: boolean;
   repositoryTopics?: { name: string }[] | string[];
   primaryLanguage?: { name: string } | string | null;
-  languages?: { nodes?: GhLanguage[] } | GhLanguage[] | string[];
   defaultBranchRef?: { name: string } | string | null;
   description?: string;
   homepageUrl?: string;
   pushedAt?: string;
   updatedAt?: string;
   pullRequests?: { totalCount?: number };
-  issues?: { totalCount?: number };
   draftPullRequests?: number;
 };
 
@@ -106,10 +103,6 @@ type GhRestRepository = {
   fork?: boolean;
 };
 
-type GhRestIssue = {
-  pull_request?: unknown;
-};
-
 type GhRestAccount = {
   login?: string;
   type?: string;
@@ -119,12 +112,6 @@ type GhRestCheckPage = {
   check_runs?: GhStatusCheck[];
   statuses?: GhStatusCheck[];
   total_count?: number;
-};
-
-type GhLanguage = {
-  size?: number;
-  node?: { name?: string };
-  name?: string;
 };
 
 type GhSearchPullRequest = {
@@ -147,19 +134,6 @@ function topicNames(topics: GhRepo["repositoryTopics"]): string[] {
   return topics.map((topic) => (typeof topic === "string" ? topic : topic.name)).filter(Boolean);
 }
 
-function languageBreakdown(languages: GhRepo["languages"]): ProjectLanguage[] {
-  if (!languages) return [];
-  const nodes = Array.isArray(languages) ? languages : (languages.nodes ?? []);
-  return nodes
-    .map((language): ProjectLanguage | undefined => {
-      if (typeof language === "string") return { name: language, size: 0 };
-      const name = language.name ?? language.node?.name;
-      if (!name) return undefined;
-      return { name, size: language.size ?? 0 };
-    })
-    .filter((language): language is ProjectLanguage => Boolean(language));
-}
-
 function normalizeRepository(repo: GhRepo): GitHubRepository {
   if (!repo || typeof repo !== "object") {
     throw new Error("GitHub repository response was not an object");
@@ -168,7 +142,6 @@ function normalizeRepository(repo: GhRepo): GitHubRepository {
   if (!repo.name || !repo.nameWithOwner || !owner) {
     throw new Error("GitHub repository response did not include its repository identity");
   }
-  const languages = languageBreakdown(repo.languages);
   const normalized: GitHubRepository = {
     name: repo.name,
     nameWithOwner: repo.nameWithOwner,
@@ -176,8 +149,6 @@ function normalizeRepository(repo: GhRepo): GitHubRepository {
     visibility: repositoryVisibility(repo),
     isArchived: repo.isArchived ?? false,
     repositoryTopics: topicNames(repo.repositoryTopics),
-    languages: languages.map((language) => language.name),
-    languageBreakdown: languages,
   };
   enrichRepositoryLinks(normalized, repo);
   enrichRepositoryMetadata(normalized, repo);
@@ -212,7 +183,6 @@ function enrichRepositoryCounts(normalized: GitHubRepository, repo: GhRepo) {
   if (typeof repo.pullRequests?.totalCount === "number") {
     normalized.openPullRequests = repo.pullRequests.totalCount;
   }
-  if (typeof repo.issues?.totalCount === "number") normalized.openIssues = repo.issues.totalCount;
   if (typeof repo.draftPullRequests === "number") {
     normalized.draftPullRequests = repo.draftPullRequests;
   }
@@ -672,20 +642,12 @@ async function enrichRestRepository(
   const normalized = normalizeRestRepository(repository);
   const [owner, name] = splitOwnerRepo(normalized.nameWithOwner);
   const repoPath = restRepoPath(owner, name);
-  const [languages, pullRequests, issues] = await Promise.all([
-    fields.includes("languages") ? readRestLanguages(repoPath, runner) : undefined,
-    fields.includes("pullRequests") ? readRestOpenPullRequests(repoPath, runner) : undefined,
-    fields.includes("issues") ? readRestOpenIssues(repoPath, runner) : undefined,
-  ]);
-  if (languages) normalized.languages = languages;
+  const pullRequests = fields.includes("pullRequests")
+    ? await readRestOpenPullRequests(repoPath, runner)
+    : undefined;
   if (pullRequests) {
     normalized.pullRequests = { totalCount: pullRequests.length };
     normalized.draftPullRequests = pullRequests.filter((pullRequest) => pullRequest.draft).length;
-  }
-  if (issues) {
-    normalized.issues = {
-      totalCount: issues.filter((issue) => issue.pull_request === undefined).length,
-    };
   }
   return normalized;
 }
@@ -716,22 +678,6 @@ function normalizeRestRepository(repository: GhRestRepository): GhRepo {
     pushedAt: repository.pushed_at,
     updatedAt: repository.updated_at,
   });
-}
-
-async function readRestLanguages(repoPath: string, runner: Runner): Promise<GhLanguage[]> {
-  const result = await runner(["gh", "api", `${repoPath}/languages`]);
-  const parsed = JSON.parse(result.stdout) as unknown;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("GitHub REST languages response was not an object");
-  }
-  return Object.entries(parsed)
-    .filter((entry): entry is [string, number] => typeof entry[1] === "number")
-    .map(([name, size]) => ({ name, size }))
-    .sort((a, b) => b.size - a.size || a.name.localeCompare(b.name));
-}
-
-function readRestOpenIssues(repoPath: string, runner: Runner): Promise<GhRestIssue[]> {
-  return readRestPaginatedArray(`${repoPath}/issues?state=open&per_page=100`, runner);
 }
 
 function trackedHostedRepos(config: HeraklesConfig): string[] {
@@ -853,8 +799,6 @@ function repoListFields(): string[] {
     "isArchived",
     "repositoryTopics",
     "primaryLanguage",
-    "languages",
-    "issues",
     "pullRequests",
     "defaultBranchRef",
     "description",

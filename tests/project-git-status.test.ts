@@ -21,9 +21,7 @@ function project(path: string): Project {
     pinned: false,
     topics: [],
     tags: [],
-    languages: [],
     defaultBranchRef: "main",
-    hasRoadmap: false,
     up: true,
   };
 }

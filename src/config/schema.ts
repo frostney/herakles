@@ -85,18 +85,10 @@ export const heraklesConfigSchema = z
         state_for_private: projectStateSchema.default("experiment" satisfies ProjectState),
         state_for_github_archived: projectStateSchema.default("archived" satisfies ProjectState),
         state_for_local: projectStateSchema.default("experiment" satisfies ProjectState),
-        roadmap_files: z
-          .array(relativePathSchema)
-          .default(["ROADMAP.md", "docs/ROADMAP.md", "TODO.md"]),
         learning_files: z.array(relativePathSchema).default(["LEARNING.md", "docs/LEARNING.md"]),
       })
       .default({}),
     up: z.object({ exclude_topics: z.array(z.string()).default(["no-up"]) }).default({}),
-    ui: z
-      .object({
-        enabled: z.boolean().default(true),
-      })
-      .default({}),
     project: z.record(configKeySchema, projectConfigSchema).default({}),
   })
   .strict();
