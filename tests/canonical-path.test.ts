@@ -1,14 +1,18 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rename, rm, symlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, lstatSync } from "node:fs";
+import { mkdir, readlink, rename, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { applyCanonicalPath, canonicalPathPlan, resolveProjectCanonicalPath } from "../src/app";
 import {
+  ambiguousOwnersWorkspace,
+  cleanupHostedCloneTempDirs,
   hostedPathMismatchWorkspace,
   mismatchProjectId,
+  trackedTempDir,
   withFakeGhHostedClone,
 } from "./helpers/hosted-clone";
+
+afterEach(cleanupHostedCloneTempDirs);
 
 describe("canonical path plan and apply", () => {
   test("plan reports the move and changes nothing on disk", async () => {
@@ -97,7 +101,7 @@ describe("canonical path plan and apply", () => {
 
   test("plan and apply refuse a canonical path behind a symlink outside the workspace", async () => {
     const { workspaceRoot, duplicatePath } = await hostedPathMismatchWorkspace();
-    const outsideRoot = await mkdtemp(join(tmpdir(), "herakles-outside-canonical-"));
+    const outsideRoot = await trackedTempDir("herakles-outside-canonical-");
     await symlink(outsideRoot, join(workspaceRoot, "open-source"));
 
     await withFakeGhHostedClone(async () => {
@@ -116,7 +120,7 @@ describe("canonical path plan and apply", () => {
 
     await withFakeGhHostedClone(async () => {
       const plan = await canonicalPathPlan(workspaceRoot, mismatchProjectId);
-      const outsideRoot = await mkdtemp(join(tmpdir(), "herakles-outside-clone-"));
+      const outsideRoot = await trackedTempDir("herakles-outside-clone-");
       const outsideClone = join(outsideRoot, "clone");
       await rename(duplicatePath, outsideClone);
       await symlink(outsideClone, duplicatePath);
@@ -126,7 +130,117 @@ describe("canonical path plan and apply", () => {
       );
       expect(existsSync(join(workspaceRoot, "open-source", "herakles"))).toBe(false);
       expect(existsSync(outsideClone)).toBe(true);
-      await rm(outsideRoot, { recursive: true, force: true });
+    });
+  });
+
+  test("plan refuses a dangling symlink at the canonical path without touching it", async () => {
+    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    await mkdir(join(workspaceRoot, "open-source"), { recursive: true });
+    const target = join(workspaceRoot, "missing-target");
+    await symlink(target, canonicalPath);
+
+    await withFakeGhHostedClone(async () => {
+      await expect(canonicalPathPlan(workspaceRoot, mismatchProjectId)).rejects.toThrow(
+        "Canonical checkout path already exists",
+      );
+      expect(existsSync(duplicatePath)).toBe(true);
+      expect(await readlink(canonicalPath)).toBe(target);
+    });
+  });
+
+  test("apply refuses a dangling symlink created at the canonical path after the plan", async () => {
+    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+
+    await withFakeGhHostedClone(async () => {
+      const plan = await canonicalPathPlan(workspaceRoot, mismatchProjectId);
+      await mkdir(join(workspaceRoot, "open-source"), { recursive: true });
+      const target = join(workspaceRoot, "missing-target");
+      await symlink(target, canonicalPath);
+
+      await expect(applyCanonicalPath(workspaceRoot, plan)).rejects.toThrow(
+        "Canonical checkout path already exists",
+      );
+      expect(existsSync(duplicatePath)).toBe(true);
+      expect(lstatSync(canonicalPath).isSymbolicLink()).toBe(true);
+      expect(await readlink(canonicalPath)).toBe(target);
+    });
+  });
+
+  test("apply checks the destination again after creating parents, before the rename", async () => {
+    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+
+    await withFakeGhHostedClone(async () => {
+      const plan = await canonicalPathPlan(workspaceRoot, mismatchProjectId);
+      const target = join(workspaceRoot, "missing-target");
+      let renamed = false;
+
+      await expect(
+        applyCanonicalPath(workspaceRoot, plan, {
+          mkdir: (async (path: string, options: { recursive: true }) => {
+            const created = await mkdir(path, options);
+            await symlink(target, canonicalPath);
+            return created;
+          }) as typeof mkdir,
+          rename: async () => {
+            renamed = true;
+          },
+        }),
+      ).rejects.toThrow("Canonical checkout path already exists");
+      expect(renamed).toBe(false);
+      expect(existsSync(duplicatePath)).toBe(true);
+      expect(await readlink(canonicalPath)).toBe(target);
+    });
+  });
+
+  test("a failed rename removes the parent directories this call created and rethrows", async () => {
+    const { workspaceRoot, duplicatePath } = await hostedPathMismatchWorkspace();
+    const nested = join(workspaceRoot, "open-source", "herakles");
+
+    await withFakeGhHostedClone(async () => {
+      const plan = await canonicalPathPlan(workspaceRoot, mismatchProjectId);
+
+      await expect(
+        applyCanonicalPath(workspaceRoot, plan, {
+          rename: async () => {
+            throw new Error("rename failed");
+          },
+        }),
+      ).rejects.toThrow("rename failed");
+      expect(existsSync(join(workspaceRoot, "open-source"))).toBe(false);
+      expect(existsSync(nested)).toBe(false);
+      expect(existsSync(duplicatePath)).toBe(true);
+    });
+  });
+
+  test("a failed rename keeps parent directories that already existed", async () => {
+    const { workspaceRoot, duplicatePath } = await hostedPathMismatchWorkspace();
+    await mkdir(join(workspaceRoot, "open-source"), { recursive: true });
+
+    await withFakeGhHostedClone(async () => {
+      const plan = await canonicalPathPlan(workspaceRoot, mismatchProjectId);
+
+      await expect(
+        applyCanonicalPath(workspaceRoot, plan, {
+          rename: async () => {
+            throw new Error("rename failed");
+          },
+        }),
+      ).rejects.toThrow("rename failed");
+      expect(existsSync(join(workspaceRoot, "open-source"))).toBe(true);
+      expect(existsSync(duplicatePath)).toBe(true);
+    });
+  });
+
+  test("plan refuses a slug or repository name shared by several tracked projects", async () => {
+    const { workspaceRoot } = await ambiguousOwnersWorkspace();
+
+    await withFakeGhHostedClone(async () => {
+      await expect(canonicalPathPlan(workspaceRoot, "herakles")).rejects.toThrow(
+        /Ambiguous project "herakles".*github:frostney\/herakles.*github:acme\/herakles|Ambiguous project "herakles".*github:acme\/herakles.*github:frostney\/herakles/,
+      );
+      await expect(resolveProjectCanonicalPath(workspaceRoot, "herakles")).rejects.toThrow(
+        "Ambiguous project",
+      );
     });
   });
 });

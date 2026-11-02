@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
-import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rename, rmdir, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { TOML } from "bun";
 import { type LoadedConfig, loadConfig } from "./config/load";
@@ -526,14 +526,18 @@ export async function canonicalPathPlan(
  * Applies a confirmed plan. Workspace state is reloaded and every check re-run,
  * so a change since planning is refused instead of moved over.
  */
-export async function applyCanonicalPath(workspaceRoot: string, plan: CanonicalPathPlan) {
+export async function applyCanonicalPath(
+  workspaceRoot: string,
+  plan: CanonicalPathPlan,
+  options: CanonicalMoveOptions = {},
+) {
   const current = await freshCanonicalPathPlan(workspaceRoot, plan.projectId);
   if (current.from !== plan.from || current.to !== plan.to) {
     throw new Error(
       `Canonical path plan changed since it was made for ${plan.projectId}: expected ${plan.from} -> ${plan.to}, found ${current.from} -> ${current.to}`,
     );
   }
-  return moveToCanonicalPath(workspaceRoot, current);
+  return moveToCanonicalPath(workspaceRoot, current, options);
 }
 
 export async function resolveProjectCanonicalPath(workspaceRoot: string, projectId: string) {
@@ -545,14 +549,81 @@ async function freshCanonicalPathPlan(workspaceRoot: string, projectId: string) 
   return canonicalPathPlan(workspaceRoot, projectId);
 }
 
-async function moveToCanonicalPath(workspaceRoot: string, plan: CanonicalPathPlan) {
+/** Filesystem operations the move uses; tests inject failures through them. */
+type CanonicalMoveOptions = { rename?: typeof rename; mkdir?: typeof mkdir };
+
+/** True when anything, including a dangling symlink, occupies the path. */
+async function pathEntryExists(path: string): Promise<boolean> {
   try {
-    await mkdir(dirname(plan.to), { recursive: true });
-    await rename(plan.from, plan.to);
+    await lstat(path);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
+}
+
+async function assertCanonicalDestinationFree(path: string) {
+  if (await pathEntryExists(path)) {
+    throw new Error(`Canonical checkout path already exists: ${path}`);
+  }
+}
+
+/** Removes only empty directories from `leaf` up to `topCreated`, the first one this move made. */
+async function removeCreatedParents(leaf: string, topCreated: string | undefined) {
+  if (topCreated === undefined) return;
+  let directory = leaf;
+  while (pathIsInside(topCreated, directory)) {
+    try {
+      await rmdir(directory);
+    } catch {
+      return;
+    }
+    if (directory === topCreated) return;
+    directory = dirname(directory);
+  }
+}
+
+async function moveToCanonicalPath(
+  workspaceRoot: string,
+  plan: CanonicalPathPlan,
+  options: CanonicalMoveOptions = {},
+) {
+  const move = options.rename ?? rename;
+  const makeDirectory = options.mkdir ?? mkdir;
+  try {
+    await assertCanonicalDestinationFree(plan.to);
+    const parent = dirname(plan.to);
+    const createdTop = await makeDirectory(parent, { recursive: true });
+    try {
+      await assertCanonicalDestinationFree(plan.to);
+      await move(plan.from, plan.to);
+    } catch (error) {
+      await removeCreatedParents(parent, createdTop);
+      throw error;
+    }
   } finally {
     invalidateWorkspace(workspaceRoot);
   }
   return { ...plan, moved: true };
+}
+
+/**
+ * Resolves a fix-path selector to a project id. An exact id always wins; a slug
+ * or repository name shared by several tracked projects is refused.
+ */
+function fixPathProjectId(projects: readonly Project[], selector: string): string {
+  if (projects.some((project) => project.id === selector)) return selector;
+  const matches = projects.filter(
+    (project) => project.slug === selector || project.repo === selector,
+  );
+  if (matches.length > 1) {
+    throw new Error(
+      `Ambiguous project "${selector}" matches ${matches.map((project) => project.id).join(", ")}. Use the full project id.`,
+    );
+  }
+  return matches[0]?.id ?? selector;
 }
 
 async function checkedCanonicalPathPlan(
@@ -560,9 +631,8 @@ async function checkedCanonicalPathPlan(
   selector: string,
 ): Promise<CanonicalPathPlan> {
   const mismatches = hostedClonePathMismatches(state.discovery, state.projects);
-  const mismatch =
-    mismatches.find((item) => item.projectId === selector) ??
-    mismatches.find((item) => item.projectId === findProject(state.projects, selector)?.id);
+  const projectId = fixPathProjectId(state.projects, selector);
+  const mismatch = mismatches.find((item) => item.projectId === projectId);
   if (!mismatch) {
     throw new Error(`No hosted clone path mismatch for project: ${selector}`);
   }
@@ -576,10 +646,8 @@ async function checkedCanonicalPathPlan(
   if (!existsSync(mismatch.actualPath)) {
     throw new Error(`Existing checkout is missing: ${mismatch.actualPath}`);
   }
-  if (existsSync(mismatch.expectedPath)) {
-    throw new Error(`Canonical checkout path already exists: ${mismatch.expectedPath}`);
-  }
   await assertCanonicalMoveInsideWorkspace(workspace, mismatch);
+  await assertCanonicalDestinationFree(mismatch.expectedPath);
   return { projectId: mismatch.projectId, from: mismatch.actualPath, to: mismatch.expectedPath };
 }
 

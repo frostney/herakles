@@ -150,10 +150,24 @@ function projectSourceParser(value: string): "github" | "local" {
   throw new Error(`Unknown project source: ${value}`);
 }
 
-async function prompt(question: string): Promise<string> {
-  const rl = createInterface({ input, output });
+/**
+ * Asks one question and returns the trimmed answer. Closed stdin (EOF) resolves
+ * as an empty answer, which callers treat as a decline, instead of hanging.
+ * `outputStream` moves the question off stdout, for example for `--json` runs.
+ */
+async function prompt(
+  question: string,
+  outputStream: NodeJS.WritableStream = output,
+): Promise<string> {
+  const rl = createInterface({ input, output: outputStream });
   try {
-    return (await rl.question(question)).trim();
+    return await new Promise<string>((resolve) => {
+      rl.once("close", () => resolve(""));
+      rl.question(question).then(
+        (answer) => resolve(answer.trim()),
+        () => resolve(""),
+      );
+    });
   } finally {
     rl.close();
   }
@@ -283,19 +297,6 @@ const removeProjectCommand = buildCommand<CommonFlags & { yes?: boolean }, [stri
   },
 });
 
-async function confirmMove(question: string, toStderr: boolean): Promise<boolean> {
-  const rl = createInterface({ input, output: toStderr ? process.stderr : output });
-  try {
-    const answer = await new Promise<string>((resolve) => {
-      rl.once("close", () => resolve(""));
-      rl.question(question).then(resolve, () => resolve(""));
-    });
-    return answer.trim().toLowerCase() === "yes";
-  } finally {
-    rl.close();
-  }
-}
-
 const projectsFixPathCommand = buildCommand<CommonFlags & { yes?: boolean }, [string]>({
   docs: {
     brief: "Move a hosted clone at a non-canonical path to its canonical project path.",
@@ -314,24 +315,27 @@ const projectsFixPathCommand = buildCommand<CommonFlags & { yes?: boolean }, [st
   },
   async func(flags, id) {
     const workspaceRoot = root(flags);
+    const json = shouldJson(flags);
+    if (flags.yes === true) {
+      // Apply reloads the workspace and re-runs every check itself.
+      const result = await app.resolveProjectCanonicalPath(workspaceRoot, id);
+      json ? printJson(result) : console.log(`Moved ${result.from} to ${result.to}`);
+      return;
+    }
     const plan = await app.canonicalPathPlan(workspaceRoot, id);
-    if (!shouldJson(flags)) {
+    if (!json) {
       console.log(`Project: ${plan.projectId}\nFrom:    ${plan.from}\nTo:      ${plan.to}`);
     }
-    if (flags.yes !== true) {
-      const confirmed = await confirmMove(
-        `Move ${plan.from} to ${plan.to}? This moves the existing checkout and does not delete or duplicate repositories. (yes/no): `,
-        shouldJson(flags),
-      );
-      if (!confirmed) {
-        shouldJson(flags)
-          ? printJson({ ...plan, moved: false })
-          : console.log("Fix path cancelled.");
-        return;
-      }
+    const answer = await prompt(
+      `Move ${plan.from} to ${plan.to}? This moves the existing checkout and does not delete or duplicate repositories. (yes/no): `,
+      json ? process.stderr : output,
+    );
+    if (answer.toLowerCase() !== "yes") {
+      json ? printJson({ ...plan, moved: false }) : console.log("Fix path cancelled.");
+      return;
     }
     const result = await app.applyCanonicalPath(workspaceRoot, plan);
-    shouldJson(flags) ? printJson(result) : console.log(`Moved ${result.from} to ${result.to}`);
+    json ? printJson(result) : console.log(`Moved ${result.from} to ${result.to}`);
   },
 });
 
