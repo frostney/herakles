@@ -78,6 +78,17 @@ describe("progress reporter", () => {
     expect(writes.at(-1)).toBe(`${CLEAR}⠙ [3/42] clone frostney-foo`);
   });
 
+  test("step shows a caller-supplied count, for progress counted across plans", () => {
+    const { stream, writes } = fakeStream(true);
+    const progress = createProgressReporter({ stream, timer: fakeTimer().timer });
+
+    progress.start();
+    progress.step(item("clone", "frostney-a"), 0, 5);
+    expect(writes.at(-1)).toBe(`${CLEAR}⠋ [0/5] clone frostney-a`);
+    progress.step(item("clone", "frostney-b"), 2, 5);
+    expect(writes.at(-1)).toBe(`${CLEAR}⠋ [2/5] clone frostney-b`);
+  });
+
   test("clears the line on stop, stops the timer, and does not keep the process alive", () => {
     const { stream, writes } = fakeStream(true);
     const clock = fakeTimer();

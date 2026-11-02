@@ -30,6 +30,8 @@ export type ProgressReporter = {
   start(label?: string): void;
   /** Shows `[index+1/total] action slug`. Safe to pass directly as an `onItemStart` hook. */
   itemStart(item: UpPlanItem, index: number, total: number): void;
+  /** Shows `[current/total] action slug` for callers that count across several plans. */
+  step(item: UpPlanItem, current: number, total: number): void;
   /** Stops the spinner and clears the live line. Safe to call more than once. */
   stop(): void;
 };
@@ -64,6 +66,12 @@ export function createProgressReporter(options: ProgressOptions = {}): ProgressR
     drawn = false;
   }
 
+  function step(item: UpPlanItem, current: number, total: number) {
+    if (!enabled || !handle) return;
+    label = `[${current}/${total}] ${item.action} ${item.project.slug}`;
+    draw();
+  }
+
   return {
     start(initialLabel = RESOLVING_LABEL) {
       if (!enabled || handle) return;
@@ -75,11 +83,8 @@ export function createProgressReporter(options: ProgressOptions = {}): ProgressR
       }, SPINNER_INTERVAL_MS);
       handle.unref?.();
     },
-    itemStart(item, index, total) {
-      if (!enabled || !handle) return;
-      label = `[${index + 1}/${total}] ${item.action} ${item.project.slug}`;
-      draw();
-    },
+    itemStart: (item, index, total) => step(item, index + 1, total),
+    step,
     stop() {
       if (handle) timer.clear(handle);
       handle = undefined;

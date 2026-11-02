@@ -96,7 +96,7 @@ Create missing folders, clone missing hosted projects, and fast-forward clean ex
 bun run herakles up --root ~/Code
 ```
 
-When stderr is a terminal, `up` (including `--dry-run`), `add` and `projects import` show one live progress line on stderr: a spinner reading "Resolving workspace…" until the first item starts, then `[3/42] clone frostney-tool` for the current item. `projects import` counts across all imported projects. The line is cleared before the table or JSON is printed, and `--json` stdout is unchanged. When stderr is not a terminal, no progress is written, so scripted output stays byte-identical.
+When stderr is a terminal, `up` (including `--dry-run`), `add` and `projects import` show one live progress line on stderr: a spinner reading "Resolving workspace…" until the first item starts, then `[3/42] clone frostney-tool` for the current item. `projects import` counts finished checkouts across all imported projects, for example `[2/5] clone frostney-tool`. The line is cleared before the table or JSON is printed, and `--json` stdout is unchanged. When stderr is not a terminal, no progress is written, so scripted output stays byte-identical.
 
 `up` does not silently move, delete, or duplicate repositories. Workspace drift is reported so the user can choose to scaffold from configuration or sync the workspace.
 
