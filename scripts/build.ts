@@ -16,7 +16,14 @@ function selectedTargets(argv: string[]): TargetName[] {
 
 function flagValue(argv: string[], name: string): string | undefined {
   const prefix = `--${name}=`;
-  return argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) || undefined;
+  const arg = argv.find((candidate) => candidate === `--${name}` || candidate.startsWith(prefix));
+  if (arg === undefined) return undefined;
+  const value = arg.slice(prefix.length);
+  if (arg === `--${name}` || value === "") {
+    console.error(`--${name} requires a value, for example ${prefix}<value>.`);
+    process.exit(1);
+  }
+  return value;
 }
 
 const argv = Bun.argv.slice(2);

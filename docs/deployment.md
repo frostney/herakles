@@ -95,7 +95,7 @@ GitHub Actions is the CI provider. See [Tooling](tooling.md) for the workflow an
 CLI releases are tag-driven and published by `.github/workflows/release.yml`:
 
 - Pushing a semantic version tag (`MAJOR.MINOR.PATCH`, no prefix) builds the CLI and publishes a GitHub release for that tag.
-- The tag must equal the `version` in `package.json`, which is the only version declaration. The workflow fails otherwise, so the release PR bumps `package.json` first and the tag is pushed on the merge commit.
+- The tag must equal the `version` in `package.json`, which is the version source the CLI reads for `herakles --version`. The workflow fails otherwise, so the release PR bumps `package.json` first and the tag is pushed on the merge commit.
 - The workflow runs lint, typecheck, tests and the quality gate, cross-compiles the CLI with `bun run build:cli -- --target=<bun-target> --outfile=<path>`, and smoke-tests the Linux binary (`--version` must print the tag, `--help` must succeed) before anything is published.
 - Each release attaches `herakles-<version>-linux-x64`, `herakles-<version>-darwin-arm64` and a `SHA256SUMS` file. Verify a download with `sha256sum -c SHA256SUMS --ignore-missing` and run `chmod +x` on the binary.
 - Re-running the workflow for an existing release replaces its assets instead of failing.
