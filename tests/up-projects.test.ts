@@ -14,7 +14,7 @@ repo = "frostney/herakles"
 
 [project.archive]
 source = "github"
-repo = "a private repository"
+repo = "oven-sh/bun"
 
 [project.kgr]
 source = "github"
@@ -29,7 +29,8 @@ const repositories = JSON.stringify([
   ...JSON.parse(fakeGhRepositoryJson({ name: "herakles" })),
   ...JSON.parse(
     fakeGhRepositoryJson({
-      name: "herakles-archive",
+      name: "bun",
+      owner: "oven-sh",
       isArchived: true,
       description: "Moved to herakles",
     }),
@@ -56,7 +57,7 @@ describe("upProjects", () => {
   test("runs one plan with one index and total, and groups results per requested id", async () => {
     await withWorkspace(async (root) => {
       const started: string[] = [];
-      const groups = await upProjects(root, ["herakles", "herakles-archive", "known-good-route"], {
+      const groups = await upProjects(root, ["herakles", "oven-sh-bun", "known-good-route"], {
         dryRun: true,
         onItemStart: (item, index, total) => {
           started.push(`${index + 1}/${total} ${item.project.slug}`);
@@ -87,7 +88,7 @@ describe("upProjects", () => {
     await withWorkspace(async (root) => {
       const results = await upProject(root, "herakles", { dryRun: true });
       expect(results.map((result) => result.item.project.slug)).toEqual(["frostney-herakles"]);
-      expect(await upProject(root, "herakles-archive", { dryRun: true })).toEqual([]);
+      expect(await upProject(root, "oven-sh-bun", { dryRun: true })).toEqual([]);
     });
   });
 });
