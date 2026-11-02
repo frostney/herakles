@@ -5,7 +5,7 @@
 - Local development runs Herakles from source with Bun (`bun run herakles`).
 - Shipped distribution uses a Bun `build --compile` single-file executable under `dist/`.
 - Generated caches and worktrees stay under ignored `_herakles` folders.
-- Releases are tag-driven and ship the CLI executable.
+- Releases are tag-driven.
 
 ## Local Runtime
 

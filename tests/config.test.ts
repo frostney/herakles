@@ -82,9 +82,12 @@ enabled = true
 `,
     );
 
-    await expect(loadConfig(root)).rejects.toThrow(
-      /Invalid Herakles config .*herakles\.toml: \(top level\): Unrecognized key\(s\) in object: 'ui'/,
-    );
+    const error = await loadConfig(root).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/Invalid Herakles config .*herakles\.toml/);
+    expect((error as Error).message).toMatch(/['"]ui['"]/);
+    expect((error as Error).message).toContain("Remove unrecognized tables and keys");
   });
 
   test("workspace root is the folder containing the _herakles folder", async () => {

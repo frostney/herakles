@@ -35,10 +35,12 @@ function parseConfig(rawToml: string, configPath: string): HeraklesConfig {
   const problems = result.error.issues.map(
     (issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message}`,
   );
-  throw new Error(
-    `Invalid Herakles config ${configPath}: ${problems.join("; ")}. Remove unrecognized tables and keys from it.`,
-    { cause: result.error },
-  );
+  const hint = result.error.issues.some((issue) => issue.code === "unrecognized_keys")
+    ? " Remove unrecognized tables and keys from it."
+    : "";
+  throw new Error(`Invalid Herakles config ${configPath}: ${problems.join("; ")}.${hint}`, {
+    cause: result.error,
+  });
 }
 
 export async function ensureConfigScaffold(workspaceRoot: string): Promise<WorkspacePaths> {
