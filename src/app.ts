@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { TOML } from "bun";
 import { type LoadedConfig, loadConfig } from "./config/load";
-import { nearestExistingAncestor, pathIsInside, resolveUnder } from "./config/paths";
+import { resolveUnder } from "./config/paths";
 import {
   applyProjectConfigPlan,
   createProjectConfigPlan,
@@ -20,24 +20,19 @@ import type {
   HostedImportCandidate,
   LocalRepository,
   Project,
-  ProjectDefaultBranchSyncResult,
   ProjectState,
-  PullRequestCollection,
-  PullRequestCollectionFailure,
-  PullRequestSummary,
   UpPlan,
   UpPlanItem,
   ValidationIssue,
   ValidationResult,
 } from "./domain";
-import { listImportableGitHubRepositories, listOpenPullRequestsForRepo } from "./github/gh";
+import { listImportableGitHubRepositories } from "./github/gh";
 import { type HostedClonePathMismatch, validateProjects } from "./lifecycle/validate";
 import {
   createLocalPromotionPlan,
   type LocalPromotionOptions,
   promoteLocalProject,
 } from "./local/promote";
-import { syncDefaultBranch } from "./project/gitStatus";
 import {
   createProjectRenamePlan,
   renameProject as executeProjectRename,
@@ -60,23 +55,7 @@ type WorkspaceLoad = {
   state?: WorkspaceState;
 };
 
-type PullRequestCacheEntry = {
-  expiresAt: number;
-  key: string;
-  loading?: Promise<PullRequestCollection>;
-  value?: PullRequestCollection;
-};
-
-type StoredPullRequestCacheEntry = {
-  expiresAt: number;
-  key: string;
-  value: PullRequestCollection;
-};
-
 const workspaceLoads = new Map<string, WorkspaceLoad>();
-const pullRequestCacheTtlMs = 60_000;
-const pullRequestCacheVersion = 3;
-const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
 
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
   const existing = workspaceLoads.get(workspaceRoot);
@@ -141,130 +120,6 @@ export async function status(workspaceRoot: string) {
 
 export async function projects(workspaceRoot: string): Promise<Project[]> {
   return (await loadWorkspace(workspaceRoot)).projects;
-}
-
-export async function pullRequests(
-  workspaceRoot: string,
-  options: { refresh?: boolean } = {},
-): Promise<PullRequestCollection> {
-  const cacheKey = await pullRequestWorkspaceCacheKey(workspaceRoot);
-  const cached = pullRequestCaches.get(workspaceRoot);
-  const now = Date.now();
-  if (!options.refresh && cached?.key === cacheKey) {
-    if (cached.value && cached.expiresAt > now) return cached.value;
-    if (cached.loading) return cached.loading;
-  }
-  if (!options.refresh) {
-    const stored = await readStoredPullRequestCache(workspaceRoot, cacheKey);
-    if (stored) return stored;
-  }
-  const loading = collectPullRequests(workspaceRoot)
-    .then(async (value) => {
-      const expiresAt = Date.now() + pullRequestCacheTtlMs;
-      pullRequestCaches.set(workspaceRoot, {
-        expiresAt,
-        key: cacheKey,
-        value,
-      });
-      await writeStoredPullRequestCache(workspaceRoot, { expiresAt, key: cacheKey, value }).catch(
-        () => undefined,
-      );
-      return value;
-    })
-    .catch((error) => {
-      if (pullRequestCaches.get(workspaceRoot)?.loading === loading) {
-        pullRequestCaches.delete(workspaceRoot);
-      }
-      throw error;
-    });
-  pullRequestCaches.set(workspaceRoot, { expiresAt: 0, key: cacheKey, loading });
-  return loading;
-}
-
-async function collectPullRequests(workspaceRoot: string): Promise<PullRequestCollection> {
-  const state = await loadWorkspace(workspaceRoot);
-  const hosted = state.projects.filter((project) => project.source === "github" && project.owner);
-  const settled = await Promise.allSettled(
-    hosted.map(async (project) => ({
-      project,
-      pullRequests: await listOpenPullRequestsForRepo(`${project.owner}/${project.repo}`),
-    })),
-  );
-  const pullRequests: PullRequestSummary[] = [];
-  const failures: PullRequestCollectionFailure[] = [];
-  for (let index = 0; index < settled.length; index++) {
-    const project = hosted[index];
-    const result = settled[index];
-    if (!project || !result) continue;
-    if (result.status === "fulfilled") {
-      pullRequests.push(
-        ...result.value.pullRequests.map((pullRequest) => ({
-          ...pullRequest,
-          projectId: project.id,
-          projectPinned: project.pinned,
-          projectSlug: project.slug,
-          projectState: project.state,
-        })),
-      );
-    } else {
-      failures.push({
-        projectId: project.id,
-        projectSlug: project.slug,
-        repo: `${project.owner}/${project.repo}`,
-        message: result.reason instanceof Error ? result.reason.message : String(result.reason),
-      });
-    }
-  }
-  return {
-    generatedAt: new Date().toISOString(),
-    pullRequests: pullRequests.sort(
-      (a, b) =>
-        Number(b.projectPinned) - Number(a.projectPinned) ||
-        b.updatedAt.localeCompare(a.updatedAt) ||
-        a.projectSlug.localeCompare(b.projectSlug),
-    ),
-    failures,
-    skippedLocalProjects: state.projects.length - hosted.length,
-  };
-}
-
-async function pullRequestWorkspaceCacheKey(workspaceRoot: string): Promise<string> {
-  try {
-    const configStat = await stat(join(workspaceRoot, "_herakles", "herakles.toml"));
-    return `${pullRequestCacheVersion}:${workspaceRoot}:${configStat.mtimeMs}`;
-  } catch {
-    return `${pullRequestCacheVersion}:${workspaceRoot}`;
-  }
-}
-
-async function readStoredPullRequestCache(
-  workspaceRoot: string,
-  key: string,
-): Promise<PullRequestCollection | undefined> {
-  try {
-    const raw = JSON.parse(
-      await readFile(pullRequestCachePath(workspaceRoot), "utf8"),
-    ) as Partial<StoredPullRequestCacheEntry>;
-    if (raw.key !== key || typeof raw.expiresAt !== "number" || raw.expiresAt <= Date.now()) {
-      return undefined;
-    }
-    return raw.value;
-  } catch {
-    return undefined;
-  }
-}
-
-async function writeStoredPullRequestCache(
-  workspaceRoot: string,
-  entry: StoredPullRequestCacheEntry,
-) {
-  const path = pullRequestCachePath(workspaceRoot);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(entry, null, 2)}\n`);
-}
-
-function pullRequestCachePath(workspaceRoot: string): string {
-  return join(workspaceRoot, "_herakles", "cache", "pull-requests.json");
 }
 
 export async function project(workspaceRoot: string, id: string): Promise<Project> {
@@ -368,37 +223,6 @@ async function projectRenameTarget(workspaceRoot: string, projectId: string) {
   return { state, target };
 }
 
-export async function resolveProjectCanonicalPath(workspaceRoot: string, projectId: string) {
-  const state = await loadWorkspace(workspaceRoot);
-  const mismatch = hostedClonePathMismatches(state.discovery, state.projects).find(
-    (item) => item.projectId === projectId,
-  );
-  if (!mismatch) {
-    throw new Error(`No hosted clone path mismatch for project: ${projectId}`);
-  }
-  if (!pathIsInside(state.loaded.paths.workspaceRoot, mismatch.actualPath)) {
-    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.actualPath}`);
-  }
-  if (!pathIsInside(state.loaded.paths.workspaceRoot, mismatch.expectedPath)) {
-    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.expectedPath}`);
-  }
-  if (!existsSync(mismatch.actualPath)) {
-    throw new Error(`Existing checkout is missing: ${mismatch.actualPath}`);
-  }
-  if (existsSync(mismatch.expectedPath)) {
-    throw new Error(`Canonical checkout path already exists: ${mismatch.expectedPath}`);
-  }
-  await assertCanonicalMoveInsideWorkspace(state.loaded.paths.workspaceRoot, mismatch);
-  await mkdir(dirname(mismatch.expectedPath), { recursive: true });
-  await rename(mismatch.actualPath, mismatch.expectedPath);
-  return {
-    projectId,
-    from: mismatch.actualPath,
-    to: mismatch.expectedPath,
-    moved: true,
-  };
-}
-
 export async function importHostedProjects(
   workspaceRoot: string,
   inputs: Array<{
@@ -448,15 +272,6 @@ export async function upProject(
   if (target.source !== "github") throw new Error("Only hosted projects can be checked out.");
   const plan = applyValidationIssuesToUpPlan(createUpPlan([target]), [target], state.validation);
   return executeUpPlan(plan, options);
-}
-
-export async function syncProjectDefaultBranch(
-  workspaceRoot: string,
-  projectId: string,
-): Promise<ProjectDefaultBranchSyncResult> {
-  const target = await project(workspaceRoot, projectId);
-  if (target.source !== "github") throw new Error("Only hosted projects can be synchronised.");
-  return syncDefaultBranch(target);
 }
 
 function validateProjectInput(input: ProjectConfigChanges & { id?: string; name?: string }) {
@@ -745,22 +560,6 @@ function hostedClonePathMismatches(
     })
     .filter((mismatch): mismatch is HostedClonePathMismatch => mismatch !== undefined)
     .sort((a, b) => a.projectId.localeCompare(b.projectId));
-}
-
-async function assertCanonicalMoveInsideWorkspace(
-  workspaceRoot: string,
-  mismatch: HostedClonePathMismatch,
-) {
-  const workspaceRealPath = await realpath(workspaceRoot);
-  const actualRealPath = await realpath(mismatch.actualPath);
-  if (!pathIsInside(workspaceRealPath, actualRealPath)) {
-    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.actualPath}`);
-  }
-  const expectedAncestor = nearestExistingAncestor(mismatch.expectedPath);
-  const expectedAncestorRealPath = await realpath(expectedAncestor);
-  if (!pathIsInside(workspaceRealPath, expectedAncestorRealPath)) {
-    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.expectedPath}`);
-  }
 }
 
 function projectConfigId(loaded: LoadedConfig, project: Project): string {

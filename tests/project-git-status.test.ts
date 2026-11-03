@@ -2,29 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import type { Project } from "../src/domain";
-import { readDefaultBranchBehind, syncDefaultBranch } from "../src/project/gitStatus";
+import { readDefaultBranchBehind } from "../src/project/gitStatus";
 import { withEnvironment } from "./helpers/environment";
-
-function project(path: string): Project {
-  return {
-    source: "github",
-    id: "github:frostney/tool",
-    owner: "frostney",
-    repo: "tool",
-    slug: "frostney-tool",
-    path,
-    remote: "git@github.com:frostney/tool.git",
-    visibility: "public",
-    state: "open-source",
-    archived: false,
-    pinned: false,
-    topics: [],
-    tags: [],
-    defaultBranchRef: "main",
-    up: true,
-  };
-}
 
 describe("project git status", () => {
   test("counts how far the local default branch is behind origin", async () => {
@@ -37,46 +16,6 @@ describe("project git status", () => {
         "git rev-list --count refs/remotes/origin/main --not refs/heads/main",
       );
     });
-  });
-
-  test("syncs the default branch without checking it out", async () => {
-    const root = await mkdtemp(join(tmpdir(), "herakles-branch-sync-"));
-    const clone = join(root, "tool");
-    await mkdir(clone, { recursive: true });
-    await withFakeGit({ behind: "2", currentBranch: "feature" }, async (logPath) => {
-      const result = await syncDefaultBranch(project(clone));
-      const log = await readFile(logPath, "utf8");
-
-      expect(result).toMatchObject({
-        branch: "main",
-        status: "done",
-        behindBefore: 2,
-        behindAfter: 2,
-      });
-      expect(log).toContain("git fetch --all --prune");
-      expect(log).toContain("git fetch origin main:refs/heads/main");
-      expect(log).not.toContain("git pull --ff-only");
-    });
-  });
-
-  test("returns a typed failure when fetching remote refs fails", async () => {
-    const root = await mkdtemp(join(tmpdir(), "herakles-branch-sync-fetch-fail-"));
-    const clone = join(root, "tool");
-    await mkdir(clone, { recursive: true });
-    await withFakeGit(
-      { behind: "2", fetchExit: "1", fetchError: "network unavailable" },
-      async () => {
-        const result = await syncDefaultBranch(project(clone));
-
-        expect(result).toMatchObject({
-          branch: "main",
-          status: "failed",
-          behindBefore: 2,
-          behindAfter: 2,
-          message: "network unavailable",
-        });
-      },
-    );
   });
 });
 

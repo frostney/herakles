@@ -43,7 +43,7 @@ Same-owner hosted repository renames use one typed plan/apply service behind the
 
 The default eligible set is all non-archived hosted projects unless their topics match `up.exclude_topics`. Local experiments are not cloned by `up`. Validation issues such as path collisions, missing archive evidence, and hosted clone path mismatches become validation-only up items instead of Git work.
 
-If Herakles discovers a hosted repository clone at a different local path than the canonical checkout path, validation reports `hosted-clone-path-mismatch`. The user resolves that conflict explicitly with the Use Canonical Path flow after reviewing the existing and canonical paths; `up` and Sync Workspace do not silently move, delete, or duplicate repositories.
+If Herakles discovers a hosted repository clone at a different local path than the canonical checkout path, validation reports `hosted-clone-path-mismatch`. Herakles has no automated fix for it yet: the user resolves the conflict by hand after reviewing the existing and canonical paths, and `up` and Sync Workspace do not silently move, delete, or duplicate repositories. Canonical-path fixing is planned as a first-party plugin (ADR 0018).
 
 ## CLI Surface
 

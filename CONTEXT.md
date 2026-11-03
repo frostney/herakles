@@ -77,7 +77,7 @@ A tracked project the user has marked as important for attention and ordering. S
 _Avoid_: Pinned repository
 
 **Pull Request Review**:
-The Herakles flow for reviewing open pull requests across tracked hosted projects. It is a triage view over hosted repository work, not a replacement for GitHub review.
+The Herakles flow for reviewing open pull requests across tracked hosted projects. It is a triage view over hosted repository work, not a replacement for GitHub review. Core does not provide it; a first-party plugin does.
 _Avoid_: Task list, internal project list
 
 **Hosted Visibility**:
