@@ -60,13 +60,16 @@ function runCli(root: string, args: string[], stdin?: string) {
 async function pluginStatuses(root: string) {
   const result = await runCli(root, ["plugins", "list", "--json"]);
   expect(result.exitCode).toBe(0);
-  return JSON.parse(result.stdout) as Array<{
+  const statuses = JSON.parse(result.stdout) as Array<{
     name: string;
     state: string;
     problem?: string;
     message: string;
     commands: string[];
+    source: { kind: string };
   }>;
+  // Bundled plugins are listed too; these tests are about the fixture plugins they configure.
+  return statuses.filter((status) => status.source.kind !== "bundled");
 }
 
 describe("plugin commands through the CLI", () => {
