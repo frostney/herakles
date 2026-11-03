@@ -73,7 +73,9 @@ jobs:
             bun-linux-x64:linux-x64; do
             BUN_TARGET="${ENTRY%%:*}"
             PLATFORM="${ENTRY##*:}"
-            bun run build:cli -- "--target=${BUN_TARGET}" "--outfile=stage/${PLATFORM}/herakles"
+            # Call the pinned Bun directly: `bun run` puts node_modules/.bin first on PATH,
+            # where a peer-installed `bun` npm package would compile with its older runtime.
+            bun scripts/build.ts cli "--target=${BUN_TARGET}" "--outfile=stage/${PLATFORM}/herakles"
             chmod 0755 "stage/${PLATFORM}/herakles"
             tar -czf "release/herakles-${VERSION}-${PLATFORM}.tar.gz" -C "stage/${PLATFORM}" herakles
           done
