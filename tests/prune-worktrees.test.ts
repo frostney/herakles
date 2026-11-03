@@ -145,6 +145,8 @@ type Harness = {
   stdout: string[];
   stderr: string[];
   ghCalls: string[][];
+  /** Codes passed to `setExitCode`; the real one would set the test process's exit code. */
+  exitCodes: number[];
   planned: Array<OperationPlan<unknown>["steps"]>;
 };
 
@@ -170,9 +172,11 @@ function createHarness(fixture: Fixture, options: HarnessOptions): Harness {
     stderr: { write: (text) => stderr.push(text) },
   });
   const ghCalls: string[][] = [];
+  const exitCodes: number[] = [];
   const planned: Harness["planned"] = [];
   const context: PluginContext = {
     ...real,
+    setExitCode: (code) => exitCodes.push(code),
     projects: { ...real.projects, list: async () => [fixture.project] },
     gh: {
       run: async (args) => {
@@ -192,7 +196,7 @@ function createHarness(fixture: Fixture, options: HarnessOptions): Harness {
       return { applied: true, result: await plan.apply() };
     },
   };
-  return { context, stdout, stderr, ghCalls, planned };
+  return { context, stdout, stderr, ghCalls, exitCodes, planned };
 }
 
 const merged = (
@@ -583,6 +587,7 @@ describe("prune-worktrees command", () => {
       expect(byBranch["feature/a-vanishing"]?.error).toBeDefined();
       expect(byBranch["feature/b-staying"]).toMatchObject({ removed: true, branchDeleted: true });
       expect(existsSync(staying)).toBe(false);
+      expect(harness.exitCodes).toEqual([1]);
     });
   });
 
@@ -613,6 +618,7 @@ describe("prune-worktrees command", () => {
         branchDeleted: false,
         error: "branch deletion exploded",
       });
+      expect(harness.exitCodes).toEqual([1]);
     });
   });
 
