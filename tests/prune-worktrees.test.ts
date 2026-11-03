@@ -97,7 +97,11 @@ state = "open-source"
 }
 
 async function withFixture(run: (fixture: Fixture) => Promise<void>) {
-  const fixture = await createFixture();
+  // The fixture commits too, so the author identity must be set while it is built: CI has none.
+  let fixture!: Fixture;
+  await withEnvironment(gitEnvironment, async () => {
+    fixture = await createFixture();
+  });
   await withEnvironment({ ...gitEnvironment, HOME: fixture.home }, () => run(fixture));
 }
 
