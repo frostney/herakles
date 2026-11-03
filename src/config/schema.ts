@@ -149,11 +149,27 @@ export function parseHeraklesConfig(raw: unknown): HeraklesConfig {
   return heraklesConfigSchema.parse(raw);
 }
 
-/** One readable line for a failed config parse, with a hint when keys are unrecognized. */
-export function describeConfigError(error: z.ZodError): string {
-  const problems = error.issues.map(
-    (issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message.replace(/\.$/, "")}`,
+// C0 controls, DEL and C1 controls. Config keys reach these messages verbatim, and the CLI writes
+// them to a terminal, so an escape sequence in a key must not reach it raw.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point.
+const controlCharacters = /[\u0000-\u001f\u007f-\u009f]/g;
+
+function escapeControlCharacters(text: string): string {
+  return text.replace(
+    controlCharacters,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
+}
+
+/**
+ * One readable line for a failed config parse, with a hint when keys are unrecognized.
+ * Control characters from config keys are escaped so they cannot drive the terminal.
+ */
+export function describeConfigError(error: z.ZodError): string {
+  const problems = error.issues.map((issue) => {
+    const path = issue.path.map(String).join(".") || "(top level)";
+    return escapeControlCharacters(`${path}: ${issue.message.replace(/\.$/, "")}`);
+  });
   const hint = error.issues.some((issue) => issue.code === "unrecognized_keys")
     ? " Remove unrecognized tables and keys."
     : "";

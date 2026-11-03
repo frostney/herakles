@@ -220,4 +220,20 @@ source = "local"
 
     expect(Object.keys(loaded.config.project).sort()).toEqual(["alpha", "my.tool-2_x"]);
   });
+
+  test("escapes control characters from config keys in validation errors", async () => {
+    const root = await tempConfigWorkspace(
+      ['[project."bad\\u001b[31mkey"]', 'source = "local"', "", "[ui]", "port = 1", ""].join("\n"),
+    );
+
+    const error = await loadConfig(root).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).not.toContain("\u001b");
+    expect(message).toContain("project.bad\\u001b[31mkey");
+  });
 });
