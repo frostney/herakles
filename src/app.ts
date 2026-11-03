@@ -47,7 +47,7 @@ import {
   InvalidProjectRenameError,
 } from "./project/rename";
 import { resolveProjects } from "./project/resolve";
-import { executeUpPlan, type UpExecution } from "./up/execute";
+import { executeUpPlan, type UpExecuteOptions, type UpExecution } from "./up/execute";
 import { createUpPlan } from "./up/plan";
 import { definedProperties } from "./utils/definedProperties";
 
@@ -582,14 +582,37 @@ async function applyTrackedProjectConfigPlan(
 export async function upProject(
   workspaceRoot: string,
   projectId: string,
-  options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},
+  options: UpExecuteOptions = {},
 ) {
+  const [results = []] = await upProjects(workspaceRoot, [projectId], options);
+  return results;
+}
+
+/**
+ * Spins up several hosted projects as one plan, executed once and in order, so progress hooks
+ * see a single `index`/`total` across all of them. Returns one result array per requested id, in
+ * input order; a project with no plan item gets an empty array.
+ */
+export async function upProjects(
+  workspaceRoot: string,
+  projectIds: readonly string[],
+  options: UpExecuteOptions = {},
+): Promise<UpExecution[][]> {
   const state = await loadWorkspace(workspaceRoot);
-  const target = findProject(state.projects, projectId);
-  if (!target) throw new Error(`Unknown project: ${projectId}`);
-  if (target.source !== "github") throw new Error("Only hosted projects can be checked out.");
-  const plan = applyValidationIssuesToUpPlan(createUpPlan([target]), [target], state.validation);
-  return executeUpPlan(plan, options);
+  const resolved = projectIds.map((projectId) => {
+    const target = findProject(state.projects, projectId);
+    if (!target) throw new Error(`Unknown project: ${projectId}`);
+    if (target.source !== "github") throw new Error("Only hosted projects can be checked out.");
+    return target;
+  });
+  const targets = [...new Set(resolved)];
+  const plan = applyValidationIssuesToUpPlan(createUpPlan(targets), targets, state.validation);
+  const byProject = new Map<string, UpExecution[]>();
+  for (const execution of await executeUpPlan(plan, options)) {
+    const id = execution.item.project.id;
+    byProject.set(id, [...(byProject.get(id) ?? []), execution]);
+  }
+  return resolved.map((target) => byProject.get(target.id) ?? []);
 }
 
 export async function syncProjectDefaultBranch(
@@ -749,10 +772,7 @@ export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
   );
 }
 
-export async function up(
-  workspaceRoot: string,
-  options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},
-) {
+export async function up(workspaceRoot: string, options: UpExecuteOptions = {}) {
   return executeUpPlan(await upPlan(workspaceRoot), options);
 }
 

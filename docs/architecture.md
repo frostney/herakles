@@ -46,6 +46,8 @@ The default eligible set is all non-archived hosted projects unless their topics
 
 If Herakles discovers a hosted repository clone at a different local path than the canonical checkout path, validation reports `hosted-clone-path-mismatch`. The user resolves that conflict explicitly with the Use Canonical Path action after reviewing the existing and canonical paths; `up` and Sync Workspace do not silently move, delete, or duplicate repositories.
 
+The CLI reports progress through `executeUpPlan`'s `onItemStart(item, index, total)` and `onProgress(result)` hooks, which `app.up`, `app.upProject` and `app.upProjects` pass through. A hook that throws is ignored: it cannot abort the run or fail an item. `app.upProjects` builds and executes one plan across several projects, which `projects import` uses so its counter spans the whole import. `src/cli/progress.ts` turns the hooks into a single live line on stderr, drawn only when stderr is an interactive terminal (a TTY, `TERM` not `dumb`, `CI` unset, empty, `0` or `false`) and always cleared before results are printed or on Ctrl-C; other output is unchanged.
+
 ## UI and API
 
 The UI is launched through its own CLI/server path and can stay open while normal CLI commands continue to run. It uses Bun's fullstack server model: HTML entrypoints are imported into `Bun.serve`, frontend assets are bundled by Bun, and typed API routes live in the same server process. The React UI uses TanStack Router semantics without adopting a Vite-backed runtime.
