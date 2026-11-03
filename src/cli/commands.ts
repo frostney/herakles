@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { stderr } from "node:process";
 import {
   buildCommand,
   buildRouteMap,
@@ -12,9 +14,11 @@ import type { ProjectRenamePlan, ProjectRenameResult, ProjectState } from "../do
 import type { CoreCommandTree } from "../plugin-host/mount";
 import { startUiCommand, type UiFlags } from "../ui/server/command";
 import { definedProperties } from "../utils/definedProperties";
+import { formatUnifiedDiff, lineDiff } from "../utils/lineDiff";
 import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
 import { printJson, printTable } from "./output";
 import { type CliPlugins, pluginGroupRoute, pluginRoutes } from "./plugins";
+import { withProgress } from "./progress";
 import { ask } from "./prompt";
 
 type CommonFlags = {
@@ -65,7 +69,7 @@ function printProjectUpResults(results: Awaited<ReturnType<typeof app.upProject>
 
 function printImportProjectResult(
   plans: Awaited<ReturnType<typeof app.importHostedProjects>>,
-  up: Awaited<ReturnType<typeof app.upProject>>[],
+  up: Awaited<ReturnType<typeof app.upProjects>>,
 ) {
   printTable(plans.map((plan) => ({ id: plan.projectId, action: plan.action })));
   for (const result of up) {
@@ -157,8 +161,8 @@ function projectSourceParser(value: string): "github" | "local" {
   throw new Error(`Unknown project source: ${value}`);
 }
 
-function prompt(question: string): Promise<string> {
-  return ask(question, process.stdout);
+function prompt(question: string, promptOutput: { write(text: string): unknown } = process.stdout) {
+  return ask(question, promptOutput);
 }
 
 async function promptProjectAdd(flags: {
@@ -249,7 +253,11 @@ const addProjectCommand = buildCommand<
     });
     const result = await app.addProject(root(flags), input);
     const up =
-      input.source === "github" ? await app.upProject(root(flags), result.projectId) : undefined;
+      input.source === "github"
+        ? await withProgress((progress) =>
+            app.upProject(root(flags), result.projectId, { onItemStart: progress.itemStart }),
+          )
+        : undefined;
     shouldJson(flags)
       ? printJson(up ? { project: result, up } : result)
       : printAddProjectResult(result.toml, up);
@@ -329,16 +337,23 @@ const projectsImportCommand = buildCommand<
       shouldJson(flags) ? printJson(rows) : printTable(rows);
       return;
     }
-    const result = await app.importHostedProjects(
-      root(flags),
-      repos.map((repo) => ({
-        repo,
-        ...(flags.state === undefined ? {} : { state: flags.state }),
-        ...(flags.group === undefined ? {} : { group: flags.group }),
-        ...(flags.tag === undefined ? {} : { tags: flags.tag }),
-      })),
-    );
-    const up = await Promise.all(result.map((plan) => app.upProject(root(flags), plan.projectId)));
+    const { result, up } = await withProgress(async (progress) => {
+      const result = await app.importHostedProjects(
+        root(flags),
+        repos.map((repo) => ({
+          repo,
+          ...(flags.state === undefined ? {} : { state: flags.state }),
+          ...(flags.group === undefined ? {} : { group: flags.group }),
+          ...(flags.tag === undefined ? {} : { tags: flags.tag }),
+        })),
+      );
+      const up = await app.upProjects(
+        root(flags),
+        result.map((plan) => plan.projectId),
+        { onItemStart: progress.itemStart },
+      );
+      return { result, up };
+    });
     shouldJson(flags) ? printJson({ projects: result, up }) : printImportProjectResult(result, up);
   },
 });
@@ -495,6 +510,105 @@ const projectPromoteCommand = buildCommand<
   },
 });
 
+const configShowCommand = buildCommand<CommonFlags>({
+  docs: { brief: "Print _herakles/herakles.toml exactly as stored." },
+  parameters: { flags: commonFlags },
+  async func(flags) {
+    const result = await app.configToml(root(flags));
+    if (shouldJson(flags)) return printJson(result);
+    process.stdout.write(result.toml);
+  },
+});
+
+function failCommand(message: string) {
+  console.error(message);
+  process.exitCode = 1;
+}
+
+async function readConfigInput(file: string): Promise<string | undefined> {
+  if (file === "-") return Bun.stdin.text();
+  try {
+    return await readFile(file, "utf8");
+  } catch (error) {
+    failCommand(`Cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`);
+    return undefined;
+  }
+}
+
+function configPreview(current: string, planned: string): string {
+  const diff = formatUnifiedDiff(lineDiff(current, planned));
+  return ["--- current", "+++ planned", diff || "(only the end-of-file newline differs)"].join(
+    "\n",
+  );
+}
+
+function reportConfigIssues(issues: readonly { severity: string; message: string }[]) {
+  for (const issue of issues) console.error(`${issue.severity}: ${issue.message}`);
+  failCommand("Config not applied: validation failed.");
+}
+
+/** Show the preview, then ask unless --yes. With --json the preview and prompt use stderr. */
+async function confirmConfigApply(
+  plan: Awaited<ReturnType<typeof app.configTomlPlan>>,
+  currentToml: string,
+  flags: CommonFlags & { yes?: boolean },
+): Promise<boolean> {
+  const json = shouldJson(flags);
+  (json ? console.error : console.log)(configPreview(currentToml, plan.toml));
+  if (flags.yes === true) return true;
+  const question = `Apply these changes to ${plan.path}? (yes/no): `;
+  const answer = await prompt(question, json ? stderr : process.stdout);
+  return answer.toLowerCase() === "yes";
+}
+
+async function applyConfigPlan(
+  workspaceRoot: string,
+  plan: Awaited<ReturnType<typeof app.configTomlPlan>>,
+  flags: CommonFlags & { yes?: boolean },
+) {
+  const current = await app.configToml(workspaceRoot);
+  const json = shouldJson(flags);
+  if (plan.toml === current.toml) {
+    json ? printJson(plan) : console.log("No changes.");
+    return;
+  }
+  if (!(await confirmConfigApply(plan, current.toml, flags))) {
+    json ? printJson(plan) : console.log("Apply cancelled.");
+    return;
+  }
+  const result = await app.applyConfigToml(workspaceRoot, plan.toml);
+  json ? printJson(result) : console.log(`Applied ${result.path}.`);
+}
+
+const configApplyCommand = buildCommand<CommonFlags & { yes?: boolean }, [string]>({
+  docs: {
+    brief: "Validate TOML and apply it as _herakles/herakles.toml after a preview.",
+    fullDescription:
+      "Reads TOML from a file, or from stdin when the file is -. Invalid TOML or schema errors exit 1 and write nothing. Normalizes tracked project order, previews the diff, and asks for confirmation unless --yes is passed. stdin input requires --yes.",
+  },
+  parameters: {
+    flags: {
+      ...commonFlags,
+      yes: booleanFlag("Skip confirmation."),
+    },
+    positional: {
+      kind: "tuple",
+      parameters: [
+        { parse: String, brief: "TOML file path, or - for stdin.", placeholder: "file" },
+      ],
+    },
+  },
+  async func(flags, file) {
+    if (file === "-" && flags.yes !== true) return failCommand("stdin input requires --yes");
+    const workspaceRoot = root(flags);
+    const incoming = await readConfigInput(file);
+    if (incoming === undefined) return;
+    const plan = await app.configTomlPlan(workspaceRoot, incoming);
+    if (!plan.validation.valid) return reportConfigIssues(plan.validation.issues);
+    await applyConfigPlan(workspaceRoot, plan, flags);
+  },
+});
+
 const validateCommand = buildCommand<CommonFlags & { strict?: boolean }>({
   docs: { brief: "Validate resolved projects." },
   parameters: {
@@ -548,7 +662,9 @@ const upCommand = buildCommand<CommonFlags & { dryRun?: boolean }>({
     },
   },
   async func(flags) {
-    const result = await app.up(root(flags), { dryRun: flags.dryRun === true });
+    const result = await withProgress((progress) =>
+      app.up(root(flags), { dryRun: flags.dryRun === true, onItemStart: progress.itemStart }),
+    );
     if (shouldJson(flags)) return printJson(result);
     printTable(
       result.map((entry) => ({
@@ -633,7 +749,7 @@ const projectRoutes = {
 type CoreCommand = Command<CommandContext>;
 type CoreGroup = {
   docs: { brief: string };
-  defaultCommand: string;
+  defaultCommand?: string;
   routes: Record<string, CoreCommand>;
 };
 
@@ -649,6 +765,13 @@ function coreRoutes(plugins: CliPlugins): Record<string, CoreCommand | CoreGroup
       defaultCommand: "list",
       routes: projectRoutes,
     },
+    config: {
+      docs: { brief: "Config Exchange commands for _herakles/herakles.toml." },
+      routes: {
+        show: configShowCommand,
+        apply: configApplyCommand,
+      },
+    },
     up: upCommand,
     doctor: doctorCommand(plugins),
     plugins: {
@@ -661,7 +784,7 @@ function coreRoutes(plugins: CliPlugins): Record<string, CoreCommand | CoreGroup
 }
 
 function isCoreGroup(target: CoreCommand | CoreGroup): target is CoreGroup {
-  return "routes" in target && "defaultCommand" in target;
+  return "routes" in target;
 }
 
 /** Core route names, derived from the core routes; plugins may add routes but never replace these. */
@@ -686,7 +809,7 @@ export function buildRootRoute(plugins: CliPlugins) {
     routes[name] = isCoreGroup(target)
       ? buildRouteMap({
           docs: target.docs,
-          defaultCommand: target.defaultCommand,
+          ...(target.defaultCommand === undefined ? {} : { defaultCommand: target.defaultCommand }),
           routes: withoutReplacing(target.routes, contributed.grouped.get(name), name),
         })
       : target;

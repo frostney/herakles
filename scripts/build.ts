@@ -14,13 +14,38 @@ function selectedTargets(argv: string[]): TargetName[] {
   return names.length > 0 ? names : (["cli", "ui"] as TargetName[]);
 }
 
-const targets = selectedTargets(Bun.argv.slice(2)).map((name) => allTargets[name]);
+function flagValue(argv: string[], name: string): string | undefined {
+  const prefix = `--${name}=`;
+  const arg = argv.find((candidate) => candidate === `--${name}` || candidate.startsWith(prefix));
+  if (arg === undefined) return undefined;
+  const value = arg.slice(prefix.length);
+  if (arg === `--${name}` || value === "") {
+    console.error(`--${name} requires a value, for example ${prefix}<value>.`);
+    process.exit(1);
+  }
+  return value;
+}
+
+const argv = Bun.argv.slice(2);
+const compileTarget = flagValue(argv, "target") as Bun.Build.CompileTarget | undefined;
+const outfileOverride = flagValue(argv, "outfile");
+const targetNames = selectedTargets(argv);
+
+if ((compileTarget || outfileOverride) && !(targetNames.length === 1 && targetNames[0] === "cli")) {
+  console.error("--target and --outfile are only supported with the cli build target.");
+  process.exit(1);
+}
+
+const targets = targetNames.map((name) => ({
+  ...allTargets[name],
+  outfile: outfileOverride ?? allTargets[name].outfile,
+}));
 
 await mkdir("dist", { recursive: true });
 
 let failed = false;
 for (const target of targets) {
-  const result = await Bun.build(compileOptions(target.entrypoint, target.outfile));
+  const result = await Bun.build(compileOptions(target.entrypoint, target.outfile, compileTarget));
 
   if (!result.success) {
     failed = true;

@@ -310,6 +310,19 @@ describe("plugin config", () => {
     expect(result.success).toBe(true);
   });
 
+  test("a plugin table named __proto__ is kept and reported, not dropped", async () => {
+    const loaded = await loadConfig(await workspace('\n[plugins."__proto__"]\nproject = "p"\n'));
+
+    const registry = await loadPlugins(loaded, { core: coreCommandTree, bundled: [] });
+
+    expect(registry.statuses).toHaveLength(1);
+    expect(registry.statuses[0]).toMatchObject({
+      name: "__proto__",
+      state: "failed",
+      problem: "invalid-config",
+    });
+  });
+
   test("plugin entries take bundled toggles and project-relative external plugins", () => {
     expect(pluginEntrySchema.parse({})).toEqual({ enabled: true });
     expect(pluginEntrySchema.parse({ enabled: false })).toEqual({ enabled: false });

@@ -46,6 +46,8 @@ The default eligible set is all non-archived hosted projects unless their topics
 
 If Herakles discovers a hosted repository clone at a different local path than the canonical checkout path, validation reports `hosted-clone-path-mismatch`. The user resolves that conflict explicitly with the Use Canonical Path action after reviewing the existing and canonical paths; `up` and Sync Workspace do not silently move, delete, or duplicate repositories.
 
+The CLI reports progress through `executeUpPlan`'s `onItemStart(item, index, total)` and `onProgress(result)` hooks, which `app.up`, `app.upProject` and `app.upProjects` pass through. A hook that throws is ignored: it cannot abort the run or fail an item. `app.upProjects` builds and executes one plan across several projects, which `projects import` uses so its counter spans the whole import. `src/cli/progress.ts` turns the hooks into a single live line on stderr, drawn only when stderr is an interactive terminal (a TTY, `TERM` not `dumb`, `CI` unset, empty, `0` or `false`) and always cleared before results are printed or on Ctrl-C; other output is unchanged.
+
 ## Plugins
 
 Optional features are plugins that add CLI commands on top of core. Core keeps workspace configuration, projects, `up`, `validate`, `doctor` and Config Exchange. [ADR 0018](adr/0018-plugin-system.md) records the design.
@@ -68,7 +70,7 @@ GitHub bulk import opens as a dialog. It lists accessible repositories for confi
 
 The Pull Requests screen reviews open pull requests across tracked hosted projects. It uses the resolved project model for lifecycle, starred-project ordering, repository labels, and partial failure reporting; pull request and repository links lead back to GitHub. Pull request reads are cached briefly under `_herakles/cache` as generated local state, and explicit refresh bypasses that cache.
 
-Settings exposes project refresh, validation, doctor checks, and Config Exchange. Project Settings provides preview-before-apply lifecycle, metadata, promotion, and same-owner rename actions through shared services. Config Exchange is a copy-paste editor for `_herakles/herakles.toml`; it validates TOML with Bun's parser and the Herakles schema before applying.
+Settings exposes project refresh, validation, doctor checks, and Config Exchange. Project Settings provides preview-before-apply lifecycle, metadata, promotion, and same-owner rename actions through shared services. Config Exchange is a copy-paste editor for `_herakles/herakles.toml` in the UI and the `herakles config show` and `herakles config apply` commands in the CLI; both validate TOML with Bun's parser and the Herakles schema before applying, and the CLI previews a diff and asks for confirmation first.
 
 The UI server exposes `/api/events` as a server-sent event stream. Events are emitted around typed Herakles operations such as project refresh, up, and validation. The stream is a live status surface, not a command channel or persistence layer.
 

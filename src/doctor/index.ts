@@ -14,14 +14,11 @@ export async function runDoctor(loaded: LoadedConfig): Promise<DoctorResult> {
     message: `Loaded ${loaded.source.syncedConfigPath}`,
   });
   checks.push(await inspectStateIgnore(loaded));
-  for (const tool of ["bun", "git", "gh"]) {
-    const result = await runCommand([tool, "--version"], { allowFailure: true });
-    checks.push({
-      name: tool,
-      status: result.exitCode === 0 ? ("ok" as const) : ("warn" as const),
-      message:
-        result.exitCode === 0 ? result.stdout.split("\n")[0]!.trim() : `${tool} not available`,
-    });
+  // The Bun runtime is embedded in compiled binaries, so report it in-process instead of spawning
+  // a `bun` that may not be installed.
+  checks.push({ name: "bun", status: "ok" as const, message: Bun.version });
+  for (const tool of ["git", "gh"]) {
+    checks.push(await inspectTool(tool));
   }
   return { generatedAt: new Date().toISOString(), checks };
 }
@@ -56,4 +53,19 @@ export function pluginDoctorChecks(statuses: readonly PluginStatus[]): DoctorChe
     status: status.state === "failed" ? "fail" : "ok",
     message: status.message,
   }));
+}
+
+async function inspectTool(tool: string): Promise<DoctorCheck> {
+  const result = await runCommand([tool, "--version"], { allowFailure: true });
+  if (result.exitCode === 127) {
+    return { name: tool, status: "fail", message: `${tool} not found on PATH` };
+  }
+  if (result.exitCode !== 0) {
+    return {
+      name: tool,
+      status: "fail",
+      message: `${tool} --version exited with ${result.exitCode}`,
+    };
+  }
+  return { name: tool, status: "ok", message: result.stdout.split("\n")[0]!.trim() };
 }

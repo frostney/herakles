@@ -102,7 +102,7 @@ export const heraklesConfigSchema = z
         include_forks: z.boolean().default(false),
         include_archived: z.boolean().default(true),
       })
-      .default({}),
+      .prefault({}),
     defaults: z
       .object({
         state_for_public: projectStateSchema.default("open-source" satisfies ProjectState),
@@ -114,17 +114,45 @@ export const heraklesConfigSchema = z
           .default(["ROADMAP.md", "docs/ROADMAP.md", "TODO.md"]),
         learning_files: z.array(relativePathSchema).default(["LEARNING.md", "docs/LEARNING.md"]),
       })
-      .default({}),
-    up: z.object({ exclude_topics: z.array(z.string()).default(["no-up"]) }).default({}),
+      .prefault({}),
+    up: z.object({ exclude_topics: z.array(z.string()).default(["no-up"]) }).prefault({}),
     ui: z
       .object({
         enabled: z.boolean().default(true),
       })
-      .default({}),
+      .prefault({}),
     project: z.record(configKeySchema, projectConfigSchema).default({}),
-    // Checked per plugin by the plugin host, so a plugin entry never breaks core commands.
-    plugins: z.record(z.string(), z.unknown()).default({}),
+    // Checked per plugin by the plugin host, so a plugin entry never breaks core commands. Zod 4
+    // drops a `__proto__` record key, which would hide a bad plugin name, so the table passes through.
+    plugins: z
+      .custom<Record<string, unknown>>(
+        (value) => typeof value === "object" && value !== null && !Array.isArray(value),
+        { message: "Expected [plugins] to be a table." },
+      )
+      .default({}),
   })
   .strict();
 
 export type HeraklesConfig = z.infer<typeof heraklesConfigSchema>;
+
+/**
+ * Parses a raw (TOML-decoded) config object. Zod 4 skips the `__proto__` record
+ * key before running `configKeySchema`, so project keys are checked on the raw
+ * object first; otherwise `[project."__proto__"]` would validate but vanish.
+ */
+export function parseHeraklesConfig(raw: unknown): HeraklesConfig {
+  const projects =
+    typeof raw === "object" && raw !== null ? (raw as { project?: unknown }).project : undefined;
+  if (typeof projects === "object" && projects !== null && !Array.isArray(projects)) {
+    const issues: z.core.$ZodIssue[] = [];
+    for (const key of Object.keys(projects)) {
+      const result = configKeySchema.safeParse(key);
+      if (result.success) continue;
+      for (const issue of result.error.issues) {
+        issues.push({ ...issue, path: ["project", key, ...issue.path] });
+      }
+    }
+    if (issues.length > 0) throw new z.ZodError(issues);
+  }
+  return heraklesConfigSchema.parse(raw);
+}

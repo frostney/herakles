@@ -1,7 +1,11 @@
 import tailwind from "bun-plugin-tailwind";
 
-/** `Bun.build` options for a single-file Herakles executable. */
-export function compileOptions(entrypoint: string, outfile: string): Bun.BuildConfig {
+/** `Bun.build` options for a single-file Herakles executable, optionally cross-compiled. */
+export function compileOptions(
+  entrypoint: string,
+  outfile: string,
+  target?: Bun.Build.CompileTarget,
+): Bun.BuildConfig {
   return {
     entrypoints: [entrypoint],
     plugins: [tailwind],
@@ -10,6 +14,7 @@ export function compileOptions(entrypoint: string, outfile: string): Bun.BuildCo
     },
     compile: {
       outfile,
+      ...(target ? { target } : {}),
     },
   };
 }
