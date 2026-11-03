@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,6 +7,7 @@ export type FakeGhRepository = {
   owner?: string;
   isArchived?: boolean;
   description?: string;
+  defaultBranchRef?: string;
 };
 
 export async function withFakeGhScript(prefix: string, script: string, run: () => Promise<void>) {
@@ -19,6 +20,7 @@ export async function withFakeGhScript(prefix: string, script: string, run: () =
     await run();
   } finally {
     process.env.PATH = previousPath;
+    await rm(bin, { recursive: true, force: true });
   }
 }
 
@@ -35,8 +37,10 @@ export function fakeGhRepositoryJson(repo: FakeGhRepository): string {
         visibility: "PUBLIC",
         isArchived: repo.isArchived === true,
         ...(repo.description === undefined ? {} : { description: repo.description }),
+        ...(repo.defaultBranchRef === undefined
+          ? {}
+          : { defaultBranchRef: { name: repo.defaultBranchRef } }),
         repositoryTopics: [],
-        languages: [],
       },
     ],
     null,

@@ -6,23 +6,9 @@ export type ProjectState = "experiment" | "candidate" | "commercial" | "open-sou
 
 export type UpAction = "clone" | "fetch" | "skip" | "validate";
 
-export type ProjectLanguage = {
-  name: string;
-  size: number;
-};
-
-export type ProjectLineCounts = {
-  loc: number;
-  sloc: number;
-};
-
-export type ProjectOpenTarget = "filesystem" | "github" | "codex" | "terminal";
-
 type RepositoryMetadata = {
   url?: string;
   primaryLanguage?: string;
-  languages: string[];
-  languageBreakdown?: ProjectLanguage[];
   defaultBranchRef?: string;
   description?: string;
   latestActivityAt?: string;
@@ -31,7 +17,6 @@ type RepositoryMetadata = {
   updatedAt?: string;
   openPullRequests?: number;
   draftPullRequests?: number;
-  openIssues?: number;
 };
 
 export type GitHubRepository = RepositoryMetadata & {
@@ -67,63 +52,10 @@ export type Project = RepositoryMetadata & {
   pinned: boolean;
   topics: string[];
   tags: string[];
-  lineCounts?: ProjectLineCounts;
   defaultBranchBehindBy?: number;
-  hasRoadmap: boolean;
   learningPath?: string;
   archiveNote?: string;
   up: boolean;
-};
-
-export type ProjectDefaultBranchSyncResult = {
-  projectId: string;
-  branch: string;
-  status: "done" | "skipped" | "failed";
-  message: string;
-  behindBefore?: number;
-  behindAfter?: number;
-};
-
-export type PullRequestReviewStatus =
-  | "approved"
-  | "changes-requested"
-  | "review-required"
-  | "unknown";
-
-export type PullRequestCheckStatus = "passing" | "failing" | "pending" | "unknown";
-
-export type PullRequestSummary = {
-  projectId: string;
-  projectSlug: string;
-  projectPinned: boolean;
-  projectState: ProjectState;
-  repo: string;
-  owner: string;
-  number: number;
-  title: string;
-  author: string;
-  isDraft: boolean;
-  state: "open";
-  branch: string;
-  baseBranch: string;
-  updatedAt: string;
-  url: string;
-  reviewStatus: PullRequestReviewStatus;
-  checkStatus: PullRequestCheckStatus;
-};
-
-export type PullRequestCollectionFailure = {
-  projectId: string;
-  projectSlug: string;
-  repo: string;
-  message: string;
-};
-
-export type PullRequestCollection = {
-  generatedAt: string;
-  pullRequests: PullRequestSummary[];
-  failures: PullRequestCollectionFailure[];
-  skippedLocalProjects: number;
 };
 
 export type HostedImportCandidate = {
@@ -176,23 +108,6 @@ export type DoctorResult = {
   checks: DoctorCheck[];
 };
 
-export type HeraklesEventType =
-  | "connected"
-  | "projects-refresh-started"
-  | "projects-refresh-finished"
-  | "up-started"
-  | "up-progress"
-  | "up-finished"
-  | "validation-updated";
-
-export type HeraklesEvent = {
-  id: number;
-  type: HeraklesEventType;
-  generatedAt: string;
-  message: string;
-  payload?: Record<string, unknown>;
-};
-
 export type LocalPromotionPlan = {
   projectId: string;
   localPath: string;
@@ -229,6 +144,12 @@ export type ProjectRenamePlanStep = {
   command?: string[];
 };
 
+export type CanonicalPathPlan = {
+  projectId: string;
+  from: string;
+  to: string;
+};
+
 export type ProjectRenamePlan = {
   projectId: string;
   owner: string;
@@ -257,9 +178,4 @@ export type ProjectRenameResult = {
   status: "renamed" | "failed";
   message: string;
   steps: ProjectRenameStepResult[];
-};
-
-export type ProjectDetail = {
-  project: Project;
-  validationIssues: ValidationIssue[];
 };

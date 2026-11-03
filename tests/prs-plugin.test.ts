@@ -146,6 +146,11 @@ function cachePath(root: string) {
   return join(root, "_herakles", "cache", "plugins", "prs", "pull-requests.json");
 }
 
+/** The `plugins list --json` entries for this plugin; other bundled plugins are listed too. */
+function prsStatuses(stdout: string): Array<{ name: string }> {
+  return (JSON.parse(stdout) as Array<{ name: string }>).filter(({ name }) => name === "prs");
+}
+
 describe("prs plugin through the host", () => {
   test("is off until [plugins.prs] is set and lists the line that enables it", async () => {
     const root = await pullRequestWorkspace(false);
@@ -154,7 +159,7 @@ describe("prs plugin through the host", () => {
     const help = await runCli(root, ["--help"]);
     const invoked = await runCli(root, ["prs"]);
 
-    expect(JSON.parse(list.stdout)).toEqual([
+    expect(prsStatuses(list.stdout)).toEqual([
       expect.objectContaining({
         name: "prs",
         state: "disabled",
@@ -174,7 +179,7 @@ describe("prs plugin through the host", () => {
     const list = await runCli(root, ["plugins", "list", "--json"]);
     const help = await runCli(root, ["prs", "--help"]);
 
-    expect(JSON.parse(list.stdout)).toEqual([
+    expect(prsStatuses(list.stdout)).toEqual([
       expect.objectContaining({ name: "prs", state: "loaded", commands: ["prs"] }),
     ]);
     expect(help.exitCode).toBe(0);

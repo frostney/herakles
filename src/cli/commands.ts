@@ -12,10 +12,9 @@ import { initConfig } from "../config/init";
 import { selectHeraklesWorkspace } from "../config/workspace";
 import type { ProjectRenamePlan, ProjectRenameResult, ProjectState } from "../domain";
 import type { CoreCommandTree } from "../plugin-host/mount";
-import { startUiCommand, type UiFlags } from "../ui/server/command";
 import { definedProperties } from "../utils/definedProperties";
 import { formatUnifiedDiff, lineDiff } from "../utils/lineDiff";
-import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
+import { booleanFlag, optionalFlag } from "./flags";
 import { printJson, printTable } from "./output";
 import { type CliPlugins, pluginGroupRoute, pluginRoutes } from "./plugins";
 import { withProgress } from "./progress";
@@ -30,14 +29,6 @@ const commonFlags = {
   root: optionalFlag(String, "Workspace root containing _herakles/herakles.toml.", "path"),
   json: booleanFlag("Print JSON output."),
 } as const;
-
-const numberParser = (value: string) => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    throw new Error(`Expected a number, received: ${value}`);
-  }
-  return parsed;
-};
 
 function root(flags: CommonFlags) {
   return selectHeraklesWorkspace(flags.root);
@@ -719,22 +710,6 @@ function pluginsListCommand(plugins: CliPlugins) {
   });
 }
 
-const uiCommand = buildCommand<UiFlags>({
-  docs: { brief: "Start the local Herakles browser UI." },
-  parameters: {
-    flags: {
-      root: commonFlags.root,
-      host: optionalFlag(String, "UI host.", "host"),
-      port: optionalFlag(numberParser, "UI port.", "port"),
-      open: optionalFlag(looseBooleanParser, "Open the UI in a browser.", "boolean"),
-      noOpen: booleanFlag("Do not open the UI in a browser."),
-    },
-  },
-  async func(flags) {
-    await startUiCommand(flags);
-  },
-});
-
 const projectRoutes = {
   list: repoListCommand,
   show: repoShowCommand,
@@ -779,7 +754,6 @@ function coreRoutes(plugins: CliPlugins): Record<string, CoreCommand | CoreGroup
       defaultCommand: "list",
       routes: { list: pluginsListCommand(plugins) },
     },
-    ui: uiCommand,
   };
 }
 

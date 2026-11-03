@@ -47,19 +47,6 @@ Run the local Fallow quality check:
 bun run quality
 ```
 
-Run the Electrobun desktop shell locally:
-
-```sh
-bun run desktop
-```
-
-Build unsigned macOS arm64 desktop artifacts:
-
-```sh
-bun run desktop:build
-bun run desktop:build:nightly
-```
-
 ## Smoke Checks
 
 Run CLI commands through the package script:
@@ -68,19 +55,12 @@ Run CLI commands through the package script:
 bun run herakles -- <command>
 ```
 
-Run the UI server without opening a browser:
-
-```sh
-bun run ui -- --root <workspace> --no-open
-```
-
-Build and smoke the compiled executables:
+Build and smoke the compiled executable:
 
 ```sh
 bun run build
-# or: bun run build:cli / bun run build:ui
+# or: bun run build:cli
 ./dist/herakles --help
-./dist/herakles-ui --help
 ```
 
 ## GitHub Actions

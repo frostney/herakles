@@ -16,7 +16,7 @@ Read the relevant source before changing that area. Keep decisions in one place;
 - Do not introduce project-local Herakles config, synced machine profiles, a remote sync API, or a generic remote shell/API endpoint.
 - Keep `_herakles/herakles.toml` as the canonical configuration. Do not introduce `herakles.local.toml`, project-local Herakles config, or alternate synced config files.
 - Keep generated state out of synced configuration. Local Herakles artifacts belong under ignored folders inside `_herakles`.
-- Treat the CLI and UI as control surfaces over the same core services; do not duplicate project resolution, workspace up planning, validation, or config mutation logic in the UI.
+- Keep the CLI a thin control surface over the core services; do not duplicate project resolution, workspace up planning, validation, or config mutation logic in CLI commands.
 - Never silently move, delete, prune, push, or publish repositories.
 - Add optional features as plugins, not core commands ([ADR 0018](docs/adr/0018-plugin-system.md)).
 
@@ -30,7 +30,7 @@ bunx tsc --noEmit
 bun run quality
 ```
 
-Smoke CLI changes with `bun run herakles -- <command>`. Smoke UI changes with `bun run ui -- --root <workspace> --no-open`.
+Smoke CLI changes with `bun run herakles -- <command>`.
 
 ## Code Organization
 
@@ -41,7 +41,6 @@ Do not add a directory map here. Source ownership belongs in the implementation 
 - Use `bun test` for the full suite.
 - Add focused tests near the behavior surface being changed; do not add tests that only restate implementation.
 - Prefer fake `git` and `gh` binaries or injected loaders over live network or tool mutation.
-- After UI-facing changes, smoke the Bun UI server with a temporary workspace when the in-app Browser tool is unavailable.
 - Before handoff, review resolution, or PR creation, verify the applicable items in [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md).
 
 ## Safety / Boundaries

@@ -1,13 +1,8 @@
 entry = [
-  "electrobun.config.ts",
   "src/cli/main.ts",
-  "src/ui/desktop/main.ts",
-  "src/ui/server/main.ts",
   # Fixture plugins load by dynamic import from test workspaces.
   "tests/fixtures/plugins/*/plugin.{ts,js}",
 ]
-
-ignoreDependencies = ["bun-plugin-tailwind"]
 
 # CodeRabbit reads .coderabbit.config.ts itself; nothing in the project imports
 # it, and its @coderabbitai/config import resolves only inside CodeRabbit.

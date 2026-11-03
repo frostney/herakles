@@ -68,8 +68,8 @@ describe("external plugins in the compiled executable", () => {
       plugin: "hello",
     });
     const statuses = (
-      JSON.parse(list.stdout) as Array<{ name: string; source: { kind: string }; state: string }>
-    ).filter((status) => status.source.kind !== "bundled");
+      JSON.parse(list.stdout) as Array<{ name: string; state: string; source: { kind: string } }>
+    ).filter(({ source }) => source.kind !== "bundled");
     expect(statuses.map(({ name, state }) => [name, state])).toEqual([
       ["hello", "loaded"],
       ["throws", "failed"],

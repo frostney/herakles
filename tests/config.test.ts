@@ -64,15 +64,48 @@ owners = []
 
 [github]
 owners = ["synced-owner"]
-
-[ui]
-enabled = true
 `,
     );
     const loaded = await loadConfig(root);
 
     expect(loaded.config.github.owners).toEqual(["synced-owner"]);
-    expect(loaded.config.ui.enabled).toBe(true);
+  });
+
+  test("rejects the removed [ui] table and names it in the error", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[ui]
+enabled = true
+`,
+    );
+
+    const error = await loadConfig(root).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/Invalid Herakles config .*herakles\.toml/);
+    expect((error as Error).message).toMatch(/['"]ui['"]/);
+    expect((error as Error).message).toContain("Remove unrecognized tables and keys");
+  });
+
+  test("ignores a leftover defaults.roadmap_files key", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[defaults]
+roadmap_files = ["ROADMAP.md"]
+`,
+    );
+
+    const loaded = await loadConfig(root);
+
+    expect(loaded.config.defaults).not.toHaveProperty("roadmap_files");
   });
 
   test("workspace root is the folder containing the _herakles folder", async () => {
@@ -157,8 +190,10 @@ source = "local"
       (caught: unknown) => caught,
     );
 
-    expect(error).toBeInstanceOf(ZodError);
-    expect((error as ZodError).issues).toMatchObject([
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("project.__proto__");
+    expect((error as Error).cause).toBeInstanceOf(ZodError);
+    expect(((error as Error).cause as ZodError).issues).toMatchObject([
       {
         path: ["project", "__proto__"],
         message: "Config keys must be path-safe identifiers.",

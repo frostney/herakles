@@ -60,17 +60,16 @@ function runCli(root: string, args: string[], stdin?: string) {
 async function pluginStatuses(root: string) {
   const result = await runCli(root, ["plugins", "list", "--json"]);
   expect(result.exitCode).toBe(0);
-  // Bundled plugins are listed too; these tests are about the external fixtures.
-  return (
-    JSON.parse(result.stdout) as Array<{
-      name: string;
-      source: { kind: string };
-      state: string;
-      problem?: string;
-      message: string;
-      commands: string[];
-    }>
-  ).filter((status) => status.source.kind !== "bundled");
+  const statuses = JSON.parse(result.stdout) as Array<{
+    name: string;
+    source: { kind: string };
+    state: string;
+    problem?: string;
+    message: string;
+    commands: string[];
+  }>;
+  // These tests cover external plugins; bundled plugins have their own tests.
+  return statuses.filter((status) => status.source.kind !== "bundled");
 }
 
 describe("plugin commands through the CLI", () => {
@@ -367,6 +366,7 @@ entry = "/tmp/plugin.ts"
     const result = await runCli(root, ["two"]);
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("herakles: plugins not loaded: project.broken.source");
+    expect(result.stderr).toContain("herakles: plugins not loaded: Invalid Herakles config");
+    expect(result.stderr).toContain("project.broken.source");
   });
 });

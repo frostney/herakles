@@ -6,7 +6,6 @@ import type { HeraklesConfig } from "../config/schema";
 import type { ProjectDiscovery } from "../discovery";
 import type { GitHubRepository, LocalRepository, Project, ProjectState } from "../domain";
 import { readDefaultBranchBehind } from "./gitStatus";
-import { countProjectLines } from "./lineCounts";
 
 const archiveDescriptionPatterns = [
   /\bmoved to\b/i,
@@ -43,10 +42,6 @@ function findLearningPath(loaded: LoadedConfig, projectPath: string, configuredL
   return candidates
     .map((candidate) => join(projectPath, candidate))
     .find((path) => existsSync(path));
-}
-
-function hasAnyFile(projectPath: string, names: readonly string[]): boolean {
-  return names.some((name) => existsSync(join(projectPath, name)));
 }
 
 function archiveNoteFromHostedMetadata(repo: GitHubRepository): string | undefined {
@@ -98,7 +93,6 @@ function resolveGitHubProject(
   const state = repo.isArchived ? "archived" : (config.state ?? inferredState(loaded, repo));
   const projectPath = derivedProjectPath(loaded, state, config.group, repo.name);
   const learningPath = findLearningPath(loaded, projectPath, config.learning);
-  const lineCounts = countProjectLines(projectPath, loaded.paths.cacheDir);
   const project: Project = {
     source: "github",
     id: `github:${repo.nameWithOwner}`,
@@ -113,10 +107,6 @@ function resolveGitHubProject(
     pinned: config.pinned,
     topics: repo.repositoryTopics,
     tags: config.tags ?? [],
-    languages: repo.languages,
-    ...(repo.languageBreakdown === undefined ? {} : { languageBreakdown: repo.languageBreakdown }),
-    ...(lineCounts === undefined ? {} : { lineCounts }),
-    hasRoadmap: hasAnyFile(projectPath, loaded.config.defaults.roadmap_files),
     up: false,
   };
   enrichGitHubProject(project, loaded, repo, learningPath);
@@ -156,7 +146,6 @@ function enrichGitHubProject(
   if (repo.updatedAt) project.updatedAt = repo.updatedAt;
   if (repo.openPullRequests !== undefined) project.openPullRequests = repo.openPullRequests;
   if (repo.draftPullRequests !== undefined) project.draftPullRequests = repo.draftPullRequests;
-  if (repo.openIssues !== undefined) project.openIssues = repo.openIssues;
 }
 
 function resolveLocalProject(
@@ -178,7 +167,6 @@ function resolveLocalProject(
     syntheticLocalRepo(loaded, configuredPath);
   const learningPath = findLearningPath(loaded, repo.path, config.learning);
   const resolvedState = config.state ?? loaded.config.defaults.state_for_local;
-  const lineCounts = countProjectLines(repo.path, loaded.paths.cacheDir);
   const project: Project = {
     source: "local",
     id: `local:${repo.name}`,
@@ -192,9 +180,6 @@ function resolveLocalProject(
     pinned: config.pinned,
     topics: [],
     tags: config.tags ?? [],
-    languages: [],
-    ...(lineCounts === undefined ? {} : { lineCounts }),
-    hasRoadmap: hasAnyFile(repo.path, loaded.config.defaults.roadmap_files),
     up: false,
   };
   if (repo.remote) project.remote = repo.remote;
@@ -334,7 +319,6 @@ function syntheticHostedRepo(owner: string, name: string): GitHubRepository {
     isPrivate: true,
     isArchived: false,
     repositoryTopics: [],
-    languages: [],
   };
 }
 
