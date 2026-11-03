@@ -3,7 +3,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TOML } from "bun";
 import { lifecycleFolders, resolveWorkspacePaths, type WorkspacePaths } from "./paths";
-import { type HeraklesConfig, heraklesConfigSchema } from "./schema";
+import { type HeraklesConfig, parseHeraklesConfig } from "./schema";
 import { HeraklesWorkspaceNotFoundError } from "./workspace";
 
 export type LoadedConfig = {
@@ -22,7 +22,7 @@ export async function loadConfig(workspaceRoot: string): Promise<LoadedConfig> {
   }
   const rawToml = await readFile(paths.syncedConfigPath, "utf8");
   return {
-    config: heraklesConfigSchema.parse(TOML.parse(rawToml)),
+    config: parseHeraklesConfig(TOML.parse(rawToml)),
     rawToml,
     paths,
     source: { syncedConfigPath: paths.syncedConfigPath },

@@ -11,7 +11,7 @@ import {
   type ProjectConfigChanges,
   type ProjectConfigPlan,
 } from "./config/projects";
-import { heraklesConfigSchema } from "./config/schema";
+import { parseHeraklesConfig } from "./config/schema";
 import { normalizeProjectConfigOrder, writeConfigToml } from "./config/write";
 import { normalizeRemote, type ProjectDiscovery, refreshProjectDiscovery } from "./discovery";
 import { runDoctor } from "./doctor";
@@ -856,7 +856,7 @@ function validateWorkspaceProjects(
 
 function validateConfigToml(toml: string): ValidationResult {
   try {
-    heraklesConfigSchema.parse(TOML.parse(toml));
+    parseHeraklesConfig(TOML.parse(toml));
     return { valid: true, issues: [] };
   } catch (error) {
     return {
