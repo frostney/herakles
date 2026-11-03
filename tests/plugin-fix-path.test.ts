@@ -14,27 +14,88 @@ import {
 afterEach(cleanupHostedCloneTempDirs);
 
 const cliPath = join(import.meta.dir, "..", "src", "cli", "main.ts");
+const enabled = "\n[plugins.fix-path]\n";
+
+function herakles(workspaceRoot: string, args: string[], stdin?: string) {
+  return runCommand([process.execPath, "run", cliPath, ...args, "--root", workspaceRoot], {
+    allowFailure: true,
+    timeoutMs: 30_000,
+    ...(stdin === undefined ? {} : { stdin }),
+  });
+}
 
 function fixPath(workspaceRoot: string, args: string[], stdin?: string) {
-  return runCommand(
-    [
-      process.execPath,
-      "run",
-      cliPath,
-      "projects",
-      "fix-path",
-      "herakles",
-      "--root",
-      workspaceRoot,
-      ...args,
-    ],
-    { allowFailure: true, timeoutMs: 30_000, ...(stdin === undefined ? {} : { stdin }) },
-  );
+  return herakles(workspaceRoot, ["projects", "fix-path", "herakles", ...args], stdin);
 }
+
+async function pluginStatus(workspaceRoot: string) {
+  const result = await herakles(workspaceRoot, ["plugins", "list", "--json"]);
+  expect(result.exitCode).toBe(0);
+  const statuses = JSON.parse(result.stdout) as Array<{
+    name: string;
+    state: string;
+    commands: string[];
+  }>;
+  return statuses.find((status) => status.name === "fix-path");
+}
+
+describe("fix-path plugin switch", () => {
+  test("is off until [plugins.fix-path] is set and moves nothing", async () => {
+    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+
+    await withFakeGhHostedClone(async () => {
+      const result = await fixPath(workspaceRoot, ["--yes"]);
+      const help = await herakles(workspaceRoot, ["projects", "--help"]);
+
+      expect(result.exitCode).not.toBe(0);
+      expect(help.stdout).not.toContain("fix-path");
+      expect(existsSync(duplicatePath)).toBe(true);
+      expect(existsSync(canonicalPath)).toBe(false);
+    });
+  });
+
+  test("plugins list shows it disabled with the line that enables it", async () => {
+    const { workspaceRoot } = await hostedPathMismatchWorkspace();
+
+    expect(await pluginStatus(workspaceRoot)).toMatchObject({
+      state: "disabled",
+      commands: [],
+      message: "Not enabled; add [plugins.fix-path] to enable it.",
+    });
+  });
+
+  test("an explicit enabled = false keeps it off", async () => {
+    const { workspaceRoot, duplicatePath } = await hostedPathMismatchWorkspace(
+      "\n[plugins.fix-path]\nenabled = false\n",
+    );
+
+    await withFakeGhHostedClone(async () => {
+      const result = await fixPath(workspaceRoot, ["--yes"]);
+
+      expect(result.exitCode).not.toBe(0);
+      expect(existsSync(duplicatePath)).toBe(true);
+    });
+    expect(await pluginStatus(workspaceRoot)).toMatchObject({ state: "disabled" });
+  });
+
+  test("plugins list shows it loaded with its route, and help documents it", async () => {
+    const { workspaceRoot } = await hostedPathMismatchWorkspace(enabled);
+
+    const status = await pluginStatus(workspaceRoot);
+    const help = await herakles(workspaceRoot, ["projects", "fix-path", "--help"]);
+    const projectsHelp = await herakles(workspaceRoot, ["projects", "--help"]);
+
+    expect(status).toMatchObject({ state: "loaded", commands: ["projects fix-path"] });
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout).toContain("--yes");
+    expect(projectsHelp.stdout).toContain("fix-path");
+  });
+});
 
 describe("herakles projects fix-path", () => {
   test("--yes moves the checkout without prompting", async () => {
-    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    const { workspaceRoot, duplicatePath, canonicalPath } =
+      await hostedPathMismatchWorkspace(enabled);
 
     await withFakeGhHostedClone(async () => {
       const result = await fixPath(workspaceRoot, ["--yes"]);
@@ -48,7 +109,8 @@ describe("herakles projects fix-path", () => {
   });
 
   test("moves after an explicit yes answer", async () => {
-    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    const { workspaceRoot, duplicatePath, canonicalPath } =
+      await hostedPathMismatchWorkspace(enabled);
 
     await withFakeGhHostedClone(async () => {
       const result = await fixPath(workspaceRoot, [], "yes\n");
@@ -61,7 +123,8 @@ describe("herakles projects fix-path", () => {
   });
 
   test("a declined prompt moves nothing", async () => {
-    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    const { workspaceRoot, duplicatePath, canonicalPath } =
+      await hostedPathMismatchWorkspace(enabled);
 
     await withFakeGhHostedClone(async () => {
       const result = await fixPath(workspaceRoot, [], "no\n");
@@ -74,7 +137,8 @@ describe("herakles projects fix-path", () => {
   });
 
   test("a closed stdin counts as a decline instead of hanging or moving", async () => {
-    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    const { workspaceRoot, duplicatePath, canonicalPath } =
+      await hostedPathMismatchWorkspace(enabled);
 
     await withFakeGhHostedClone(async () => {
       const result = await fixPath(workspaceRoot, []);
@@ -87,7 +151,8 @@ describe("herakles projects fix-path", () => {
   });
 
   test("--json --yes prints the result object only", async () => {
-    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    const { workspaceRoot, duplicatePath, canonicalPath } =
+      await hostedPathMismatchWorkspace(enabled);
 
     await withFakeGhHostedClone(async () => {
       const result = await fixPath(workspaceRoot, ["--json", "--yes"]);
@@ -104,7 +169,8 @@ describe("herakles projects fix-path", () => {
   });
 
   test("--json without --yes prompts on stderr and reports a decline as JSON", async () => {
-    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    const { workspaceRoot, duplicatePath, canonicalPath } =
+      await hostedPathMismatchWorkspace(enabled);
 
     await withFakeGhHostedClone(async () => {
       const result = await fixPath(workspaceRoot, ["--json"], "no\n");
@@ -122,7 +188,8 @@ describe("herakles projects fix-path", () => {
   });
 
   test("check failures exit non-zero and move nothing", async () => {
-    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    const { workspaceRoot, duplicatePath, canonicalPath } =
+      await hostedPathMismatchWorkspace(enabled);
     await mkdir(canonicalPath, { recursive: true });
 
     await withFakeGhHostedClone(async () => {
@@ -135,7 +202,8 @@ describe("herakles projects fix-path", () => {
   });
 
   test("a dangling symlink at the canonical path is refused and left untouched", async () => {
-    const { workspaceRoot, duplicatePath, canonicalPath } = await hostedPathMismatchWorkspace();
+    const { workspaceRoot, duplicatePath, canonicalPath } =
+      await hostedPathMismatchWorkspace(enabled);
     await mkdir(join(workspaceRoot, "open-source"), { recursive: true });
     const target = join(workspaceRoot, "missing-target");
     await symlink(target, canonicalPath);
@@ -151,7 +219,7 @@ describe("herakles projects fix-path", () => {
   });
 
   test("an ambiguous selector is refused with the matching ids", async () => {
-    const { workspaceRoot } = await ambiguousOwnersWorkspace();
+    const { workspaceRoot } = await ambiguousOwnersWorkspace(enabled);
 
     await withFakeGhHostedClone(async () => {
       const result = await fixPath(workspaceRoot, ["--yes"]);

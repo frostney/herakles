@@ -1,17 +1,15 @@
 #!/usr/bin/env bun
-import { buildApplication, run } from "@stricli/core";
-import { rootRoute } from "./commands";
-import { heraklesApplicationText } from "./text";
+import { run } from "@stricli/core";
+import { buildHeraklesApplication } from "./application";
+import { coreCommandTree } from "./commands";
+import { hoistGlobalFlags, loadCliPlugins } from "./plugins";
 
-const app = buildApplication(rootRoute, {
-  name: "herakles",
-  versionInfo: { currentVersion: "2.0.0" },
-  scanner: { caseStyle: "allow-kebab-for-camel" },
-  documentation: { caseStyle: "convert-camel-to-kebab" },
-  localization: { text: heraklesApplicationText },
+const args = normalizeGlobalArgs(Bun.argv.slice(2));
+const plugins = await loadCliPlugins(args, coreCommandTree);
+
+await run(buildHeraklesApplication(plugins), hoistGlobalFlags(args, coreCommandTree, plugins), {
+  process: process as never,
 });
-
-await run(app, normalizeGlobalArgs(Bun.argv.slice(2)), { process: process as never });
 
 function normalizeGlobalArgs(args: string[]) {
   const { leading, rest } = takeLeadingGlobalArgs(args);

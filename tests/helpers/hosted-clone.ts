@@ -21,7 +21,7 @@ export async function cleanupHostedCloneTempDirs() {
 }
 
 /** Two tracked projects from different owners that share the repository name `herakles`. */
-export async function ambiguousOwnersWorkspace() {
+export async function ambiguousOwnersWorkspace(extraToml = "") {
   const workspaceRoot = await createTestWorkspace(
     "herakles-ambiguous-",
     `version = 2
@@ -36,14 +36,14 @@ repo = "frostney/herakles"
 [project."acme-herakles"]
 source = "github"
 repo = "acme/herakles"
-`,
+${extraToml}`,
   );
   tempDirs.push(workspaceRoot);
   return { workspaceRoot };
 }
 
 /** A tracked hosted project whose clone sits at a non-canonical path. */
-export async function hostedPathMismatchWorkspace() {
+export async function hostedPathMismatchWorkspace(extraToml = "") {
   const workspaceRoot = await createTestWorkspace(
     "herakles-hosted-mismatch-",
     `version = 2
@@ -54,7 +54,7 @@ owners = ["frostney"]
 [project."herakles"]
 source = "github"
 repo = "frostney/herakles"
-`,
+${extraToml}`,
   );
   const duplicatePath = join(workspaceRoot, "experiment", "old-herakles");
   await mkdir(join(duplicatePath, ".git"), { recursive: true });

@@ -339,7 +339,10 @@ async function readGitHubRepository(
 ): Promise<GitHubRepositoryIdentity | undefined> {
   const result = await runner(["gh", "api", `repos/${repo}`], { allowFailure: true });
   if (result.exitCode !== 0) {
-    if (/\b404\b|not found/i.test(`${result.stderr}\n${result.stdout}`)) return undefined;
+    // 127 means gh could not be started; its spawn error says "not found" but is not a 404.
+    const notFound =
+      result.exitCode !== 127 && /\b404\b|not found/i.test(`${result.stderr}\n${result.stdout}`);
+    if (notFound) return undefined;
     throw new InvalidProjectRenameError(
       result.stderr.trim() || result.stdout.trim() || `Unable to read GitHub repository ${repo}.`,
     );

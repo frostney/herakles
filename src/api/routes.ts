@@ -412,10 +412,15 @@ function zodErrorResponse(error: z.ZodError): Response {
   return json(
     {
       error: "invalid request body",
-      issues: error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      })),
+      issues: error.issues.flatMap((issue) => {
+        const path = issue.path.join(".");
+        // Zod 4 wraps record key failures; report the key rule's own messages.
+        const messages =
+          issue.code === "invalid_key"
+            ? issue.issues.map((inner) => inner.message)
+            : [issue.message];
+        return messages.map((message) => ({ path, message }));
+      }),
     },
     { status: 400 },
   );
