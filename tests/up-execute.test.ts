@@ -87,6 +87,67 @@ describe("workspace up execution", () => {
     });
   });
 
+  test("calls onItemStart before each item runs, in order, with index and total", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-start-"));
+    const first = project(join(root, "first"));
+    const second = { ...project(join(root, "second")), slug: "frostney-second" };
+    const items: UpPlan["items"] = [
+      { action: "validate", reason: "first", project: first },
+      { action: "skip", reason: "second", project: second },
+    ];
+    const events: string[] = [];
+
+    for (const dryRun of [false, true]) {
+      events.length = 0;
+      await executeUpPlan(
+        { generatedAt: "2026-06-13T00:00:00.000Z", items },
+        {
+          dryRun,
+          onItemStart: (item, index, total) => {
+            events.push(`start ${index}/${total} ${item.project.slug}`);
+          },
+          onProgress: (result) => {
+            events.push(`done ${result.item.project.slug}`);
+          },
+        },
+      );
+
+      expect(events).toEqual([
+        "start 0/2 frostney-tool",
+        "done frostney-tool",
+        "start 1/2 frostney-second",
+        "done frostney-second",
+      ]);
+    }
+  });
+
+  test("a throwing progress hook cannot abort the run or fail an item", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-hook-"));
+    const first = project(join(root, "first"));
+    const second = { ...project(join(root, "second")), slug: "frostney-second" };
+    const items: UpPlan["items"] = [
+      { action: "skip", reason: "first", project: first },
+      { action: "skip", reason: "second", project: second },
+    ];
+    const started: string[] = [];
+
+    const results = await executeUpPlan(
+      { generatedAt: "2026-06-13T00:00:00.000Z", items },
+      {
+        onItemStart: (item) => {
+          started.push(item.project.slug);
+          throw new Error("start hook");
+        },
+        onProgress: async () => {
+          throw new Error("progress hook");
+        },
+      },
+    );
+
+    expect(started).toEqual(["frostney-tool", "frostney-second"]);
+    expect(results.map((result) => result.status)).toEqual(["skipped", "skipped"]);
+  });
+
   test("keeps non-fast-forwardable clones as skipped up results", async () => {
     const root = await mkdtemp(join(tmpdir(), "herakles-up-nonff-"));
     const clone = join(root, "tool");

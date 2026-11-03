@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]*"
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: "1.4.4"
+
+jobs:
+  build:
+    name: Build CLI binaries
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate stable release tag
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Stable releases require a semantic version tag; got: $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Check tag matches package.json version
+        run: |
+          PACKAGE_VERSION="$(bun -p 'require("./package.json").version')"
+          if [ "$GITHUB_REF_NAME" != "$PACKAGE_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $PACKAGE_VERSION."
+            echo "Bump the package.json version in a release PR, merge it, then tag the merge commit."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run lint
+        run: bun run lint
+
+      - name: Run typecheck
+        run: bunx tsc --noEmit
+
+      - name: Run tests
+        run: bun test
+
+      - name: Run quality gate
+        run: bun run quality
+
+      - name: Build CLI release archives
+        run: |
+          VERSION="$GITHUB_REF_NAME"
+          mkdir -p release stage
+          # "<bun target>:<os>-<arch>" pairs; archive names follow the Homebrew tap layout.
+          for ENTRY in \
+            bun-darwin-arm64:macos-arm64 \
+            bun-darwin-x64:macos-x64 \
+            bun-linux-arm64:linux-arm64 \
+            bun-linux-x64:linux-x64; do
+            BUN_TARGET="${ENTRY%%:*}"
+            PLATFORM="${ENTRY##*:}"
+            # Call the pinned Bun directly: `bun run` puts node_modules/.bin first on PATH,
+            # where a peer-installed `bun` npm package would compile with its older runtime.
+            bun scripts/build.ts cli "--target=${BUN_TARGET}" "--outfile=stage/${PLATFORM}/herakles"
+            chmod 0755 "stage/${PLATFORM}/herakles"
+            tar -czf "release/herakles-${VERSION}-${PLATFORM}.tar.gz" -C "stage/${PLATFORM}" herakles
+          done
+
+      - name: Smoke test Linux binary and archive
+        run: |
+          VERSION="$GITHUB_REF_NAME"
+          smoke() {
+            local BINARY="$1"
+            local ACTUAL
+            ACTUAL="$("$BINARY" --version)"
+            if [ "$ACTUAL" != "$VERSION" ]; then
+              echo "Expected $BINARY --version to print $VERSION; got: $ACTUAL"
+              exit 1
+            fi
+            "$BINARY" --help >/dev/null
+          }
+
+          smoke "stage/linux-x64/herakles"
+
+          EXTRACT="$(mktemp -d)"
+          tar -xzf "release/herakles-${VERSION}-linux-x64.tar.gz" -C "$EXTRACT"
+          if [ "$(ls -A "$EXTRACT")" != "herakles" ]; then
+            echo "Expected the linux-x64 archive to contain only herakles at its root; got:"
+            ls -A "$EXTRACT"
+            exit 1
+          fi
+          smoke "$EXTRACT/herakles"
+
+      - name: Write checksums
+        working-directory: release
+        run: sha256sum herakles-*.tar.gz > SHA256SUMS
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: herakles-cli-release
+          if-no-files-found: error
+          path: release/*
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: cli-release-${{ github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@v4
+        with:
+          name: herakles-cli-release
+          path: release/
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" \
+              --verify-tag \
+              --title "$TAG" \
+              --generate-notes \
+              release/*
+          fi

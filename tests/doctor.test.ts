@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { doctor } from "../src/app";
@@ -26,10 +26,30 @@ describe("doctor", () => {
 
       expect(checks.config?.status).toBe("ok");
       expect(checks["config-state-ignore"]?.status).toBe("ok");
-      expect(checks.bun?.message).toBe("1.3.0-test");
+      // The fake bun on PATH exits 1: a passing check proves bun was not spawned.
+      expect(checks.bun).toEqual({ name: "bun", status: "ok", message: Bun.version });
       expect(checks.git?.message).toBe("git version 2.50.0-test");
       expect(checks.gh?.message).toBe("gh version 2.70.0-test");
     });
+  });
+
+  test("reports missing git and gh as failed checks instead of throwing", async () => {
+    const root = await tempWorkspace();
+    const emptyBin = await mkdtemp(join(tmpdir(), "herakles-empty-bin-"));
+    const previousPath = process.env.PATH ?? "";
+    process.env.PATH = emptyBin;
+    try {
+      const result = await doctor(root);
+      const checks = Object.fromEntries(result.checks.map((check) => [check.name, check]));
+
+      expect(checks.git).toEqual({ name: "git", status: "fail", message: "git not found on PATH" });
+      expect(checks.gh).toEqual({ name: "gh", status: "fail", message: "gh not found on PATH" });
+      expect(checks.bun?.status).toBe("ok");
+      expect(checks.config?.status).toBe("ok");
+    } finally {
+      process.env.PATH = previousPath;
+      await rm(emptyBin, { recursive: true, force: true });
+    }
   });
 });
 
@@ -38,7 +58,8 @@ async function withFakeTools(run: () => Promise<void>) {
   await writeExecutable(
     join(bin, "bun"),
     `#!/usr/bin/env bash
-echo "1.3.0-test"
+echo "bun must not be spawned" >&2
+exit 1
 `,
   );
   await writeExecutable(

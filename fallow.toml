@@ -3,6 +3,8 @@ entry = [
   "src/cli/main.ts",
   "src/ui/desktop/main.ts",
   "src/ui/server/main.ts",
+  # Fixture plugins load by dynamic import from test workspaces.
+  "tests/fixtures/plugins/*/plugin.{ts,js}",
 ]
 
 ignoreDependencies = ["bun-plugin-tailwind"]
@@ -10,6 +12,42 @@ ignoreDependencies = ["bun-plugin-tailwind"]
 # CodeRabbit reads .coderabbit.config.ts itself; nothing in the project imports
 # it, and its @coderabbitai/config import resolves only inside CodeRabbit.
 ignorePatterns = [".coderabbit.config.ts"]
+
+# Plugin source ownership (ADR 0018). Zones match first to last. Bundled
+# plugins reach core only through the plugin API, the API has no runtime
+# imports, and core reaches bundled plugins only through their registry.
+[[boundaries.zones]]
+name = "plugin-api"
+patterns = ["src/plugin-host/api.ts"]
+
+[[boundaries.zones]]
+name = "plugin-registry"
+patterns = ["src/plugins/index.ts"]
+
+[[boundaries.zones]]
+name = "bundled-plugins"
+patterns = ["src/plugins/**"]
+
+[[boundaries.zones]]
+name = "core"
+patterns = ["src/**"]
+
+[[boundaries.rules]]
+from = "plugin-api"
+allow = []
+allowTypeOnly = ["core"]
+
+[[boundaries.rules]]
+from = "plugin-registry"
+allow = ["plugin-api", "bundled-plugins"]
+
+[[boundaries.rules]]
+from = "bundled-plugins"
+allow = ["plugin-api"]
+
+[[boundaries.rules]]
+from = "core"
+allow = ["plugin-api", "plugin-registry"]
 
 [health]
 maxCyclomatic = 20
