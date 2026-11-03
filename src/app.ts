@@ -14,7 +14,7 @@ import {
 import { heraklesConfigSchema } from "./config/schema";
 import { normalizeProjectConfigOrder, writeConfigToml } from "./config/write";
 import { normalizeRemote, type ProjectDiscovery, refreshProjectDiscovery } from "./discovery";
-import { runDoctor } from "./doctor";
+import { pluginDoctorChecks, runDoctor } from "./doctor";
 import type {
   GitHubRepository,
   HostedImportCandidate,
@@ -39,6 +39,7 @@ import {
   type LocalPromotionOptions,
   promoteLocalProject,
 } from "./local/promote";
+import type { PluginStatus } from "./plugin-host/load";
 import { syncDefaultBranch } from "./project/gitStatus";
 import { flushLineCountCache } from "./project/lineCounts";
 import {
@@ -756,9 +757,14 @@ export async function up(
   return executeUpPlan(await upPlan(workspaceRoot), options);
 }
 
-export async function doctor(workspaceRoot: string) {
+export async function doctor(
+  workspaceRoot: string,
+  options: { plugins?: readonly PluginStatus[] } = {},
+) {
   const loaded = await loadConfig(workspaceRoot);
-  return runDoctor(loaded);
+  const result = await runDoctor(loaded);
+  if (options.plugins) result.checks.push(...pluginDoctorChecks(options.plugins));
+  return result;
 }
 
 function findProject(projects: readonly Project[], id: string): Project | undefined {

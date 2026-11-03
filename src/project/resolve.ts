@@ -205,6 +205,27 @@ function resolveLocalProject(
   return project;
 }
 
+/**
+ * Canonical Checkout Path of a tracked project from synced config alone, with
+ * no hosted or local discovery. A hosted project needs an explicit `state`,
+ * because its default lifecycle depends on hosted visibility.
+ */
+export function configuredCheckoutPath(loaded: LoadedConfig, projectKey: string): string {
+  const config = loaded.config.project[projectKey];
+  if (!config) throw new Error(`Unknown tracked project: ${projectKey}`);
+  if (config.source === "local") {
+    const state = config.state ?? loaded.config.defaults.state_for_local;
+    return derivedProjectPath(loaded, state, config.group, projectKey);
+  }
+  if (!config.state) {
+    throw new Error(
+      `Tracked project ${projectKey} needs an explicit state so its path can be derived without a GitHub read.`,
+    );
+  }
+  const repoId = required(config.repo, `Tracked hosted project ${projectKey} is missing repo.`);
+  return derivedProjectPath(loaded, config.state, config.group, splitOwnerRepo(repoId)[1]);
+}
+
 function relativeOrAbsolutePath(loaded: LoadedConfig, path: string): string {
   if (path.startsWith(loaded.paths.workspaceRoot)) {
     return path.slice(loaded.paths.workspaceRoot.length).replace(/^\/+/, "") || ".";

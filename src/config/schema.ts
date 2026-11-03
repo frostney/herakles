@@ -68,6 +68,23 @@ export const projectConfigSchema = z
   })
   .strict();
 
+export const pluginNameSchema = z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, {
+  message: "Plugin names must be lowercase kebab-case.",
+});
+
+const pluginConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    project: configKeySchema.optional(),
+    entry: relativePathSchema.optional(),
+  })
+  .strict()
+  .refine((plugin) => (plugin.project === undefined) === (plugin.entry === undefined), {
+    message: "External plugins need both project and entry; bundled plugins take neither.",
+  });
+
+export type PluginConfig = z.infer<typeof pluginConfigSchema>;
+
 export const heraklesConfigSchema = z
   .object({
     version: z.number().default(2),
@@ -98,6 +115,7 @@ export const heraklesConfigSchema = z
       })
       .default({}),
     project: z.record(configKeySchema, projectConfigSchema).default({}),
+    plugins: z.record(pluginNameSchema, pluginConfigSchema).default({}),
   })
   .strict();
 

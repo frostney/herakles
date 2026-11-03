@@ -7,6 +7,9 @@
     "herakles": "./bin/herakles",
     "herakles-ui": "./bin/herakles-ui"
   },
+  "exports": {
+    "./plugin": "./src/plugin-host/api.ts"
+  },
   "scripts": {
     "herakles": "bun run src/cli/main.ts",
     "ui": "bun run src/ui/server/main.ts",

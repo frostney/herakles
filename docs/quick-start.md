@@ -7,6 +7,7 @@
 - Add or import projects, then let `herakles up` scaffold missing hosted project folders.
 - Preview and apply same-owner hosted project renames through one coordinated flow.
 - Use the UI for add/import, pull request review, project settings, drift checks, and config exchange.
+- Enable optional features as plugins in `_herakles/herakles.toml`.
 
 ## Install
 
@@ -97,6 +98,31 @@ bun run herakles up --root ~/Code
 ```
 
 `up` does not silently move, delete, or duplicate repositories. Workspace drift is reported so the user can choose to scaffold from configuration or sync the workspace.
+
+## Enable Plugins
+
+Optional features are plugins. List the bundled plugins and any configured ones with their state:
+
+```sh
+bun run herakles plugins list --root ~/Code
+```
+
+Bundled plugins stay off until `_herakles/herakles.toml` enables them. Add a `[plugins.<name>]` table for a bundled plugin that `plugins list` shows; set `enabled = false` in it to keep the table but turn the plugin off.
+
+An external plugin lives in a tracked project. Name the project and the entry file inside it; a hosted project needs an explicit `state` so Herakles can find its checkout without a GitHub read:
+
+```toml
+[project.frostney-herakles-release-notes]
+source = "github"
+repo = "a private repository"
+state = "experiment"
+
+[plugins.release-notes]
+project = "frostney-herakles-release-notes"
+entry = "src/plugin.ts"
+```
+
+Run `herakles up` to check the project out, then its commands appear in `herakles --help`. If a plugin cannot load, core commands keep working; `herakles plugins list` and `herakles doctor` show the reason.
 
 ## Open The UI
 

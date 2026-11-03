@@ -1,0 +1,227 @@
+import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { cp, mkdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { runCommand } from "../src/utils/command";
+import { createTestWorkspace } from "./helpers/workspace";
+
+const cliPath = join(import.meta.dir, "..", "src", "cli", "main.ts");
+const fixtures = join(import.meta.dir, "fixtures", "plugins");
+
+type FixturePlugin = { name: string; fixture: string; entry: string };
+
+const hello: FixturePlugin = { name: "hello", fixture: "hello", entry: "plugin.ts" };
+const futureApi: FixturePlugin = { name: "future-api", fixture: "future-api", entry: "plugin.js" };
+const collides: FixturePlugin = { name: "collides", fixture: "collides", entry: "plugin.ts" };
+const throws: FixturePlugin = { name: "throws", fixture: "throws", entry: "plugin.ts" };
+
+/**
+ * A workspace that tracks each fixture plugin as a local experiment and
+ * enables it from that project's Canonical Checkout Path.
+ */
+async function pluginWorkspace(plugins: FixturePlugin[], extraToml = "") {
+  const projectTables = plugins
+    .map((plugin) => `[project.${plugin.name}-plugin]\nsource = "local"\nstate = "experiment"\n`)
+    .join("\n");
+  const pluginTables = plugins
+    .map(
+      (plugin) =>
+        `[plugins.${plugin.name}]\nproject = "${plugin.name}-plugin"\nentry = "${plugin.entry}"\n`,
+    )
+    .join("\n");
+  const root = await createTestWorkspace(
+    "herakles-plugins-",
+    `version = 2
+
+[github]
+owners = []
+
+${projectTables}
+${pluginTables}
+${extraToml}`,
+  );
+  for (const plugin of plugins) {
+    const projectPath = join(root, "experiment", `${plugin.name}-plugin`);
+    await mkdir(projectPath, { recursive: true });
+    await cp(join(fixtures, plugin.fixture), projectPath, { recursive: true });
+  }
+  return root;
+}
+
+function runCli(root: string, args: string[], stdin?: string) {
+  return runCommand([process.execPath, "run", cliPath, ...args, "--root", root], {
+    cwd: root,
+    allowFailure: true,
+    ...(stdin === undefined ? {} : { stdin }),
+  });
+}
+
+async function pluginStatuses(root: string) {
+  const result = await runCli(root, ["plugins", "list", "--json"]);
+  expect(result.exitCode).toBe(0);
+  return JSON.parse(result.stdout) as Array<{
+    name: string;
+    state: string;
+    problem?: string;
+    message: string;
+    commands: string[];
+  }>;
+}
+
+describe("plugin commands through the CLI", () => {
+  test("registers an external plugin and lists its commands", async () => {
+    const root = await pluginWorkspace([hello]);
+
+    const [status] = await pluginStatuses(root);
+    const help = await runCli(root, ["--help"]);
+    const projectsHelp = await runCli(root, ["projects", "--help"]);
+
+    expect(status).toMatchObject({
+      name: "hello",
+      state: "loaded",
+      commands: ["hello", "projects greet", "hello-tools note"],
+      source: { kind: "project", project: "hello-plugin", entry: "plugin.ts" },
+    });
+    expect(help.stdout).toContain("hello");
+    expect(help.stdout).toContain("hello-tools");
+    expect(projectsHelp.stdout).toContain("greet");
+    expect(help.stderr).toBe("");
+  });
+
+  test("runs contributed commands with core services, flags and --json", async () => {
+    const root = await pluginWorkspace([hello]);
+
+    const text = await runCli(root, ["hello", "world", "--loud"]);
+    const json = await runCli(root, ["hello", "world", "--json"]);
+    const greet = await runCli(root, ["projects", "greet", "hello-plugin"]);
+
+    expect(text.exitCode).toBe(0);
+    expect(text.stdout).toBe("HELLO, WORLD!\nTracked projects: 1\n");
+    expect(JSON.parse(json.stdout)).toEqual({
+      greeting: "Hello, world.",
+      projects: 1,
+      plugin: "hello",
+    });
+    expect(greet.stdout).toBe("Hello, hello-plugin (experiment).\n");
+  });
+
+  test("applies a plugin operation plan only after confirmation", async () => {
+    const root = await pluginWorkspace([hello]);
+    const notePath = join(root, "_herakles", "cache", "plugins", "hello", "note.txt");
+
+    const closedInput = await runCli(root, ["hello-tools", "note", "first"]);
+    expect(closedInput.exitCode).toBe(0);
+    expect(closedInput.stdout).toContain("write");
+    expect(closedInput.stdout).toContain("(yes/no): Note cancelled.");
+    expect(existsSync(notePath)).toBe(false);
+
+    const declined = await runCli(root, ["hello-tools", "note", "second", "--json"], "no\n");
+    expect(JSON.parse(declined.stdout)).toEqual({ applied: false });
+    expect(declined.stderr).toContain("(yes/no):");
+    expect(existsSync(notePath)).toBe(false);
+
+    const confirmed = await runCli(root, ["hello-tools", "note", "third"], "yes\n");
+    expect(confirmed.stdout).toContain(`Wrote ${notePath}`);
+    expect(await readFile(notePath, "utf8")).toBe("third");
+
+    const skipped = await runCli(root, ["hello-tools", "note", "fourth", "--yes"]);
+    expect(skipped.stdout).toBe(`Wrote ${notePath}\n`);
+    expect(await readFile(notePath, "utf8")).toBe("fourth");
+  });
+
+  test("reports an apiVersion mismatch in plugins list and doctor", async () => {
+    const root = await pluginWorkspace([futureApi, hello]);
+
+    const statuses = await pluginStatuses(root);
+    const doctor = await runCli(root, ["doctor", "--json"]);
+    const checks = JSON.parse(doctor.stdout).checks as Array<{ name: string; status: string }>;
+
+    expect(statuses.find((status) => status.name === "future-api")).toMatchObject({
+      state: "failed",
+      problem: "incompatible-api",
+      message: "The plugin targets plugin API 99; this Herakles supports plugin API 1.",
+    });
+    expect(statuses.find((status) => status.name === "hello")?.state).toBe("loaded");
+    expect(checks.find((check) => check.name === "plugin:future-api")?.status).toBe("fail");
+    expect(checks.find((check) => check.name === "plugin:hello")?.status).toBe("ok");
+  });
+
+  test("rejects a plugin whose command collides with a core command", async () => {
+    const root = await pluginWorkspace([collides]);
+
+    const [status] = await pluginStatuses(root);
+    const coreStatus = await runCli(root, ["status", "--json"]);
+    const extra = await runCli(root, ["collides-extra"]);
+
+    expect(status).toMatchObject({
+      state: "failed",
+      problem: "command-collision",
+      message: "Command collision: herakles status is already defined by core.",
+      commands: [],
+    });
+    expect(coreStatus.exitCode).toBe(0);
+    expect(JSON.parse(coreStatus.stdout).projectCount).toBe(1);
+    expect(extra.exitCode).not.toBe(0);
+    expect(extra.stderr).toContain("plugin collides not loaded: Command collision");
+  });
+
+  test("keeps core commands working when a plugin throws at load", async () => {
+    const root = await pluginWorkspace([throws, hello]);
+
+    const coreStatus = await runCli(root, ["status", "--json"]);
+    const help = await runCli(root, ["--help"]);
+    const helloRun = await runCli(root, ["hello", "core"]);
+    const statuses = await pluginStatuses(root);
+
+    expect(coreStatus.exitCode).toBe(0);
+    expect(coreStatus.stderr).toBe("");
+    expect(help.exitCode).toBe(0);
+    expect(help.stderr).toContain(
+      "herakles: plugin throws not loaded: Failed to load: plugin exploded at load",
+    );
+    expect(helloRun.stdout).toContain("Hello, core.");
+    expect(statuses.find((status) => status.name === "throws")).toMatchObject({
+      state: "failed",
+      problem: "load-error",
+    });
+  });
+
+  test("reports external plugin sources that cannot be resolved", async () => {
+    const root = await pluginWorkspace(
+      [],
+      `[project.hosted-plugin]
+source = "github"
+repo = "a private repository"
+
+[project.missing-plugin]
+source = "local"
+
+[plugins.hosted]
+project = "hosted-plugin"
+entry = "plugin.ts"
+
+[plugins.missing]
+project = "missing-plugin"
+entry = "plugin.ts"
+
+[plugins.typo]
+enabled = true
+
+[plugins.off]
+enabled = false
+project = "missing-plugin"
+entry = "plugin.ts"
+`,
+    );
+
+    const statuses = await pluginStatuses(root);
+    const byName = Object.fromEntries(statuses.map((status) => [status.name, status]));
+
+    expect(byName.hosted).toMatchObject({ state: "failed", problem: "invalid-source" });
+    expect(byName.hosted?.message).toContain("needs an explicit state");
+    expect(byName.missing).toMatchObject({ state: "failed", problem: "missing-entry" });
+    expect(byName.missing?.message).toContain("run herakles up");
+    expect(byName.typo).toMatchObject({ state: "failed", problem: "unknown-plugin" });
+    expect(byName.off).toMatchObject({ state: "disabled", message: "Disabled in config." });
+  });
+});

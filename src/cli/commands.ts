@@ -5,10 +5,12 @@ import * as app from "../app";
 import { initConfig } from "../config/init";
 import { selectHeraklesWorkspace } from "../config/workspace";
 import type { ProjectRenamePlan, ProjectRenameResult, ProjectState } from "../domain";
+import type { CoreCommandTree } from "../plugin-host/mount";
 import { startUiCommand, type UiFlags } from "../ui/server/command";
 import { definedProperties } from "../utils/definedProperties";
 import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
 import { printJson, printTable } from "./output";
+import { type CliPlugins, pluginGroupRoute, pluginRoutes } from "./plugins";
 
 type CommonFlags = {
   root?: string;
@@ -559,14 +561,44 @@ const upCommand = buildCommand<CommonFlags & { dryRun?: boolean }>({
   },
 });
 
-const doctorCommand = buildCommand<CommonFlags>({
-  docs: { brief: "Check local Herakles tooling." },
-  parameters: { flags: commonFlags },
-  async func(flags) {
-    const result = await app.doctor(root(flags));
-    shouldJson(flags) ? printJson(result) : printTable(result.checks);
-  },
-});
+function doctorCommand(plugins: CliPlugins) {
+  return buildCommand<CommonFlags>({
+    docs: { brief: "Check local Herakles tooling and plugin status." },
+    parameters: { flags: commonFlags },
+    async func(flags) {
+      const result = await app.doctor(root(flags), {
+        plugins: plugins.kind === "loaded" ? plugins.registry.statuses : [],
+      });
+      shouldJson(flags) ? printJson(result) : printTable(result.checks);
+    },
+  });
+}
+
+function pluginsListCommand(plugins: CliPlugins) {
+  return buildCommand<CommonFlags>({
+    docs: { brief: "List bundled and configured plugins with their status." },
+    parameters: { flags: commonFlags },
+    async func(flags) {
+      root(flags);
+      if (plugins.kind === "unavailable") throw plugins.error;
+      const statuses = plugins.kind === "loaded" ? plugins.registry.statuses : [];
+      if (shouldJson(flags)) return printJson(statuses);
+      if (statuses.length === 0) {
+        console.log("No plugins are bundled or configured.");
+        return;
+      }
+      printTable(
+        statuses.map((status) => ({
+          plugin: status.name,
+          source: status.source.kind === "bundled" ? "bundled" : `project ${status.source.project}`,
+          state: status.state,
+          commands: status.commands.join(", "),
+          message: status.message,
+        })),
+      );
+    },
+  });
+}
 
 const uiCommand = buildCommand<UiFlags>({
   docs: { brief: "Start the local Herakles browser UI." },
@@ -584,30 +616,56 @@ const uiCommand = buildCommand<UiFlags>({
   },
 });
 
-export const rootRoute = buildRouteMap({
-  docs: { brief: "Herakles workspace orchestrator." },
-  routes: {
-    init: initCommand,
-    add: addProjectCommand,
-    remove: removeProjectCommand,
-    status: statusCommand,
-    validate: validateCommand,
-    projects: buildRouteMap({
-      docs: { brief: "Project commands." },
-      defaultCommand: "list",
-      routes: {
-        list: repoListCommand,
-        show: repoShowCommand,
-        import: projectsImportCommand,
-        refresh: projectsRefreshCommand,
-        "set-state": repoSetStateCommand,
-        archive: repoArchiveCommand,
-        promote: projectPromoteCommand,
-        rename: projectRenameCommand,
-      },
-    }),
-    up: upCommand,
-    doctor: doctorCommand,
-    ui: uiCommand,
-  },
-});
+const projectRoutes = {
+  list: repoListCommand,
+  show: repoShowCommand,
+  import: projectsImportCommand,
+  refresh: projectsRefreshCommand,
+  "set-state": repoSetStateCommand,
+  archive: repoArchiveCommand,
+  promote: projectPromoteCommand,
+  rename: projectRenameCommand,
+};
+
+/** Core route names; plugins may add routes but never replace these. */
+export const coreCommandTree: CoreCommandTree = {
+  commands: ["init", "add", "remove", "status", "validate", "up", "doctor", "ui"],
+  groups: { projects: Object.keys(projectRoutes), plugins: ["list"] },
+};
+
+export function buildRootRoute(plugins: CliPlugins) {
+  const contributed = pluginRoutes(plugins);
+  const pluginGroups = Object.fromEntries(
+    Object.entries(contributed.grouped)
+      .filter(([group]) => !(group in coreCommandTree.groups))
+      .map(([group, routes]) => [
+        group,
+        pluginGroupRoute(contributed.groupBriefs[group] ?? group, routes),
+      ]),
+  );
+  return buildRouteMap({
+    docs: { brief: "Herakles workspace orchestrator." },
+    routes: {
+      init: initCommand,
+      add: addProjectCommand,
+      remove: removeProjectCommand,
+      status: statusCommand,
+      validate: validateCommand,
+      projects: buildRouteMap({
+        docs: { brief: "Project commands." },
+        defaultCommand: "list",
+        routes: { ...projectRoutes, ...contributed.grouped.projects },
+      }),
+      up: upCommand,
+      doctor: doctorCommand(plugins),
+      plugins: buildRouteMap({
+        docs: { brief: "Plugin commands." },
+        defaultCommand: "list",
+        routes: { list: pluginsListCommand(plugins), ...contributed.grouped.plugins },
+      }),
+      ui: uiCommand,
+      ...contributed.topLevel,
+      ...pluginGroups,
+    },
+  });
+}

@@ -46,6 +46,18 @@ The default eligible set is all non-archived hosted projects unless their topics
 
 If Herakles discovers a hosted repository clone at a different local path than the canonical checkout path, validation reports `hosted-clone-path-mismatch`. The user resolves that conflict explicitly with the Use Canonical Path action after reviewing the existing and canonical paths; `up` and Sync Workspace do not silently move, delete, or duplicate repositories.
 
+## Plugins
+
+Optional features are plugins that add CLI commands on top of core. Core keeps workspace configuration, projects, `up`, `validate`, `doctor` and Config Exchange. [ADR 0018](adr/0018-plugin-system.md) records the design.
+
+Bundled plugins are compiled into Herakles and stay off until `[plugins.<name>]` in `_herakles/herakles.toml` enables them. External plugins name a tracked project and an entry file inside it. Herakles finds the file at the project's Canonical Checkout Path, derived from synced config alone, so `herakles up` brings the plugin to every machine. A hosted plugin project therefore needs an explicit `state`. The compiled executable imports external `.ts` and `.js` entries from disk at runtime.
+
+A plugin declares the plugin `apiVersion` it targets and contributes Stricli command specs keyed by route path, such as `prs` or `projects sync`. Herakles adds `--root` and `--json` and builds the commands. A plugin may add top-level commands, add commands to a core group, or own a group of its own. It never replaces a core route or another plugin's route, and any collision rejects the whole plugin.
+
+Plugin commands receive a context with project resolution, validation, a read-only copy of the config, `git` and `gh` argument-list runners, output and prompt helpers, a plugin cache folder under `_herakles/cache/plugins/<name>`, and `applyPlan` for confirmed repository operations. The context has no shell and no config writer.
+
+Core commands do not load plugins. Help, plugin routes, `herakles plugins list` and `herakles doctor` do. A plugin that fails to resolve, throws while loading, targets another API version or collides is reported, not loaded: `herakles plugins list` shows its state and `herakles doctor` adds a check for each configured plugin. The Workbench does not load plugins.
+
 ## UI and API
 
 The UI is launched through its own CLI/server path and can stay open while normal CLI commands continue to run. It uses Bun's fullstack server model: HTML entrypoints are imported into `Bun.serve`, frontend assets are bundled by Bun, and typed API routes live in the same server process. The React UI uses TanStack Router semantics without adopting a Vite-backed runtime.
