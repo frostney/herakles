@@ -112,13 +112,13 @@ Bundled plugins stay off until `_herakles/herakles.toml` enables them. Add a `[p
 An external plugin lives in a tracked project. Name the project and the entry file inside it; a hosted project needs an explicit `state` so Herakles can find its checkout without a GitHub read:
 
 ```toml
-[project.frostney-herakles-release-notes]
+[project.example-herakles-release-notes]
 source = "github"
-repo = "a private repository"
+repo = "example/herakles-release-notes"
 state = "experiment"
 
 [plugins.release-notes]
-project = "frostney-herakles-release-notes"
+project = "example-herakles-release-notes"
 entry = "src/plugin.ts"
 ```
 

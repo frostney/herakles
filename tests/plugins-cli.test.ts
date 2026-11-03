@@ -191,7 +191,7 @@ describe("plugin commands through the CLI", () => {
       [],
       `[project.hosted-plugin]
 source = "github"
-repo = "a private repository"
+repo = "example/hosted-plugin"
 
 [project.missing-plugin]
 source = "local"

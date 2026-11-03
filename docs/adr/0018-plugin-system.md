@@ -23,7 +23,7 @@ enabled = false
 
 # An external plugin: a tracked project and a file inside it.
 [plugins.release-notes]
-project = "frostney-herakles-release-notes"
+project = "example-herakles-release-notes"
 entry = "src/plugin.ts"
 ```
 
