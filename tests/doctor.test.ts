@@ -26,10 +26,39 @@ describe("doctor", () => {
 
       expect(checks.config?.status).toBe("ok");
       expect(checks["config-state-ignore"]?.status).toBe("ok");
-      expect(checks.bun?.message).toBe("1.3.0-test");
+      expect(checks.bun?.status).toBe("ok");
+      expect(checks.bun?.message).toBe(Bun.version);
       expect(checks.git?.message).toBe("git version 2.50.0-test");
       expect(checks.gh?.message).toBe("gh version 2.70.0-test");
     });
+  });
+
+  test("reports the Bun runtime version without spawning bun", async () => {
+    const root = await tempWorkspace();
+    await withFakeTools(async () => {
+      const result = await doctor(root);
+      const bun = result.checks.find((check) => check.name === "bun");
+
+      expect(bun).toEqual({ name: "bun", status: "ok", message: Bun.version });
+    });
+  });
+
+  test("reports missing git and gh as failed checks instead of throwing", async () => {
+    const root = await tempWorkspace();
+    const emptyBin = await mkdtemp(join(tmpdir(), "herakles-empty-bin-"));
+    const previousPath = process.env.PATH;
+    process.env.PATH = emptyBin;
+    try {
+      const result = await doctor(root);
+      const checks = Object.fromEntries(result.checks.map((check) => [check.name, check]));
+
+      expect(checks.git).toEqual({ name: "git", status: "fail", message: "git not found on PATH" });
+      expect(checks.gh).toEqual({ name: "gh", status: "fail", message: "gh not found on PATH" });
+      expect(checks.bun?.status).toBe("ok");
+      expect(checks.config?.status).toBe("ok");
+    } finally {
+      process.env.PATH = previousPath;
+    }
   });
 });
 
@@ -38,7 +67,8 @@ async function withFakeTools(run: () => Promise<void>) {
   await writeExecutable(
     join(bin, "bun"),
     `#!/usr/bin/env bash
-echo "1.3.0-test"
+echo "bun must not be spawned" >&2
+exit 1
 `,
   );
   await writeExecutable(
