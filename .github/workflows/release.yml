@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  BUN_VERSION: "1.4.3"
+  BUN_VERSION: "1.4.4"
 
 jobs:
   build:
@@ -61,27 +61,51 @@ jobs:
       - name: Run quality gate
         run: bun run quality
 
-      - name: Build CLI binaries
+      - name: Build CLI release archives
         run: |
           VERSION="$GITHUB_REF_NAME"
-          mkdir -p release
-          bun run build:cli -- --target=bun-linux-x64 "--outfile=release/herakles-${VERSION}-linux-x64"
-          bun run build:cli -- --target=bun-darwin-arm64 "--outfile=release/herakles-${VERSION}-darwin-arm64"
+          mkdir -p release stage
+          # "<bun target>:<os>-<arch>" pairs; archive names follow the Homebrew tap layout.
+          for ENTRY in \
+            bun-darwin-arm64:macos-arm64 \
+            bun-darwin-x64:macos-x64 \
+            bun-linux-arm64:linux-arm64 \
+            bun-linux-x64:linux-x64; do
+            BUN_TARGET="${ENTRY%%:*}"
+            PLATFORM="${ENTRY##*:}"
+            bun run build:cli -- "--target=${BUN_TARGET}" "--outfile=stage/${PLATFORM}/herakles"
+            chmod 0755 "stage/${PLATFORM}/herakles"
+            tar -czf "release/herakles-${VERSION}-${PLATFORM}.tar.gz" -C "stage/${PLATFORM}" herakles
+          done
 
-      - name: Smoke test Linux binary
+      - name: Smoke test Linux binary and archive
         run: |
           VERSION="$GITHUB_REF_NAME"
-          BINARY="release/herakles-${VERSION}-linux-x64"
-          ACTUAL="$("$BINARY" --version)"
-          if [ "$ACTUAL" != "$VERSION" ]; then
-            echo "Expected $BINARY --version to print $VERSION; got: $ACTUAL"
+          smoke() {
+            local BINARY="$1"
+            local ACTUAL
+            ACTUAL="$("$BINARY" --version)"
+            if [ "$ACTUAL" != "$VERSION" ]; then
+              echo "Expected $BINARY --version to print $VERSION; got: $ACTUAL"
+              exit 1
+            fi
+            "$BINARY" --help >/dev/null
+          }
+
+          smoke "stage/linux-x64/herakles"
+
+          EXTRACT="$(mktemp -d)"
+          tar -xzf "release/herakles-${VERSION}-linux-x64.tar.gz" -C "$EXTRACT"
+          if [ "$(ls -A "$EXTRACT")" != "herakles" ]; then
+            echo "Expected the linux-x64 archive to contain only herakles at its root; got:"
+            ls -A "$EXTRACT"
             exit 1
           fi
-          "$BINARY" --help >/dev/null
+          smoke "$EXTRACT/herakles"
 
       - name: Write checksums
         working-directory: release
-        run: sha256sum herakles-* > SHA256SUMS
+        run: sha256sum herakles-*.tar.gz > SHA256SUMS
 
       - name: Upload release files
         uses: actions/upload-artifact@v4

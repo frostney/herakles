@@ -98,10 +98,11 @@ The release flow is tag-driven:
 - Trigger on semantic version tags.
 - Validate the tag as `MAJOR.MINOR.PATCH`, check out the tagged commit, and fail unless the tag equals the `version` in `package.json`.
 - Install with `bun install --frozen-lockfile` and run the local gate bundle before building.
-- Cross-compile the CLI for `linux-x64` and `darwin-arm64` with `bun run build:cli -- --target=<bun-target> --outfile=<path>`, smoke-test the Linux binary, and write `SHA256SUMS`.
-- Create a GitHub Release for the tag with generated notes and upload the binaries and checksums, or replace the assets when the release already exists.
+- Cross-compile the CLI for `macos-arm64`, `macos-x64`, `linux-arm64` and `linux-x64` with `bun run build:cli -- --target=<bun-target> --outfile=<path>`, and package each as `herakles-<version>-<os>-<arch>.tar.gz` with the `herakles` binary at the archive root.
+- Smoke-test the Linux x64 binary and the binary extracted from its tarball, and write `SHA256SUMS` for the tarballs.
+- Create a GitHub Release for the tag with generated notes and upload the tarballs and checksums, or replace the assets when the release already exists.
 
-The workflow pins Bun 1.4.3. There is no rolling `nightly` prerelease. Do not include auto-update feeds, signing credentials, notarization credentials or further platforms in the release workflow until the binary flow is proven.
+The workflow pins Bun 1.4.4. There is no rolling `nightly` prerelease. Do not include auto-update feeds, signing credentials, notarization credentials or further platforms in the release workflow until the binary flow is proven.
 
 ## Code Review (CodeRabbit)
 
