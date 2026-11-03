@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-- Bun 1.4.3 is the only package manager and runtime for local development.
+- Bun 1.4.4 is the only package manager and runtime for local development.
 - Biome 2.5.x owns formatting and linting.
 - TypeScript 7 is checked with `bunx tsc --noEmit`.
 - Fallow audit is the changed-file quality gate in GitHub Actions.
@@ -85,7 +85,7 @@ bun run build
 
 ## GitHub Actions
 
-CI is defined in `.github/workflows/ci.yml`. The workflow installs Bun 1.4.3, runs tests, runs Biome, type-checks, runs Fallow audit against an explicit base ref, and records a whole-repo Fallow health report.
+CI is defined in `.github/workflows/ci.yml`. The workflow installs Bun 1.4.4, runs tests, runs Biome, type-checks, runs Fallow audit against an explicit base ref, and records a whole-repo Fallow health report.
 
 Do not add a package-level `ci` script. If the full CI workflow is needed, trigger GitHub Actions.
 
