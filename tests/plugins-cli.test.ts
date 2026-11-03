@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile } from "node:fs/promises";
+import { cp, mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runCommand } from "../src/utils/command";
 import { createTestWorkspace } from "./helpers/workspace";
@@ -79,7 +79,13 @@ describe("plugin commands through the CLI", () => {
     expect(status).toMatchObject({
       name: "hello",
       state: "loaded",
-      commands: ["hello", "projects greet", "hello-tools note"],
+      commands: [
+        "hello",
+        "projects greet",
+        "hello-tools note",
+        "hello-tools ask",
+        "hello-tools git",
+      ],
       source: { kind: "project", project: "hello-plugin", entry: "plugin.ts" },
     });
     expect(help.stdout).toContain("hello");
@@ -125,8 +131,44 @@ describe("plugin commands through the CLI", () => {
     expect(await readFile(notePath, "utf8")).toBe("third");
 
     const skipped = await runCli(root, ["hello-tools", "note", "fourth", "--yes"]);
-    expect(skipped.stdout).toBe(`Wrote ${notePath}\n`);
+    expect(skipped.stdout).toContain("write");
+    expect(skipped.stdout).not.toContain("(yes/no)");
+    expect(skipped.stdout).toEndWith(`Wrote ${notePath}\n`);
     expect(await readFile(notePath, "utf8")).toBe("fourth");
+  });
+
+  test("answers each prompt from piped input and declines on closed input", async () => {
+    const root = await pluginWorkspace([hello]);
+
+    const piped = await runCli(root, ["hello-tools", "ask"], "yes\nno\nbob\n");
+    const closed = await runCli(root, ["hello-tools", "ask"]);
+
+    expect(piped.exitCode).toBe(0);
+    expect(JSON.parse(piped.stdout.slice(piped.stdout.indexOf("{")))).toEqual({
+      first: true,
+      second: false,
+      name: "bob",
+    });
+    expect(JSON.parse(closed.stdout.slice(closed.stdout.indexOf("{")))).toEqual({
+      first: false,
+      second: false,
+      name: "",
+    });
+  });
+
+  test("runs git only in the core-resolved project checkout", async () => {
+    const root = await pluginWorkspace([hello]);
+    const projectPath = await realpath(join(root, "experiment", "hello-plugin"));
+    await runCommand(["git", "init", "-q"], { cwd: projectPath });
+
+    const plain = await runCli(root, ["hello-tools", "git"]);
+    const forged = await runCli(root, ["hello-tools", "git", "--forge"]);
+    const globalOption = await runCli(root, ["hello-tools", "git", "--global"]);
+
+    expect(plain.stdout).toBe(`${projectPath}\n`);
+    expect(forged.stdout).toBe(`${projectPath}\n`);
+    expect(globalOption.exitCode).not.toBe(0);
+    expect(globalOption.stderr).toContain("global git options are refused");
   });
 
   test("reports an apiVersion mismatch in plugins list and doctor", async () => {
@@ -223,5 +265,34 @@ entry = "plugin.ts"
     expect(byName.missing?.message).toContain("run herakles up");
     expect(byName.typo).toMatchObject({ state: "failed", problem: "unknown-plugin" });
     expect(byName.off).toMatchObject({ state: "disabled", message: "Disabled in config." });
+  });
+
+  test("rejects an entry that resolves outside its project", async () => {
+    const root = await pluginWorkspace([hello]);
+    const outside = join(root, "outside.ts");
+    await writeFile(outside, "export default {};\n");
+    await symlink(outside, join(root, "experiment", "hello-plugin", "escape.ts"));
+    await writeFile(
+      join(root, "_herakles", "herakles.toml"),
+      (await readFile(join(root, "_herakles", "herakles.toml"), "utf8")).replace(
+        'entry = "plugin.ts"',
+        'entry = "escape.ts"',
+      ),
+    );
+
+    const [status] = await pluginStatuses(root);
+
+    expect(status).toMatchObject({ state: "failed", problem: "invalid-source" });
+    expect(status?.message).toContain("resolves outside project hello-plugin");
+  });
+
+  test("explains a config error on a plugin route instead of an unknown command", async () => {
+    const root = await pluginWorkspace([], "[plugins.two]\nbogus = 1\n");
+
+    const result = await runCli(root, ["two"]);
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("herakles: plugins not loaded: plugins.two");
+    expect(result.stderr).toContain("Unrecognized key");
   });
 });

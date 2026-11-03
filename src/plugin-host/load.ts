@@ -7,7 +7,7 @@ import { bundledPlugins } from "../plugins";
 import { configuredCheckoutPath } from "../project/resolve";
 import type { HeraklesPlugin } from "./api";
 import { type CoreCommandTree, type MountedPluginCommand, PluginRouteTable } from "./mount";
-import { checkPlugin, type PluginProblem } from "./validate";
+import { checkPlugin, type PluginCheck, type PluginProblem } from "./validate";
 
 export type PluginSource =
   | { kind: "bundled" }
@@ -57,7 +57,12 @@ class PluginLoadError extends Error {
  */
 export async function loadPlugins(
   loaded: LoadedConfig,
-  options: { core: CoreCommandTree; bundled?: readonly HeraklesPlugin[] },
+  options: {
+    core: CoreCommandTree;
+    bundled?: readonly HeraklesPlugin[];
+    /** Surface-specific command check, such as building the Stricli commands. */
+    checkCommands?: (plugin: HeraklesPlugin) => string | undefined;
+  },
 ): Promise<PluginRegistry> {
   const bundled = options.bundled ?? bundledPlugins;
   const bundledNames = new Set(bundled.map((plugin) => plugin.name));
@@ -77,7 +82,7 @@ export async function loadPlugins(
     if ("plugin" in result) candidates.push(result);
     statuses.push(result.status);
   }
-  return { statuses, commands: mountCandidates(candidates, options.core) };
+  return { statuses, commands: mountCandidates(candidates, options) };
 }
 
 function bundledCandidate(
@@ -174,11 +179,17 @@ async function importDefault(path: string): Promise<unknown> {
   }
 }
 
-function mountCandidates(candidates: Candidate[], core: CoreCommandTree): MountedPluginCommand[] {
-  const routes = new PluginRouteTable(core);
+function mountCandidates(
+  candidates: Candidate[],
+  options: {
+    core: CoreCommandTree;
+    checkCommands?: (plugin: HeraklesPlugin) => string | undefined;
+  },
+): MountedPluginCommand[] {
+  const routes = new PluginRouteTable(options.core);
   const mounted: MountedPluginCommand[] = [];
   for (const candidate of candidates) {
-    const check = checkPlugin(candidate.plugin, candidate.status.name);
+    const check = checkCandidate(candidate, options.checkCommands);
     if (!check.ok) {
       Object.assign(
         candidate.status,
@@ -201,6 +212,16 @@ function mountCandidates(candidates: Candidate[], core: CoreCommandTree): Mounte
     candidate.status.message = `Loaded ${candidate.status.commands.length} command(s).`;
   }
   return mounted;
+}
+
+function checkCandidate(
+  candidate: Candidate,
+  checkCommands: ((plugin: HeraklesPlugin) => string | undefined) | undefined,
+): PluginCheck {
+  const check = checkPlugin(candidate.plugin, candidate.status.name);
+  if (!check.ok || !checkCommands) return check;
+  const problem = checkCommands(check.plugin);
+  return problem ? { ok: false, problem: "invalid-plugin", message: problem } : check;
 }
 
 function baseStatus(name: string, source: PluginSource, configured = true): PluginStatus {

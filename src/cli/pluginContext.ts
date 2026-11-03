@@ -1,10 +1,7 @@
-import { existsSync } from "node:fs";
-import { realpath } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import * as app from "../app";
 import { loadConfig } from "../config/load";
-import { pathIsInside, resolveWorkspacePaths } from "../config/paths";
-import type { Project } from "../domain";
+import { resolveWorkspacePaths } from "../config/paths";
 import type {
   OperationOutcome,
   OperationPlan,
@@ -29,7 +26,7 @@ export type PluginContextOptions = {
 /**
  * Build the context a plugin command receives: core services for the active
  * Herakles Workspace plus output and prompt helpers bound to the command's
- * streams. With `--json`, previews and prompts go to stderr.
+ * streams. With `--json`, plan previews and prompts go to stderr.
  */
 export function createPluginContext(options: PluginContextOptions): PluginContext {
   const { workspaceRoot, json, stdout, stderr } = options;
@@ -52,11 +49,16 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
       read: async () => structuredClone((await loadConfig(workspaceRoot)).config),
     },
     git: {
-      run: async (project, args, runOptions) =>
-        runCommand(["git", ...args], {
+      run: async (project, args, runOptions) => {
+        const [subcommand] = args;
+        if (subcommand === undefined || subcommand.startsWith("-")) {
+          throw new Error("git.run needs a git subcommand first; global git options are refused.");
+        }
+        return runCommand(["git", ...args], {
           ...toolOptions(runOptions),
-          cwd: await projectDirectory(workspaceRoot, project),
-        }),
+          cwd: await app.projectCheckoutDirectory(workspaceRoot, project.id),
+        });
+      },
     },
     gh: {
       run: async (args, runOptions = {}) =>
@@ -64,7 +66,7 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
           ...toolOptions(runOptions),
           ...(runOptions.project === undefined
             ? {}
-            : { cwd: await projectDirectory(workspaceRoot, runOptions.project) }),
+            : { cwd: await app.projectCheckoutDirectory(workspaceRoot, runOptions.project.id) }),
         }),
     },
     output: {
@@ -92,10 +94,8 @@ async function applyPlan<RESULT>(
   previewStream: TextStream,
   confirm: (question: string) => Promise<boolean>,
 ): Promise<OperationOutcome<RESULT>> {
-  if (!yes) {
-    previewStream.write(`${formatTable(plan.steps.map(planStepRow))}\n`);
-    if (!(await confirm(plan.summary))) return { applied: false };
-  }
+  previewStream.write(`${formatTable(plan.steps.map(planStepRow))}\n`);
+  if (!yes && !(await confirm(plan.summary))) return { applied: false };
   return { applied: true, result: await plan.apply() };
 }
 
@@ -106,15 +106,4 @@ function planStepRow(step: OperationPlan<unknown>["steps"][number]) {
 function toolOptions(options: ToolRunOptions = {}) {
   const { allowFailure, stdin, timeoutMs } = options;
   return definedProperties({ allowFailure, stdin, timeoutMs });
-}
-
-/** A project checkout directory, refused when it is outside the workspace. */
-async function projectDirectory(workspaceRoot: string, project: Project): Promise<string> {
-  const directory = resolve(project.path);
-  const inside =
-    pathIsInside(workspaceRoot, directory) &&
-    (!existsSync(directory) ||
-      pathIsInside(await realpath(workspaceRoot), await realpath(directory)));
-  if (!inside) throw new Error(`Refusing to run outside the Herakles Workspace: ${directory}`);
-  return directory;
 }

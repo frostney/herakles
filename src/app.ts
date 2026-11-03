@@ -287,6 +287,22 @@ export async function project(workspaceRoot: string, id: string): Promise<Projec
   return found;
 }
 
+/**
+ * The checkout directory of a tracked project, resolved through core and
+ * refused unless it exists inside the Herakles Workspace after resolving
+ * symlinks.
+ */
+export async function projectCheckoutDirectory(
+  workspaceRoot: string,
+  selector: string,
+): Promise<string> {
+  const found = await project(workspaceRoot, selector);
+  if (!existsSync(found.path) || !realPathIsInside(workspaceRoot, found.path)) {
+    throw new Error(`Project checkout is missing or outside the workspace: ${found.path}`);
+  }
+  return found.path;
+}
+
 export async function openProject(
   workspaceRoot: string,
   id: string,

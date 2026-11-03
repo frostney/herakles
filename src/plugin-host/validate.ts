@@ -1,4 +1,4 @@
-import { pluginNameSchema } from "../config/schema";
+import { kebabCasePattern, pluginNameSchema } from "../config/schema";
 import { type HeraklesPlugin, PLUGIN_API_VERSION } from "./api";
 
 export type PluginProblem =
@@ -16,8 +16,6 @@ export type PluginCheck =
 
 /** Flags Herakles adds to every plugin command. */
 const reservedPluginFlags = ["root", "json"] as const;
-
-const routeSegmentPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 /**
  * Check an untrusted plugin value against the plugin API. The API version is
@@ -52,7 +50,7 @@ export function checkPlugin(value: unknown, expectedName: string): PluginCheck {
 export function commandPathSegments(path: string): string[] | undefined {
   const segments = path.split(" ");
   if (segments.length < 1 || segments.length > 2) return undefined;
-  return segments.every((segment) => routeSegmentPattern.test(segment)) ? segments : undefined;
+  return segments.every((segment) => kebabCasePattern.test(segment)) ? segments : undefined;
 }
 
 function checkOptionalText(value: Record<string, unknown>): string | undefined {

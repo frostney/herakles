@@ -66,10 +66,47 @@ const note: PluginCommand<{ yes?: boolean }, [string]> = {
   },
 };
 
+const ask: PluginCommand<NonNullable<unknown>, []> = {
+  docs: { brief: "Ask two questions and a text prompt, then print the answers." },
+  parameters: {},
+  async func(context) {
+    const first = await context.prompt.confirm("First?");
+    const second = await context.prompt.confirm("Second?");
+    const name = await context.prompt.text("Name: ");
+    context.output.json({ first, second, name });
+  },
+};
+
+const git: PluginCommand<{ forge?: boolean; global?: boolean }, []> = {
+  docs: { brief: "Print the git top level of the hello-plugin project checkout." },
+  parameters: {
+    flags: {
+      forge: { kind: "boolean", optional: true, brief: "Pass a forged project path." },
+      global: { kind: "boolean", optional: true, brief: "Lead with a global git option." },
+    },
+  },
+  async func(context, flags) {
+    const project = await context.projects.get("hello-plugin");
+    const target = flags.forge === true ? { ...project, path: "/" } : project;
+    const args = ["rev-parse", "--show-toplevel"];
+    const result = await context.git.run(
+      target,
+      flags.global === true ? ["-C", "/", ...args] : args,
+    );
+    context.output.line(result.stdout.trim());
+  },
+};
+
 export default {
   apiVersion: 1,
   name: "hello",
   version: "1.0.0",
   description: "Fixture commands from the hello plugin.",
-  commands: { hello, "projects greet": greet, "hello-tools note": note },
+  commands: {
+    hello,
+    "projects greet": greet,
+    "hello-tools note": note,
+    "hello-tools ask": ask,
+    "hello-tools git": git,
+  },
 } satisfies HeraklesPlugin;

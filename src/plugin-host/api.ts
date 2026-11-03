@@ -113,7 +113,10 @@ export type PluginContext = {
     read(): Promise<HeraklesConfig>;
   };
   readonly git: {
-    /** Run `git` with an argument list inside a project checkout. */
+    /**
+     * Run `git` with an argument list in the checkout core resolves for
+     * `project.id`. The first argument must be a subcommand, not a global option.
+     */
     run(
       project: Project,
       args: readonly string[],
@@ -121,7 +124,7 @@ export type PluginContext = {
     ): Promise<CommandResult>;
   };
   readonly gh: {
-    /** Run the GitHub CLI with an argument list, optionally inside a project checkout. */
+    /** Run the GitHub CLI with an argument list, optionally in a project's core-resolved checkout. */
     run(
       args: readonly string[],
       options?: ToolRunOptions & { project?: Project },

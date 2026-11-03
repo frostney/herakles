@@ -213,7 +213,10 @@ describe("plugin checks", () => {
       [["projects", "list"], false],
       [["init", "--root", "x"], false],
       [["projects", "greet"], true],
-      [["projects"], true],
+      [["projects"], false],
+      [["projects", "--json"], false],
+      [["projects", "--help"], true],
+      [["constructor", "foo"], true],
       [[], true],
       [["--help"], true],
       [["doctor"], true],
@@ -257,5 +260,35 @@ describe("plugin config", () => {
     );
     expect(messages({ Bad_Name: {} })).toContain("Plugin names must be lowercase kebab-case.");
     expect(messages({ path: { path: "/opt/plugin.ts" } }).join(" ")).toContain("Unrecognized key");
+  });
+
+  test("a plugin whose parameters Stricli rejects fails alone", async () => {
+    const helpFlag = defineCommand<{ help?: boolean }, []>({
+      docs: { brief: "Declares a flag Stricli reserves." },
+      parameters: { flags: { help: { kind: "boolean", optional: true, brief: "help" } } },
+      func: () => undefined,
+    });
+    const broken = definePlugin({
+      apiVersion: 1,
+      name: "broken",
+      commands: { "broken-help": helpFlag },
+    });
+    const root = await workspace("\n[plugins.broken]\n\n[plugins.bundled-hello]\n");
+
+    const plugins = await loadCliPlugins(["plugins", "list", "--root", root], coreCommandTree, {
+      bundled: [broken, bundledHello],
+    });
+    const invoked = await runInProcess(root, ["bundled-hello"], [broken, bundledHello]);
+
+    expect(plugins.kind).toBe("loaded");
+    const statuses = plugins.kind === "loaded" ? plugins.registry.statuses : [];
+    expect(statuses[0]).toMatchObject({
+      name: "broken",
+      state: "failed",
+      problem: "invalid-plugin",
+    });
+    expect(statuses[0]?.message).toContain('Command "broken-help"');
+    expect(statuses[1]).toMatchObject({ name: "bundled-hello", state: "loaded" });
+    expect(invoked.stdout).toBe(`bundled ran in ${root}\n`);
   });
 });

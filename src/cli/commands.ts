@@ -1,6 +1,10 @@
-import { stdin as input, stdout as output } from "node:process";
-import { createInterface } from "node:readline/promises";
-import { buildCommand, buildRouteMap } from "@stricli/core";
+import {
+  buildCommand,
+  buildRouteMap,
+  type Command,
+  type CommandContext,
+  type RouteMap,
+} from "@stricli/core";
 import * as app from "../app";
 import { initConfig } from "../config/init";
 import { selectHeraklesWorkspace } from "../config/workspace";
@@ -11,6 +15,7 @@ import { definedProperties } from "../utils/definedProperties";
 import { booleanFlag, looseBooleanParser, optionalFlag } from "./flags";
 import { printJson, printTable } from "./output";
 import { type CliPlugins, pluginGroupRoute, pluginRoutes } from "./plugins";
+import { ask } from "./prompt";
 
 type CommonFlags = {
   root?: string;
@@ -152,13 +157,8 @@ function projectSourceParser(value: string): "github" | "local" {
   throw new Error(`Unknown project source: ${value}`);
 }
 
-async function prompt(question: string): Promise<string> {
-  const rl = createInterface({ input, output });
-  try {
-    return (await rl.question(question)).trim();
-  } finally {
-    rl.close();
-  }
+function prompt(question: string): Promise<string> {
+  return ask(question, process.stdout);
 }
 
 async function promptProjectAdd(flags: {
@@ -627,45 +627,85 @@ const projectRoutes = {
   rename: projectRenameCommand,
 };
 
-/** Core route names; plugins may add routes but never replace these. */
-export const coreCommandTree: CoreCommandTree = {
-  commands: ["init", "add", "remove", "status", "validate", "up", "doctor", "ui"],
-  groups: { projects: Object.keys(projectRoutes), plugins: ["list"] },
+type CoreCommand = Command<CommandContext>;
+type CoreGroup = {
+  docs: { brief: string };
+  defaultCommand: string;
+  routes: Record<string, CoreCommand>;
 };
+
+function coreRoutes(plugins: CliPlugins): Record<string, CoreCommand | CoreGroup> {
+  return {
+    init: initCommand,
+    add: addProjectCommand,
+    remove: removeProjectCommand,
+    status: statusCommand,
+    validate: validateCommand,
+    projects: {
+      docs: { brief: "Project commands." },
+      defaultCommand: "list",
+      routes: projectRoutes,
+    },
+    up: upCommand,
+    doctor: doctorCommand(plugins),
+    plugins: {
+      docs: { brief: "Plugin commands." },
+      defaultCommand: "list",
+      routes: { list: pluginsListCommand(plugins) },
+    },
+    ui: uiCommand,
+  };
+}
+
+function isCoreGroup(target: CoreCommand | CoreGroup): target is CoreGroup {
+  return "routes" in target && "defaultCommand" in target;
+}
+
+/** Core route names, derived from the core routes; plugins may add routes but never replace these. */
+export const coreCommandTree: CoreCommandTree = (() => {
+  const routes = Object.entries(coreRoutes({ kind: "skipped" }));
+  return {
+    commands: routes.filter(([, target]) => !isCoreGroup(target)).map(([name]) => name),
+    groups: Object.fromEntries(
+      routes.flatMap(([name, target]) =>
+        isCoreGroup(target) ? [[name, Object.keys(target.routes)]] : [],
+      ),
+    ),
+  };
+})();
 
 export function buildRootRoute(plugins: CliPlugins) {
   const contributed = pluginRoutes(plugins);
-  const pluginGroups = Object.fromEntries(
-    Object.entries(contributed.grouped)
-      .filter(([group]) => !(group in coreCommandTree.groups))
-      .map(([group, routes]) => [
-        group,
-        pluginGroupRoute(contributed.groupBriefs[group] ?? group, routes),
-      ]),
-  );
+  const routes: Record<string, CoreCommand | RouteMap<CommandContext>> = {};
+  for (const [name, target] of Object.entries(coreRoutes(plugins))) {
+    routes[name] = isCoreGroup(target)
+      ? buildRouteMap({
+          docs: target.docs,
+          defaultCommand: target.defaultCommand,
+          routes: withoutReplacing(target.routes, contributed.grouped.get(name), name),
+        })
+      : target;
+  }
+  for (const [group, groupRoutes] of contributed.grouped) {
+    if (Object.hasOwn(routes, group)) continue;
+    routes[group] = pluginGroupRoute(contributed.groupBriefs.get(group) ?? group, groupRoutes);
+  }
   return buildRouteMap({
     docs: { brief: "Herakles workspace orchestrator." },
-    routes: {
-      init: initCommand,
-      add: addProjectCommand,
-      remove: removeProjectCommand,
-      status: statusCommand,
-      validate: validateCommand,
-      projects: buildRouteMap({
-        docs: { brief: "Project commands." },
-        defaultCommand: "list",
-        routes: { ...projectRoutes, ...contributed.grouped.projects },
-      }),
-      up: upCommand,
-      doctor: doctorCommand(plugins),
-      plugins: buildRouteMap({
-        docs: { brief: "Plugin commands." },
-        defaultCommand: "list",
-        routes: { list: pluginsListCommand(plugins), ...contributed.grouped.plugins },
-      }),
-      ui: uiCommand,
-      ...contributed.topLevel,
-      ...pluginGroups,
-    },
+    routes: withoutReplacing(routes, contributed.topLevel, "herakles"),
   });
+}
+
+/** Merge plugin routes into core routes; the route table already refused collisions. */
+function withoutReplacing<T>(
+  core: Record<string, T>,
+  added: ReadonlyMap<string, T> | undefined,
+  scope: string,
+): Record<string, T> {
+  const merged = { ...core };
+  for (const [name, target] of added ?? []) {
+    if (Object.hasOwn(merged, name)) throw new Error(`Plugin route ${scope} ${name} collides.`);
+    merged[name] = target;
+  }
+  return merged;
 }

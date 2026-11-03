@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import tailwind from "bun-plugin-tailwind";
+import { compileOptions } from "../scripts/compile";
 import { runCommand } from "../src/utils/command";
 import { createTestWorkspace } from "./helpers/workspace";
 
@@ -15,12 +15,7 @@ let binary: string;
 beforeAll(async () => {
   buildDir = await mkdtemp(join(tmpdir(), "herakles-compiled-"));
   binary = join(buildDir, "herakles");
-  const result = await Bun.build({
-    entrypoints: [join(repoRoot, "src", "cli", "main.ts")],
-    plugins: [tailwind],
-    define: { "process.env.NODE_ENV": JSON.stringify("production") },
-    compile: { outfile: binary },
-  });
+  const result = await Bun.build(compileOptions(join(repoRoot, "src", "cli", "main.ts"), binary));
   if (!result.success) throw new AggregateError(result.logs, "Failed to compile herakles");
 }, 60_000);
 
