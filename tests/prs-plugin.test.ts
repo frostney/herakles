@@ -470,6 +470,22 @@ describe("collectPullRequests", () => {
     });
   });
 
+  test("ignores a stored entry that is not a pull request snapshot", async () => {
+    const root = await createTestWorkspace("herakles-prs-collect-", "version = 2\n");
+    await writeFile(join(root, "ok"), "");
+    await withFakeGhScript("herakles-prs-collect-gh-", togglingGh(root), async () => {
+      const context = collectorContext(root);
+      await collectPullRequests(context);
+      const stored = JSON.parse(await readFile(cachePath(root), "utf8"));
+      await writeFile(cachePath(root), JSON.stringify({ ...stored, value: { cached: true } }));
+
+      const result = await collectPullRequests(context);
+
+      expect(result.cached).toBe(false);
+      expect(result.pullRequests).toHaveLength(1);
+    });
+  });
+
   test("gives each failure a short reason without the gh arguments", async () => {
     const root = await createTestWorkspace("herakles-prs-collect-", "version = 2\n");
     await withFakeGhScript("herakles-prs-collect-gh-", togglingGh(root), async () => {
@@ -503,6 +519,9 @@ describe("pull request reads", () => {
     );
     expect(await reason(new Error("gh api graphql -f query=SECRET timed out after 1500ms"))).toBe(
       "timed out after 1500ms",
+    );
+    expect(await reason(new Error("spawn failed for gh api graphql -f query=SECRET"))).toBe(
+      "spawn failed for gh <args>",
     );
     expect(await reason({ exitCode: 4, stderr: "\n" })).toBe("exited with 4");
     expect(await reason({ exitCode: 1, stderr: "gh: HTTP 404\n" })).toBe("HTTP 404");

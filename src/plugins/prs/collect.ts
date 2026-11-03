@@ -128,10 +128,22 @@ async function readStored(path: string, key: string): Promise<PullRequestSnapsho
     if (raw.key !== key || typeof raw.expiresAt !== "number" || raw.expiresAt <= Date.now()) {
       return undefined;
     }
-    return raw.value;
+    return isSnapshot(raw.value) ? raw.value : undefined;
   } catch {
     return undefined;
   }
+}
+
+function isSnapshot(value: unknown): value is PullRequestSnapshot {
+  if (typeof value !== "object" || value === null) return false;
+  const snapshot = value as Partial<PullRequestSnapshot>;
+  return (
+    typeof snapshot.generatedAt === "string" &&
+    Array.isArray(snapshot.pullRequests) &&
+    Array.isArray(snapshot.failures) &&
+    typeof snapshot.projectsRead === "number" &&
+    typeof snapshot.skippedLocalProjects === "number"
+  );
 }
 
 async function writeStored(path: string, entry: StoredEntry) {

@@ -105,7 +105,8 @@ export function ghReader(run: GhRunner): GhRead {
         `${command} failed: ${errorMessage(error)}`,
         timedOut
           ? `timed out after ${formatDuration(Number(timedOut[1]))}`
-          : readFailureReason(error),
+          : collapseWhitespace(errorMessage(error).replaceAll(args.join(" "), "<args>")) ||
+              "unknown error",
       );
     }
     if (result.exitCode !== 0) {
