@@ -32,4 +32,4 @@ The plugin holds no path logic. It asks core for a plan through the `canonicalPa
 - a canonical path that already exists, including a dangling symlink;
 - a missing checkout, and a project with no path mismatch.
 
-Applying reloads the workspace and re-runs every check, so a path that changed after the plan is refused. The move never deletes or duplicates repositories. A failed move removes only the empty parent directories it created. The Workbench Use Canonical Path action runs the same checks.
+Applying reloads the workspace and re-runs every check, so a path that changed after the plan is refused. The move never deletes or duplicates repositories. A failed move removes only the empty parent directories it created.
