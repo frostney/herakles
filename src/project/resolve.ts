@@ -238,10 +238,11 @@ export function configuredCheckoutPath(
 /**
  * Checkout path of a resolved project without discovery. The project must be
  * tracked: it is matched by source, owner and repository name in synced
- * config. Its reported path is used when it has the shape project discovery
- * accepts for that project, `<lifecycle>/<group?>/<name>` inside the
- * workspace, which covers archived repositories, GitHub's name casing and
- * local projects found by name. Otherwise the path is derived from config.
+ * config. Its reported path is used when it is what project discovery would
+ * accept for that project: a git checkout root at `<lifecycle>/<group?>/<name>`
+ * inside the workspace. That covers archived repositories, GitHub's name
+ * casing and local projects found by name. Otherwise the path is derived from
+ * config.
  */
 export function checkoutPathForProject(
   loaded: LoadedConfig,
@@ -268,7 +269,8 @@ function hasDiscoveredCheckoutShape(loaded: LoadedConfig, path: unknown, name: s
     isProjectState(lifecycle) &&
     (rest.length === 1 || rest.length === 2) &&
     rest.every((segment) => segment !== "" && segment !== "." && segment !== "..") &&
-    last?.toLowerCase() === name.toLowerCase()
+    last?.toLowerCase() === name.toLowerCase() &&
+    existsSync(join(path, ".git"))
   );
 }
 

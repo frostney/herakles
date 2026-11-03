@@ -385,9 +385,10 @@ describe("plugin tool checkouts", () => {
     const root = await workspace(
       '\n[project.tool]\nsource = "local"\nstate = "experiment"\n\n[project.widget]\nsource = "github"\nrepo = "example/widget"\nstate = "open-source"\n',
     );
-    await mkdir(join(root, "candidate", "tool"), { recursive: true });
-    await mkdir(join(root, "archived", "Widget"), { recursive: true });
-    await mkdir(join(root, "experiment", "other"), { recursive: true });
+    await mkdir(join(root, "candidate", "tool", ".git"), { recursive: true });
+    await mkdir(join(root, "archived", "Widget", ".git"), { recursive: true });
+    await mkdir(join(root, "experiment", "other", ".git"), { recursive: true });
+    await mkdir(join(root, "experiment", "other", "tool"), { recursive: true });
 
     const moved = await projectCheckoutDirectory(
       root,
@@ -404,6 +405,13 @@ describe("plugin tool checkouts", () => {
     expect(archived).toBe(await realpath(join(root, "archived", "Widget")));
     await expect(
       projectCheckoutDirectory(root, local(root, "tool", join(root, "experiment", "other"))),
+    ).rejects.toThrow("Project checkout is missing");
+    // A same-named folder inside another project's repository is not a checkout root.
+    await expect(
+      projectCheckoutDirectory(
+        root,
+        local(root, "tool", join(root, "experiment", "other", "tool")),
+      ),
     ).rejects.toThrow("Project checkout is missing");
   });
 
