@@ -3,6 +3,7 @@ import * as app from "../app";
 import { loadConfig } from "../config/load";
 import { resolveWorkspacePaths } from "../config/paths";
 import type {
+  CanonicalPathOperation,
   OperationOutcome,
   OperationPlan,
   PluginContext,
@@ -44,6 +45,18 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
       list: () => app.projects(workspaceRoot),
       get: (selector) => app.project(workspaceRoot, selector),
       validate: (validationOptions) => app.validation(workspaceRoot, validationOptions),
+    },
+    canonicalPath: {
+      plan: async (selector): Promise<CanonicalPathOperation> => {
+        const plan = await app.canonicalPathPlan(workspaceRoot, selector);
+        // Frozen, so the steps a plugin shows cannot drift from the move apply runs.
+        return Object.freeze({
+          ...plan,
+          summary: `Move ${plan.from} to ${plan.to}? This moves the existing checkout and does not delete or duplicate repositories.`,
+          steps: Object.freeze([{ action: "move", target: plan.from, detail: `to ${plan.to}` }]),
+          apply: () => app.applyCanonicalPath(workspaceRoot, plan),
+        });
+      },
     },
     config: {
       read: async () => structuredClone((await loadConfig(workspaceRoot)).config),

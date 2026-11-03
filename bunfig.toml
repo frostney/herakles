@@ -1,5 +1,2 @@
 [test]
 coverage = false
-
-[serve.static]
-plugins = ["bun-plugin-tailwind"]

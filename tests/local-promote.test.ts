@@ -31,8 +31,6 @@ function localProject(root: string): Project {
     pinned: false,
     topics: [],
     tags: [],
-    languages: [],
-    hasRoadmap: false,
     up: false,
   };
 }

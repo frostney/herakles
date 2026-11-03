@@ -67,14 +67,10 @@ describe("external plugins in the compiled executable", () => {
       projects: 2,
       plugin: "hello",
     });
-    const statuses = JSON.parse(list.stdout) as Array<{
-      name: string;
-      state: string;
-      source: { kind: string };
-    }>;
-    // Bundled plugins are listed too; this test is about the external fixture plugins.
-    const external = statuses.filter((status) => status.source.kind !== "bundled");
-    expect(external.map(({ name, state }) => [name, state])).toEqual([
+    const statuses = (
+      JSON.parse(list.stdout) as Array<{ name: string; state: string; source: { kind: string } }>
+    ).filter(({ source }) => source.kind !== "bundled");
+    expect(statuses.map(({ name, state }) => [name, state])).toEqual([
       ["hello", "loaded"],
       ["throws", "failed"],
     ]);

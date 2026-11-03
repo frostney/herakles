@@ -27,7 +27,6 @@ function repo(
     visibility: "PUBLIC",
     isArchived: false,
     repositoryTopics: [],
-    languages: [],
     ...partial,
   };
 }
@@ -139,7 +138,6 @@ repo = "frostney/private-hidden"
           name: "public-ts",
           nameWithOwner: "frostney/public-ts",
           owner: "frostney",
-          languages: ["TypeScript"],
         }),
         repo({
           name: "private-hidden",
@@ -148,7 +146,6 @@ repo = "frostney/private-hidden"
           visibility: "PRIVATE",
           isPrivate: true,
           repositoryTopics: ["no-up"],
-          languages: ["TypeScript"],
         }),
       ],
       local: [],
@@ -192,37 +189,6 @@ pinned = true
 
     expect(projects.map((project) => project.repo)).toEqual(["starred-tool", "regular-tool"]);
     expect(projects[0]?.pinned).toBe(true);
-  });
-
-  test("resolved hosted projects include local checkout line counts", async () => {
-    const root = await tempTrackedWorkspace(
-      "herakles-project-line-counts-",
-      `
-[project."public-tool"]
-source = "github"
-repo = "frostney/public-tool"
-`,
-    );
-    const projectPath = join(root, "open-source", "public-tool");
-    await mkdir(join(projectPath, "src"), { recursive: true });
-    await writeFile(join(projectPath, "src", "index.ts"), "// setup\nexport const ok = true;\n");
-
-    const projects = resolveProjects(await loadConfig(root), {
-      hosted: [
-        repo({
-          name: "public-tool",
-          nameWithOwner: "frostney/public-tool",
-          owner: "frostney",
-        }),
-      ],
-      local: [],
-      hostedClones: [],
-    });
-
-    expect(projects.find((project) => project.repo === "public-tool")?.lineCounts).toEqual({
-      loc: 2,
-      sloc: 1,
-    });
   });
 
   test("hosted clones at unexpected paths are validation-only up items", async () => {
@@ -447,8 +413,7 @@ cat <<JSON
   "url": "https://github.com/$owner/tool",
   "visibility": "PUBLIC",
   "isArchived": false,
-  "repositoryTopics": [],
-  "languages": []
+  "repositoryTopics": []
 }]
 JSON
 `,

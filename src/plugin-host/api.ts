@@ -8,9 +8,9 @@
  */
 import type { BaseArgs, CommandContext, TypedCommandParameters } from "@stricli/core";
 import type { HeraklesConfig } from "../config/schema";
-import type { Project, ValidationResult } from "../domain";
+import type { CanonicalPathPlan, Project, ValidationResult } from "../domain";
 
-export type { HeraklesConfig, Project, ValidationResult };
+export type { CanonicalPathPlan, HeraklesConfig, Project, ValidationResult };
 
 /**
  * The plugin API version this Herakles build implements. Additive changes keep
@@ -89,6 +89,17 @@ export type OperationOutcome<RESULT> =
   | { readonly applied: true; readonly result: RESULT }
   | { readonly applied: false };
 
+/** What a confirmed canonical-path move did. */
+export type CanonicalPathResult = CanonicalPathPlan & { readonly moved: true };
+
+/**
+ * A planned move of a hosted clone to its Canonical Checkout Path. It is an
+ * `OperationPlan`, so it reaches disk only through `applyPlan`. `apply`
+ * reloads the workspace and re-runs every check, so a path that changed since
+ * planning is refused instead of moved over.
+ */
+export type CanonicalPathOperation = OperationPlan<CanonicalPathResult> & CanonicalPathPlan;
+
 /**
  * What a plugin command can reach. It exposes core services and output
  * helpers, not a generic shell or a config writer.
@@ -107,6 +118,15 @@ export type PluginContext = {
     /** Resolve a project by id, slug, or repository name; throws when unknown. */
     get(selector: string): Promise<Project>;
     validate(options?: { strict?: boolean }): Promise<ValidationResult>;
+  };
+  readonly canonicalPath: {
+    /**
+     * Plan moving a hosted clone to its Canonical Checkout Path. Changes
+     * nothing on disk. Throws when the project has no hosted clone path
+     * mismatch, when the selector is ambiguous, or when a workspace
+     * containment or destination check fails. Core owns these checks.
+     */
+    plan(selector: string): Promise<CanonicalPathOperation>;
   };
   readonly config: {
     /** A detached copy of the parsed synced configuration. */
