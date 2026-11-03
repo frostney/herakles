@@ -5,16 +5,15 @@
 - Herakles is a Bun-first orchestrator for a personal Herakles Workspace.
 - `_herakles/herakles.toml` is the canonical synced configuration.
 - Project paths are derived from lifecycle, optional group, and repository name.
-- CLI and UI call the same core services rather than owning separate behavior.
-- Herakles Workbench surfaces cross-project review, including open pull requests for tracked hosted projects.
+- The CLI is the only control surface and stays a thin layer over the core services.
 
-Herakles v2 is a Bun-first TypeScript orchestrator for a personal Herakles Workspace. The CLI and UI call the same core services for configuration, project discovery, project resolution, validation, and workspace spin-up.
+Herakles v2 is a Bun-first TypeScript orchestrator for a personal Herakles Workspace. The CLI calls the core services for configuration, project discovery, project resolution, validation, and workspace spin-up.
 
 The canonical configuration is `_herakles/herakles.toml`. It describes hosted repository discovery, tracked projects, and lifecycle defaults. Herakles does not support project-local config, machine profiles, `herakles.local.toml`, or a remote sync API.
 
 `--root` identifies the Herakles Workspace: the folder containing `_herakles` and the mandatory lifecycle folders `open-source/`, `commercial/`, `experiment/`, `candidate/`, and `archived/`. Generated Herakles state lives inside `_herakles/cache` and `_herakles/worktrees`; `_herakles/.gitignore` keeps those folders out of synced configuration.
 
-When `--root` is omitted, the CLI and UI discover the Herakles Workspace by
+When `--root` is omitted, the CLI discovers the Herakles Workspace by
 looking for `_herakles/herakles.toml` in the current directory and its
 ancestors. An explicit `--root` remains exact, and `herakles init` creates a
 workspace at the explicit path or current directory instead of discovering an
@@ -36,7 +35,7 @@ Project discovery reads GitHub repositories with `gh repo list` for configured o
 
 Lifecycle changes are checked against Herakles's transition table. Unusual transitions require an explicit force option so deliberate exceptions are visible.
 
-Same-owner hosted repository renames use one typed plan/apply service shared by the CLI and UI. The plan validates the hosted identity, local checkout, destination, and config key before applying the GitHub rename, origin update, Canonical Checkout Path move, and alphabetized tracked-project config re-key. Completed steps are recognized on retry rather than rolled back automatically.
+Same-owner hosted repository renames use one typed plan/apply service behind the CLI. The plan validates the hosted identity, local checkout, destination, and config key before applying the GitHub rename, origin update, Canonical Checkout Path move, and alphabetized tracked-project config re-key. Completed steps are recognized on retry rather than rolled back automatically.
 
 ## Spin Up Workspace
 
@@ -44,7 +43,7 @@ Same-owner hosted repository renames use one typed plan/apply service shared by 
 
 The default eligible set is all non-archived hosted projects unless their topics match `up.exclude_topics`. Local experiments are not cloned by `up`. Validation issues such as path collisions, missing archive evidence, and hosted clone path mismatches become validation-only up items instead of Git work.
 
-If Herakles discovers a hosted repository clone at a different local path than the canonical checkout path, validation reports `hosted-clone-path-mismatch`. The user resolves that conflict explicitly with the Use Canonical Path action after reviewing the existing and canonical paths; `up` and Sync Workspace do not silently move, delete, or duplicate repositories.
+If Herakles discovers a hosted repository clone at a different local path than the canonical checkout path, validation reports `hosted-clone-path-mismatch`. Herakles has no automated fix for it yet: the user resolves the conflict by hand after reviewing the existing and canonical paths, and `up` and Sync Workspace do not silently move, delete, or duplicate repositories. Canonical-path fixing is planned as a first-party plugin (ADR 0018).
 
 The CLI reports progress through `executeUpPlan`'s `onItemStart(item, index, total)` and `onProgress(result)` hooks, which `app.up`, `app.upProject` and `app.upProjects` pass through. A hook that throws is ignored: it cannot abort the run or fail an item. `app.upProjects` builds and executes one plan across several projects, which `projects import` uses so its counter spans the whole import. `src/cli/progress.ts` turns the hooks into a single live line on stderr, drawn only when stderr is an interactive terminal (a TTY, `TERM` not `dumb`, `CI` unset, empty, `0` or `false`) and always cleared before results are printed or on Ctrl-C; other output is unchanged.
 
@@ -58,20 +57,14 @@ A plugin declares the plugin `apiVersion` it targets and contributes Stricli com
 
 Plugin commands receive a context with project resolution, validation, a read-only copy of the config, `git` and `gh` argument-list runners that work in project checkouts found without discovery, output and prompt helpers, a plugin cache folder under `_herakles/cache/plugins/<name>`, and `applyPlan` for confirmed repository operations. The context parses no shell strings and has no config writer. It is a capability contract, not a sandbox: plugins run in the Herakles process, and git config or aliases can still run commands.
 
-Core commands, `--version`, and a bare core group that runs its default command do not load plugins. Bare `herakles`, help, plugin routes, `herakles plugins list` and `herakles doctor` do. A plugin whose entry is malformed, that fails to resolve, throws while loading, targets another API version or collides is reported, not loaded: `herakles plugins list` shows its state and `herakles doctor` adds a check for each configured plugin. The Workbench does not load plugins.
+Core commands, `--version`, and a bare core group that runs its default command do not load plugins. Bare `herakles`, help, plugin routes, `herakles plugins list` and `herakles doctor` do. A plugin whose entry is malformed, that fails to resolve, throws while loading, targets another API version or collides is reported, not loaded: `herakles plugins list` shows its state and `herakles doctor` adds a check for each configured plugin.
 
-## UI and API
+## CLI Surface
 
-The UI is launched through its own CLI/server path and can stay open while normal CLI commands continue to run. It uses Bun's fullstack server model: HTML entrypoints are imported into `Bun.serve`, frontend assets are bundled by Bun, and typed API routes live in the same server process. The React UI uses TanStack Router semantics without adopting a Vite-backed runtime.
+Herakles is operated through the `herakles` CLI, a thin Stricli command layer over the core services in `src/app.ts`. Commands print human-readable output by default and structured JSON with `--json`; they do not run a long-lived server or expose a network API.
 
-The Projects screen is the default Herakles Workbench landing surface, and `herakles add` is the primary CLI project entry point. Existing GitHub repositories are the default add path when `--repo owner/name` is provided. Hosted add/import writes minimal tracked-project config and checks out the project automatically. `herakles remove` and the UI remove action stop tracking a project after confirmation; they do not delete local files or hosted repositories.
+`herakles add` is the primary project entry point. Existing GitHub repositories are the default add path when `--repo owner/name` is provided. Hosted add/import writes minimal tracked-project config and checks out the project automatically. `herakles remove` stops tracking a project after confirmation; it does not delete local files or hosted repositories.
 
-GitHub bulk import opens as a dialog. It lists accessible repositories for configured users/organizations plus the authenticated GitHub user's account and organizations, then lets the user select repositories and set lifecycle, group, and tags before tracked config is written and workspace spin-up starts.
+`herakles projects import` bulk-imports known GitHub repositories, listing accessible repositories for configured users/organizations plus the authenticated GitHub user's account and organizations, and writes the requested lifecycle, group, and tags before workspace spin-up starts.
 
-The Pull Requests screen reviews open pull requests across tracked hosted projects. It uses the resolved project model for lifecycle, starred-project ordering, repository labels, and partial failure reporting; pull request and repository links lead back to GitHub. Pull request reads are cached briefly under `_herakles/cache` as generated local state, and explicit refresh bypasses that cache.
-
-Settings exposes project refresh, validation, doctor checks, and Config Exchange. Project Settings provides preview-before-apply lifecycle, metadata, promotion, and same-owner rename actions through shared services. Config Exchange is a copy-paste editor for `_herakles/herakles.toml` in the UI and the `herakles config show` and `herakles config apply` commands in the CLI; both validate TOML with Bun's parser and the Herakles schema before applying, and the CLI previews a diff and asks for confirmation first.
-
-The UI server exposes `/api/events` as a server-sent event stream. Events are emitted around typed Herakles operations such as project refresh, up, and validation. The stream is a live status surface, not a command channel or persistence layer.
-
-Project cards may expose narrow repository maintenance actions, such as fetching and fast-forwarding the local default branch. These actions report typed success, skipped, or failed results and emit terminal UI status events; they are not substitutes for Spin Up Workspace and do not broaden the UI into a generic shell surface.
+Project refresh, validation, and doctor checks are separate commands. Lifecycle changes, local promotion, and same-owner renames are plan-first: `projects set-state --dry-run` prints the typed plan, and `projects promote` and `projects rename` print theirs until `--apply` is passed. Config Exchange moves `_herakles/herakles.toml` text between machines: `herakles config show` prints the stored TOML and `herakles config apply` validates TOML with Bun's parser and the Herakles schema, previews a line diff, and asks for confirmation before writing.

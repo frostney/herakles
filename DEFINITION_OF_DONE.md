@@ -6,21 +6,20 @@ Use this gate before handoff, review, or PR creation. A change is not done until
 
 - The delivered behavior matches the issue, confirmed mini-spec, or requested documentation change without hidden scope changes.
 - The change follows the project language in [CONTEXT.md](CONTEXT.md) and the relevant boundaries in [Architecture](docs/architecture.md) and [Code Style](docs/code-style.md).
-- CLI, API, and UI changes call the shared core services instead of duplicating project resolution, workspace spin-up planning, validation, or config mutation logic.
+- CLI changes call the shared core services instead of duplicating project resolution, workspace spin-up planning, validation, or config mutation logic.
 - `_herakles/herakles.toml` remains the canonical synced configuration; generated state remains under ignored `_herakles` folders.
 - Repository operations stay explicit, typed, and non-destructive. Herakles must not silently move, delete, prune, push, publish, or duplicate repositories.
 
 ## Tests and Verification
 
-- Focused tests cover the behavior surface that owns the contract, such as API route tests for HTTP behavior, service tests for domain behavior, CLI invocation tests for command parity, or UI helper tests for deterministic client logic.
+- Focused tests cover the behavior surface that owns the contract, such as service tests for domain behavior or CLI invocation tests for command behavior and output.
 - Relevant focused checks pass before broader checks.
 - Before handoff, review resolution, or PR creation, run the local gate bundle:
   - `bun run lint`
   - `bunx tsc --noEmit`
   - `bun test`
   - `bun run quality`
-- Focused tests and browser/UI smoke checks are useful during development, but they do not replace the local gate bundle before handoff.
-- UI-facing changes are smoke-tested with `bun run ui -- --root <workspace> --no-open` or equivalent browser evidence when the behavior cannot be covered by deterministic tests alone.
+- Focused tests and CLI smoke checks (`bun run herakles -- <command>`) are useful during development, but they do not replace the local gate bundle before handoff.
 
 ## Documentation and Decisions
 

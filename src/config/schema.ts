@@ -109,18 +109,10 @@ export const heraklesConfigSchema = z
         state_for_private: projectStateSchema.default("experiment" satisfies ProjectState),
         state_for_github_archived: projectStateSchema.default("archived" satisfies ProjectState),
         state_for_local: projectStateSchema.default("experiment" satisfies ProjectState),
-        roadmap_files: z
-          .array(relativePathSchema)
-          .default(["ROADMAP.md", "docs/ROADMAP.md", "TODO.md"]),
         learning_files: z.array(relativePathSchema).default(["LEARNING.md", "docs/LEARNING.md"]),
       })
       .prefault({}),
     up: z.object({ exclude_topics: z.array(z.string()).default(["no-up"]) }).prefault({}),
-    ui: z
-      .object({
-        enabled: z.boolean().default(true),
-      })
-      .prefault({}),
     project: z.record(configKeySchema, projectConfigSchema).default({}),
     // Checked per plugin by the plugin host, so a plugin entry never breaks core commands. Zod 4
     // drops a `__proto__` record key, which would hide a bad plugin name, so the table passes through.
@@ -155,4 +147,15 @@ export function parseHeraklesConfig(raw: unknown): HeraklesConfig {
     if (issues.length > 0) throw new z.ZodError(issues);
   }
   return heraklesConfigSchema.parse(raw);
+}
+
+/** One readable line for a failed config parse, with a hint when keys are unrecognized. */
+export function describeConfigError(error: z.ZodError): string {
+  const problems = error.issues.map(
+    (issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message.replace(/\.$/, "")}`,
+  );
+  const hint = error.issues.some((issue) => issue.code === "unrecognized_keys")
+    ? " Remove unrecognized tables and keys."
+    : "";
+  return `${problems.join("; ")}.${hint}`;
 }

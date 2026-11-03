@@ -1,9 +1,10 @@
-import { existsSync, lstatSync, realpathSync } from "node:fs";
-import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { existsSync } from "node:fs";
+import { readFile, realpath } from "node:fs/promises";
+import { join } from "node:path";
 import { TOML } from "bun";
+import { ZodError } from "zod";
 import { type LoadedConfig, loadConfig } from "./config/load";
-import { nearestExistingAncestor, pathIsInside, resolveUnder } from "./config/paths";
+import { pathIsInside, resolveUnder } from "./config/paths";
 import {
   applyProjectConfigPlan,
   createProjectConfigPlan,
@@ -11,7 +12,7 @@ import {
   type ProjectConfigChanges,
   type ProjectConfigPlan,
 } from "./config/projects";
-import { parseHeraklesConfig } from "./config/schema";
+import { describeConfigError, parseHeraklesConfig } from "./config/schema";
 import { normalizeProjectConfigOrder, writeConfigToml } from "./config/write";
 import { normalizeRemote, type ProjectDiscovery, refreshProjectDiscovery } from "./discovery";
 import { pluginDoctorChecks, runDoctor } from "./doctor";
@@ -20,19 +21,13 @@ import type {
   HostedImportCandidate,
   LocalRepository,
   Project,
-  ProjectDefaultBranchSyncResult,
-  ProjectDetail,
-  ProjectOpenTarget,
   ProjectState,
-  PullRequestCollection,
-  PullRequestCollectionFailure,
-  PullRequestSummary,
   UpPlan,
   UpPlanItem,
   ValidationIssue,
   ValidationResult,
 } from "./domain";
-import { listImportableGitHubRepositories, listOpenPullRequestsForRepo } from "./github/gh";
+import { listImportableGitHubRepositories } from "./github/gh";
 import { type HostedClonePathMismatch, validateProjects } from "./lifecycle/validate";
 import {
   createLocalPromotionPlan,
@@ -40,8 +35,6 @@ import {
   promoteLocalProject,
 } from "./local/promote";
 import type { PluginStatus } from "./plugin-host/load";
-import { syncDefaultBranch } from "./project/gitStatus";
-import { flushLineCountCache } from "./project/lineCounts";
 import {
   createProjectRenamePlan,
   renameProject as executeProjectRename,
@@ -64,32 +57,7 @@ type WorkspaceLoad = {
   state?: WorkspaceState;
 };
 
-type PullRequestCacheEntry = {
-  expiresAt: number;
-  key: string;
-  loading?: Promise<PullRequestCollection>;
-  value?: PullRequestCollection;
-};
-
-type StoredPullRequestCacheEntry = {
-  expiresAt: number;
-  key: string;
-  value: PullRequestCollection;
-};
-
-export class InvalidProjectOpenDestinationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InvalidProjectOpenDestinationError";
-  }
-}
-
 const workspaceLoads = new Map<string, WorkspaceLoad>();
-const pullRequestCacheTtlMs = 60_000;
-const pullRequestCacheVersion = 3;
-const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
-
-export { InvalidProjectRenameError };
 
 async function loadWorkspace(workspaceRoot: string): Promise<WorkspaceState> {
   const existing = workspaceLoads.get(workspaceRoot);
@@ -129,7 +97,6 @@ async function loadWorkspaceFresh(workspaceRoot: string): Promise<WorkspaceState
   const loaded = await loadConfig(workspaceRoot);
   const discovery = await refreshProjectDiscovery(loaded);
   const projects = resolveProjects(loaded, discovery);
-  await flushLineCountCache(loaded.paths.cacheDir);
   const validation = validateWorkspaceProjects(discovery, projects);
   return { loaded, discovery, projects, validation };
 }
@@ -155,130 +122,6 @@ export async function status(workspaceRoot: string) {
 
 export async function projects(workspaceRoot: string): Promise<Project[]> {
   return (await loadWorkspace(workspaceRoot)).projects;
-}
-
-export async function pullRequests(
-  workspaceRoot: string,
-  options: { refresh?: boolean } = {},
-): Promise<PullRequestCollection> {
-  const cacheKey = await pullRequestWorkspaceCacheKey(workspaceRoot);
-  const cached = pullRequestCaches.get(workspaceRoot);
-  const now = Date.now();
-  if (!options.refresh && cached?.key === cacheKey) {
-    if (cached.value && cached.expiresAt > now) return cached.value;
-    if (cached.loading) return cached.loading;
-  }
-  if (!options.refresh) {
-    const stored = await readStoredPullRequestCache(workspaceRoot, cacheKey);
-    if (stored) return stored;
-  }
-  const loading = collectPullRequests(workspaceRoot)
-    .then(async (value) => {
-      const expiresAt = Date.now() + pullRequestCacheTtlMs;
-      pullRequestCaches.set(workspaceRoot, {
-        expiresAt,
-        key: cacheKey,
-        value,
-      });
-      await writeStoredPullRequestCache(workspaceRoot, { expiresAt, key: cacheKey, value }).catch(
-        () => undefined,
-      );
-      return value;
-    })
-    .catch((error) => {
-      if (pullRequestCaches.get(workspaceRoot)?.loading === loading) {
-        pullRequestCaches.delete(workspaceRoot);
-      }
-      throw error;
-    });
-  pullRequestCaches.set(workspaceRoot, { expiresAt: 0, key: cacheKey, loading });
-  return loading;
-}
-
-async function collectPullRequests(workspaceRoot: string): Promise<PullRequestCollection> {
-  const state = await loadWorkspace(workspaceRoot);
-  const hosted = state.projects.filter((project) => project.source === "github" && project.owner);
-  const settled = await Promise.allSettled(
-    hosted.map(async (project) => ({
-      project,
-      pullRequests: await listOpenPullRequestsForRepo(`${project.owner}/${project.repo}`),
-    })),
-  );
-  const pullRequests: PullRequestSummary[] = [];
-  const failures: PullRequestCollectionFailure[] = [];
-  for (let index = 0; index < settled.length; index++) {
-    const project = hosted[index];
-    const result = settled[index];
-    if (!project || !result) continue;
-    if (result.status === "fulfilled") {
-      pullRequests.push(
-        ...result.value.pullRequests.map((pullRequest) => ({
-          ...pullRequest,
-          projectId: project.id,
-          projectPinned: project.pinned,
-          projectSlug: project.slug,
-          projectState: project.state,
-        })),
-      );
-    } else {
-      failures.push({
-        projectId: project.id,
-        projectSlug: project.slug,
-        repo: `${project.owner}/${project.repo}`,
-        message: result.reason instanceof Error ? result.reason.message : String(result.reason),
-      });
-    }
-  }
-  return {
-    generatedAt: new Date().toISOString(),
-    pullRequests: pullRequests.sort(
-      (a, b) =>
-        Number(b.projectPinned) - Number(a.projectPinned) ||
-        b.updatedAt.localeCompare(a.updatedAt) ||
-        a.projectSlug.localeCompare(b.projectSlug),
-    ),
-    failures,
-    skippedLocalProjects: state.projects.length - hosted.length,
-  };
-}
-
-async function pullRequestWorkspaceCacheKey(workspaceRoot: string): Promise<string> {
-  try {
-    const configStat = await stat(join(workspaceRoot, "_herakles", "herakles.toml"));
-    return `${pullRequestCacheVersion}:${workspaceRoot}:${configStat.mtimeMs}`;
-  } catch {
-    return `${pullRequestCacheVersion}:${workspaceRoot}`;
-  }
-}
-
-async function readStoredPullRequestCache(
-  workspaceRoot: string,
-  key: string,
-): Promise<PullRequestCollection | undefined> {
-  try {
-    const raw = JSON.parse(
-      await readFile(pullRequestCachePath(workspaceRoot), "utf8"),
-    ) as Partial<StoredPullRequestCacheEntry>;
-    if (raw.key !== key || typeof raw.expiresAt !== "number" || raw.expiresAt <= Date.now()) {
-      return undefined;
-    }
-    return raw.value;
-  } catch {
-    return undefined;
-  }
-}
-
-async function writeStoredPullRequestCache(
-  workspaceRoot: string,
-  entry: StoredPullRequestCacheEntry,
-) {
-  const path = pullRequestCachePath(workspaceRoot);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(entry, null, 2)}\n`);
-}
-
-function pullRequestCachePath(workspaceRoot: string): string {
-  return join(workspaceRoot, "_herakles", "cache", "pull-requests.json");
 }
 
 export async function project(workspaceRoot: string, id: string): Promise<Project> {
@@ -313,135 +156,6 @@ export async function projectCheckoutDirectory(
   return checkoutRealPath;
 }
 
-export async function openProject(
-  workspaceRoot: string,
-  id: string,
-  target: ProjectOpenTarget,
-  destination: string,
-) {
-  validateProjectOpenDestination(workspaceRoot, target, destination);
-  const command = projectOpenCommand(target, destination);
-  launchProjectOpenCommand(command);
-  return { projectId: id, target, destination, opened: true };
-}
-
-export async function projectDetail(workspaceRoot: string, id: string): Promise<ProjectDetail> {
-  const state = await loadWorkspace(workspaceRoot);
-  const found = findProject(state.projects, id);
-  if (!found) throw new Error(`Unknown project: ${id}`);
-  return {
-    project: found,
-    validationIssues: state.validation.issues.filter((issue) => issue.projectId === found.id),
-  };
-}
-
-function projectOpenCommand(target: ProjectOpenTarget, destination: string): string[] {
-  if (target === "codex") return ["codex", "app", destination];
-  if (target === "terminal") return projectTerminalOpenCommand(destination);
-  if (process.platform === "darwin") return ["open", destination];
-  if (process.platform === "win32") {
-    return target === "filesystem"
-      ? ["explorer", destination]
-      : ["cmd", "/c", "start", "", destination];
-  }
-  return ["xdg-open", destination];
-}
-
-function projectTerminalOpenCommand(destination: string): string[] {
-  if (process.platform === "darwin") return ["open", "-a", "Terminal", destination];
-  if (process.platform === "win32") {
-    return ["cmd", "/c", "start", "", "cmd", "/k", "cd", "/d", destination];
-  }
-  return ["x-terminal-emulator", "--working-directory", destination];
-}
-
-function validateProjectOpenDestination(
-  workspaceRoot: string,
-  target: ProjectOpenTarget,
-  destination: string,
-) {
-  if (target === "github") {
-    const url = parseProjectOpenUrl(destination);
-    if (
-      !["http:", "https:"].includes(url.protocol) ||
-      !["github.com", "www.github.com"].includes(url.hostname)
-    ) {
-      throw new InvalidProjectOpenDestinationError(
-        `Unsupported GitHub destination: ${destination}`,
-      );
-    }
-    return;
-  }
-  if (!isAbsolute(destination) || !pathIsInside(workspaceRoot, destination)) {
-    throw new InvalidProjectOpenDestinationError(
-      `Project destination must stay inside the workspace: ${destination}`,
-    );
-  }
-}
-
-function parseProjectOpenUrl(destination: string): URL {
-  try {
-    return new URL(destination);
-  } catch {
-    throw new InvalidProjectOpenDestinationError(`Unsupported GitHub destination: ${destination}`);
-  }
-}
-
-function launchProjectOpenCommand(command: string[]) {
-  const proc = Bun.spawn(command, {
-    env: process.env,
-    stdin: "ignore",
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  proc.unref();
-}
-
-const projectIconCandidates = [
-  "favicon.svg",
-  "favicon.png",
-  "favicon.ico",
-  "public/favicon.svg",
-  "public/favicon.png",
-  "public/favicon.ico",
-  "public/apple-touch-icon.png",
-  "icon.svg",
-  "icon.png",
-  "public/icon.svg",
-  "public/icon.png",
-  "logo.svg",
-  "logo.png",
-  "public/logo.svg",
-  "public/logo.png",
-] as const;
-
-const projectIconContentTypes: Record<string, string> = {
-  ".ico": "image/x-icon",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-};
-
-export async function projectIcon(workspaceRoot: string, id: string) {
-  const found = await project(workspaceRoot, id);
-  if (!pathIsInside(workspaceRoot, found.path)) {
-    throw new Error(`Refusing to read project icon outside workspace: ${found.path}`);
-  }
-  if (!existsSync(found.path)) return undefined;
-  if (!realPathIsInside(workspaceRoot, found.path)) {
-    throw new Error(`Refusing to read project icon outside workspace: ${found.path}`);
-  }
-  for (const candidate of projectIconCandidates) {
-    const path = join(found.path, candidate);
-    if (!existsSync(path)) continue;
-    if (!isWorkspaceFile(workspaceRoot, path)) continue;
-    const extension = path.slice(path.lastIndexOf("."));
-    return {
-      path,
-      contentType: projectIconContentTypes[extension] ?? "application/octet-stream",
-    };
-  }
-}
-
 export async function projectConfigPlan(
   workspaceRoot: string,
   projectId: string,
@@ -451,7 +165,7 @@ export async function projectConfigPlan(
   return createWorkspaceProjectConfigPlan(workspaceRoot, projectId, changes, options);
 }
 
-export async function applyProjectConfig(
+async function applyProjectConfig(
   workspaceRoot: string,
   projectId: string,
   changes: ProjectConfigChanges,
@@ -537,37 +251,6 @@ async function projectRenameTarget(workspaceRoot: string, projectId: string) {
   return { state, target };
 }
 
-export async function resolveProjectCanonicalPath(workspaceRoot: string, projectId: string) {
-  const state = await loadWorkspace(workspaceRoot);
-  const mismatch = hostedClonePathMismatches(state.discovery, state.projects).find(
-    (item) => item.projectId === projectId,
-  );
-  if (!mismatch) {
-    throw new Error(`No hosted clone path mismatch for project: ${projectId}`);
-  }
-  if (!pathIsInside(state.loaded.paths.workspaceRoot, mismatch.actualPath)) {
-    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.actualPath}`);
-  }
-  if (!pathIsInside(state.loaded.paths.workspaceRoot, mismatch.expectedPath)) {
-    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.expectedPath}`);
-  }
-  if (!existsSync(mismatch.actualPath)) {
-    throw new Error(`Existing checkout is missing: ${mismatch.actualPath}`);
-  }
-  if (existsSync(mismatch.expectedPath)) {
-    throw new Error(`Canonical checkout path already exists: ${mismatch.expectedPath}`);
-  }
-  await assertCanonicalMoveInsideWorkspace(state.loaded.paths.workspaceRoot, mismatch);
-  await mkdir(dirname(mismatch.expectedPath), { recursive: true });
-  await rename(mismatch.actualPath, mismatch.expectedPath);
-  return {
-    projectId,
-    from: mismatch.actualPath,
-    to: mismatch.expectedPath,
-    moved: true,
-  };
-}
-
 export async function importHostedProjects(
   workspaceRoot: string,
   inputs: Array<{
@@ -640,15 +323,6 @@ export async function upProjects(
     byProject.set(id, [...(byProject.get(id) ?? []), execution]);
   }
   return resolved.map((target) => byProject.get(target.id) ?? []);
-}
-
-export async function syncProjectDefaultBranch(
-  workspaceRoot: string,
-  projectId: string,
-): Promise<ProjectDefaultBranchSyncResult> {
-  const target = await project(workspaceRoot, projectId);
-  if (target.source !== "github") throw new Error("Only hosted projects can be synchronised.");
-  return syncDefaultBranch(target);
 }
 
 function validateProjectInput(input: ProjectConfigChanges & { id?: string; name?: string }) {
@@ -911,13 +585,19 @@ function validateConfigToml(toml: string): ValidationResult {
     parseHeraklesConfig(TOML.parse(toml));
     return { valid: true, issues: [] };
   } catch (error) {
+    const message =
+      error instanceof ZodError
+        ? describeConfigError(error)
+        : error instanceof Error
+          ? error.message
+          : String(error);
     return {
       valid: false,
       issues: [
         {
           severity: "error",
           code: "config-toml-invalid",
-          message: error instanceof Error ? error.message : String(error),
+          message,
         },
       ],
     };
@@ -939,40 +619,6 @@ function hostedClonePathMismatches(
     })
     .filter((mismatch): mismatch is HostedClonePathMismatch => mismatch !== undefined)
     .sort((a, b) => a.projectId.localeCompare(b.projectId));
-}
-
-function isWorkspaceFile(workspaceRoot: string, path: string): boolean {
-  let stat: ReturnType<typeof lstatSync>;
-  try {
-    stat = lstatSync(path);
-  } catch {
-    return false;
-  }
-  return stat.isFile() && realPathIsInside(workspaceRoot, path);
-}
-
-function realPathIsInside(workspaceRoot: string, path: string): boolean {
-  try {
-    return pathIsInside(realpathSync(workspaceRoot), realpathSync(path));
-  } catch {
-    return false;
-  }
-}
-
-async function assertCanonicalMoveInsideWorkspace(
-  workspaceRoot: string,
-  mismatch: HostedClonePathMismatch,
-) {
-  const workspaceRealPath = await realpath(workspaceRoot);
-  const actualRealPath = await realpath(mismatch.actualPath);
-  if (!pathIsInside(workspaceRealPath, actualRealPath)) {
-    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.actualPath}`);
-  }
-  const expectedAncestor = nearestExistingAncestor(mismatch.expectedPath);
-  const expectedAncestorRealPath = await realpath(expectedAncestor);
-  if (!pathIsInside(workspaceRealPath, expectedAncestorRealPath)) {
-    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.expectedPath}`);
-  }
 }
 
 function projectConfigId(loaded: LoadedConfig, project: Project): string {

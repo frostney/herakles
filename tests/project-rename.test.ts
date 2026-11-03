@@ -53,8 +53,6 @@ function hostedProject(root: string): Project {
     pinned: true,
     topics: [],
     tags: ["strategic", "billing"],
-    languages: [],
-    hasRoadmap: false,
     up: true,
   };
 }

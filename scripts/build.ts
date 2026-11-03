@@ -4,14 +4,18 @@ import { compileOptions } from "./compile";
 
 const allTargets = {
   cli: { entrypoint: "./src/cli/main.ts", outfile: "./dist/herakles" },
-  ui: { entrypoint: "./src/ui/server/main.ts", outfile: "./dist/herakles-ui" },
 } as const;
 
 type TargetName = keyof typeof allTargets;
 
 function selectedTargets(argv: string[]): TargetName[] {
-  const names = argv.filter((arg) => arg === "cli" || arg === "ui") as TargetName[];
-  return names.length > 0 ? names : (["cli", "ui"] as TargetName[]);
+  const names = argv.filter((arg) => !arg.startsWith("--"));
+  const unknown = names.filter((name) => !Object.hasOwn(allTargets, name));
+  if (unknown.length > 0) {
+    console.error(`Unknown build target: ${unknown.join(", ")}. Available targets: cli.`);
+    process.exit(1);
+  }
+  return names.length > 0 ? (names as TargetName[]) : (["cli"] as TargetName[]);
 }
 
 function flagValue(argv: string[], name: string): string | undefined {

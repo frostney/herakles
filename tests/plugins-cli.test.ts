@@ -363,6 +363,7 @@ entry = "/tmp/plugin.ts"
     const result = await runCli(root, ["two"]);
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("herakles: plugins not loaded: project.broken.source");
+    expect(result.stderr).toContain("herakles: plugins not loaded: Invalid Herakles config");
+    expect(result.stderr).toContain("project.broken.source");
   });
 });
