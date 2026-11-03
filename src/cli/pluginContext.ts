@@ -49,12 +49,13 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     canonicalPath: {
       plan: async (selector): Promise<CanonicalPathOperation> => {
         const plan = await app.canonicalPathPlan(workspaceRoot, selector);
-        return {
+        // Frozen, so the steps a plugin shows cannot drift from the move apply runs.
+        return Object.freeze({
           ...plan,
           summary: `Move ${plan.from} to ${plan.to}? This moves the existing checkout and does not delete or duplicate repositories.`,
-          steps: [{ action: "move", target: plan.from, detail: `to ${plan.to}` }],
+          steps: Object.freeze([{ action: "move", target: plan.from, detail: `to ${plan.to}` }]),
           apply: () => app.applyCanonicalPath(workspaceRoot, plan),
-        };
+        });
       },
     },
     config: {
