@@ -17,6 +17,8 @@ export type CliPlugins =
   | { kind: "unavailable"; error: unknown }
   | { kind: "loaded"; workspaceRoot: string; registry: PluginRegistry };
 
+const helpFlags = new Set(["--help", "-h", "--help-all", "-H"]);
+
 /** Core routes that report plugin status and therefore always load plugins. */
 const statusRoutes = new Set(["doctor", "plugins"]);
 
@@ -64,7 +66,7 @@ export function routeNeedsPlugins(args: readonly string[], core: CoreCommandTree
   if (first === undefined || statusRoutes.has(first)) return true;
   if (core.commands.includes(first)) return false;
   if (!Object.hasOwn(core.groups, first)) return true;
-  if (second === undefined) return args.includes("--help") || args.includes("-h");
+  if (second === undefined) return args.some((arg) => helpFlags.has(arg));
   return !core.groups[first]!.includes(second);
 }
 

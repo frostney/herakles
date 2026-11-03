@@ -18,10 +18,9 @@ let reader: LineReader | undefined;
 export async function ask(
   question: string,
   output: { write(text: string): unknown },
-  input: NodeJS.ReadableStream = process.stdin,
 ): Promise<string> {
   output.write(question);
-  const lines = lineReader(input);
+  const lines = lineReader(process.stdin);
   const buffered = lines.buffered.shift();
   if (buffered !== undefined) return buffered.trim();
   if (lines.closed) return "";

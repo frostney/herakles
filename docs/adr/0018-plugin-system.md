@@ -67,7 +67,7 @@ export default definePlugin({
 - `workspace`: the workspace root and a plugin cache directory, `_herakles/cache/plugins/<name>`, for generated state.
 - `projects`: list, get by selector, and validate, through the same core services as the CLI.
 - `config.read()`: a detached copy of the parsed config. There is no config writer.
-- `git.run(project, args)` and `gh.run(args)`: argument lists for those two binaries, never a shell string. Herakles resolves the project through core and uses its checkout, which must exist inside the workspace, as the working directory. `git.run` refuses arguments that start with a global git option such as `-C` or `-c`. This keeps the API from offering a shell; it is not containment, since git config and aliases in the checkout still apply.
+- `git.run(project, args)` and `gh.run(args)`: argument lists for those two binaries, never a shell string. Herakles resolves the project through core and uses its checkout, which must exist inside the workspace, as the working directory. `git.run` refuses arguments that start with a global git option such as `-C` or `-c`. The runners never parse a shell string, but they are not containment: git config, aliases, hooks and filters can run commands, including ones a plugin sets through `git.run` itself.
 - `output` helpers for JSON, tables, lines, warnings and progress. Diagnostics go to stderr so `--json` stdout stays parseable.
 - `prompt.confirm()` and `prompt.text()`. Closed input declines.
 - `applyPlan(plan, { yes })`, which always shows the typed steps, asks for confirmation unless `--yes`, and only then applies. With `--json` the steps and the question go to stderr.

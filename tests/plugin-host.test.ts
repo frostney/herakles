@@ -216,6 +216,7 @@ describe("plugin checks", () => {
       [["projects"], false],
       [["projects", "--json"], false],
       [["projects", "--help"], true],
+      [["projects", "-H"], true],
       [["constructor", "foo"], true],
       [[], true],
       [["--help"], true],
