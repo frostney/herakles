@@ -123,7 +123,7 @@ export function describeConfigError(error: z.ZodError): string {
     (issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message.replace(/\.$/, "")}`,
   );
   const hint = error.issues.some((issue) => issue.code === "unrecognized_keys")
-    ? " Remove unrecognized tables and keys from it."
+    ? " Remove unrecognized tables and keys."
     : "";
   return `${problems.join("; ")}.${hint}`;
 }

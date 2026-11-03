@@ -9,7 +9,7 @@ type TargetName = keyof typeof allTargets;
 
 function selectedTargets(argv: string[]): TargetName[] {
   const names = argv.filter((arg) => !arg.startsWith("--"));
-  const unknown = names.filter((name) => !(name in allTargets));
+  const unknown = names.filter((name) => !Object.hasOwn(allTargets, name));
   if (unknown.length > 0) {
     console.error(`Unknown build target: ${unknown.join(", ")}. Available targets: cli.`);
     process.exit(1);
