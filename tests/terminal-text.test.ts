@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { formatTable } from "../src/cli/output";
-import { escapeTerminalText } from "../src/utils/terminalText";
+import { escapeTerminalLines, escapeTerminalText } from "../src/utils/terminalText";
 
 describe("terminal text escaping", () => {
   test("escapes controls, separators and bidi formatting characters", () => {
@@ -20,5 +20,9 @@ describe("terminal text escaping", () => {
     const [header, , row] = table.split("\n");
     expect(row).toBe("x\\u001b[31my  failed");
     expect(header!.indexOf("state")).toBe(row!.indexOf("failed"));
+  });
+
+  test("line escaping keeps line breaks", () => {
+    expect(escapeTerminalLines("one\u001b\ntwo")).toBe("one\\u001b\ntwo");
   });
 });

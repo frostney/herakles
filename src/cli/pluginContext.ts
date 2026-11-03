@@ -11,6 +11,7 @@ import type {
 } from "../plugin-host/api";
 import { runCommand } from "../utils/command";
 import { definedProperties } from "../utils/definedProperties";
+import { escapeTerminalLines } from "../utils/terminalText";
 import { formatTable } from "./output";
 import { ask } from "./prompt";
 
@@ -85,9 +86,9 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     output: {
       json: (value) => stdout.write(`${JSON.stringify(value, null, 2)}\n`),
       table: (rows) => stdout.write(`${formatTable(rows)}\n`),
-      line: (text) => stdout.write(`${text}\n`),
-      warn: (text) => stderr.write(`${text}\n`),
-      progress: (text) => stderr.write(`${text}\n`),
+      line: (text) => stdout.write(`${escapeTerminalLines(text)}\n`),
+      warn: (text) => stderr.write(`${escapeTerminalLines(text)}\n`),
+      progress: (text) => stderr.write(`${escapeTerminalLines(text)}\n`),
     },
     prompt: {
       confirm,

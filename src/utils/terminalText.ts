@@ -18,3 +18,8 @@ export function escapeTerminalText(text: string): string {
     (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
 }
+
+/** Like `escapeTerminalText`, but keeps line breaks so multi-line output still prints as lines. */
+export function escapeTerminalLines(text: string): string {
+  return text.split("\n").map(escapeTerminalText).join("\n");
+}
