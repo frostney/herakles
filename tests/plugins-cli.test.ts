@@ -62,13 +62,13 @@ async function pluginStatuses(root: string) {
   expect(result.exitCode).toBe(0);
   const statuses = JSON.parse(result.stdout) as Array<{
     name: string;
+    source: { kind: string };
     state: string;
     problem?: string;
     message: string;
     commands: string[];
-    source: { kind: string };
   }>;
-  // Bundled plugins always list; these tests are about external ones.
+  // These tests cover external plugins; bundled plugins have their own tests.
   return statuses.filter((status) => status.source.kind !== "bundled");
 }
 
@@ -366,6 +366,7 @@ entry = "/tmp/plugin.ts"
     const result = await runCli(root, ["two"]);
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("herakles: plugins not loaded: project.broken.source");
+    expect(result.stderr).toContain("herakles: plugins not loaded: Invalid Herakles config");
+    expect(result.stderr).toContain("project.broken.source");
   });
 });

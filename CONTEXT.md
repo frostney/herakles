@@ -46,7 +46,7 @@ _Avoid_: File sync, apply config, slay
 Spin up is a workspace-level flow, not a per-project checkout action. Add Project, Bulk Import, and explicit workspace spin-up may invoke it; normal project lists should not present checkout as an independent project operation.
 
 **Workspace Drift**:
-A Herakles Workspace state where synced configuration expects lifecycle folders or hosted project folders that are missing, stale, misplaced, or blocked by conflicts on disk. Drift is surfaced as a blocking message that shows the exact mismatch and offers the right workspace recovery action or a local ignore.
+A Herakles Workspace state where synced configuration expects lifecycle folders or hosted project folders that are missing, stale, misplaced, or blocked by conflicts on disk. Drift is reported with the exact mismatch and the right workspace recovery action.
 _Avoid_: Sync mismatch, checkout task
 
 **Canonical Checkout Path**:
@@ -62,7 +62,7 @@ The user-facing action that makes an existing Herakles Workspace match its synce
 _Avoid_: Run Up, Remote sync
 
 **Config Exchange**:
-The user-directed act of copying Herakles configuration into or out of the UI. It moves configuration text, not repositories, runtime state, or remote commands.
+The user-directed act of copying Herakles configuration into or out of a Herakles Workspace. It moves configuration text, not repositories, runtime state, or remote commands.
 _Avoid_: Remote sync, machine profile, file sync
 
 **Plugin**:
@@ -80,20 +80,16 @@ _Avoid_: Local plugin, user script
 **Project Discovery**:
 The Herakles refresh flow that reads hosted repositories and local Git folders, then updates the resolved project model. It is user-facing as project discovery or project refresh; implementation details stay out of user-facing terminology.
 
-**Herakles Workbench**:
-The local graphical surface for inspecting and operating a Herakles Workspace, including projects, pull requests, settings, and workspace recovery flows.
-_Avoid_: Console, Dashboard as the whole-app name, terminal console
-
 **Project Settings**:
-The user-facing place for changing a project's connection and interpretation, including lifecycle state, project group, project tags, archive evidence, up behavior, promotion from a local experiment to a hosted repository, and same-owner hosted repository renames.
+The user-facing flows for changing a project's connection and interpretation, including lifecycle state, project group, project tags, archive evidence, up behavior, promotion from a local experiment to a hosted repository, and same-owner hosted repository renames.
 _Avoid_: Separate promotion workflow
 
 **Starred Project**:
-A tracked project the user has marked as important for Workbench attention and ordering. Starred status does not change lifecycle or workspace path.
+A tracked project the user has marked as important for attention and ordering. Starred status does not change lifecycle or workspace path.
 _Avoid_: Pinned repository
 
 **Pull Request Review**:
-The Herakles Workbench surface for reviewing open pull requests across tracked hosted projects. It is a triage view over hosted repository work, not a replacement for GitHub review.
+The Herakles flow for reviewing open pull requests across tracked hosted projects. It is a triage view over hosted repository work, not a replacement for GitHub review. Core does not provide it; a first-party plugin does.
 _Avoid_: Task list, internal project list
 
 **Hosted Visibility**:

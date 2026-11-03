@@ -91,8 +91,6 @@ state = "open-source"
     pinned: false,
     topics: [],
     tags: [],
-    languages: [],
-    hasRoadmap: false,
     up: true,
   } satisfies Project;
   return { base, home, root, checkout, origin, project };
@@ -584,6 +582,36 @@ describe("prune-worktrees command", () => {
     });
   });
 
+  test("an unexpected throw after the removal still reports the worktree as removed", async () => {
+    await withFixture(async (fixture) => {
+      const path = await addWorktree(fixture, "feature/throws");
+      const harness = createHarness(fixture, {
+        pullRequests: { "feature/throws": merged(93, await tipOf(fixture, "feature/throws")) },
+      });
+      const realRun = harness.context.git.run;
+      const context: PluginContext = {
+        ...harness.context,
+        git: {
+          ...harness.context.git,
+          run: async (project, args, options) => {
+            if (args[0] === "branch") throw "branch deletion exploded";
+            return realRun(project, args, options);
+          },
+        },
+      };
+
+      const report = await pruneWorktrees(context, { yes: true }, { interactive: false });
+
+      expect(existsSync(path)).toBe(false);
+      expect(report.results[0]).toMatchObject({
+        branch: "feature/throws",
+        removed: true,
+        branchDeleted: false,
+        error: "branch deletion exploded",
+      });
+    });
+  });
+
   test("--json prints only the report on stdout", async () => {
     await withFixture(async (fixture) => {
       await addWorktree(fixture, "feature/json");
@@ -638,6 +666,14 @@ echo '[]'
     );
   }
 
+  /** This plugin's `plugins list` entry; other bundled plugins are listed too. */
+  async function pruneWorktreesStatuses(fixture: Fixture) {
+    const listed = await runCli(fixture, ["plugins", "list", "--json"]);
+    return (JSON.parse(listed.stdout) as Array<{ name: string }>).filter(
+      ({ name }) => name === "prune-worktrees",
+    );
+  }
+
   test("is off until [plugins.prune-worktrees] is set, and plugins list shows how", async () => {
     await withFixture(async (fixture) => {
       const config = join(fixture.root, "_herakles", "herakles.toml");
@@ -645,9 +681,9 @@ echo '[]'
       await writeFile(config, enabled.replace("[plugins.prune-worktrees]\n", ""));
 
       const off = await runCli(fixture, ["projects", "prune-worktrees"]);
-      const offList = JSON.parse((await runCli(fixture, ["plugins", "list", "--json"])).stdout);
+      const offList = await pruneWorktreesStatuses(fixture);
       await writeFile(config, enabled);
-      const onList = JSON.parse((await runCli(fixture, ["plugins", "list", "--json"])).stdout);
+      const onList = await pruneWorktreesStatuses(fixture);
 
       expect(off.exitCode).not.toBe(0);
       expect(off.stdout).not.toContain("Nothing to prune");

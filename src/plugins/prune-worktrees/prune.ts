@@ -31,36 +31,30 @@ export async function applyPrune(
 ): Promise<PruneResult[]> {
   const results: PruneResult[] = [];
   for (const candidate of prunable) {
+    const result: PruneResult = {
+      project: candidate.project.slug,
+      path: candidate.path,
+      branch: candidate.branch!,
+      removed: false,
+      branchDeleted: false,
+    };
     try {
-      results.push(await pruneOne(context, candidate));
+      results.push(await pruneOne(context, candidate, result));
     } catch (error) {
-      results.push(failure(candidate, (error as Error).message));
+      // Keep what already happened: a throw after the removal must not report the worktree as kept.
+      results.push({ ...result, error: error instanceof Error ? error.message : String(error) });
     }
   }
   return results;
 }
 
-function failure(candidate: Candidate, error: string): PruneResult {
-  return {
-    project: candidate.project.slug,
-    path: candidate.path,
-    branch: candidate.branch!,
-    removed: false,
-    branchDeleted: false,
-    error,
-  };
-}
-
-async function pruneOne(context: PluginContext, candidate: Candidate): Promise<PruneResult> {
+async function pruneOne(
+  context: PluginContext,
+  candidate: Candidate,
+  result: PruneResult,
+): Promise<PruneResult> {
   const { project, path } = candidate;
   const branch = candidate.branch!;
-  const result: PruneResult = {
-    project: project.slug,
-    path,
-    branch,
-    removed: false,
-    branchDeleted: false,
-  };
   const changed = await changedSincePlan(candidate);
   if (changed) return { ...result, error: `skipped: ${changed}` };
   const removal = await context.git.run(project, ["worktree", "remove", "--", path], {

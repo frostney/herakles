@@ -67,13 +67,10 @@ describe("external plugins in the compiled executable", () => {
       projects: 2,
       plugin: "hello",
     });
-    const statuses = JSON.parse(list.stdout) as Array<{
-      name: string;
-      state: string;
-      source: { kind: string };
-    }>;
-    const external = statuses.filter(({ source }) => source.kind !== "bundled");
-    expect(external.map(({ name, state }) => [name, state])).toEqual([
+    const statuses = (
+      JSON.parse(list.stdout) as Array<{ name: string; state: string; source: { kind: string } }>
+    ).filter(({ source }) => source.kind !== "bundled");
+    expect(statuses.map(({ name, state }) => [name, state])).toEqual([
       ["hello", "loaded"],
       ["throws", "failed"],
     ]);
