@@ -65,6 +65,18 @@ _Avoid_: Run Up, Remote sync
 The user-directed act of copying Herakles configuration into or out of the UI. It moves configuration text, not repositories, runtime state, or remote commands.
 _Avoid_: Remote sync, machine profile, file sync
 
+**Plugin**:
+An optional Herakles feature that adds commands on top of core workspace, project, validation and configuration behavior. A plugin runs only when the synced configuration enables it, and it cannot replace core commands.
+_Avoid_: Extension, add-on, module
+
+**Bundled Plugin**:
+A plugin that ships inside Herakles itself and stays off until the synced configuration enables it.
+_Avoid_: Built-in feature, core plugin
+
+**External Plugin**:
+A plugin whose code lives in a tracked project in the Herakles Workspace, so it reaches each machine the same way the project does.
+_Avoid_: Local plugin, user script
+
 **Project Discovery**:
 The Herakles refresh flow that reads hosted repositories and local Git folders, then updates the resolved project model. It is user-facing as project discovery or project refresh; implementation details stay out of user-facing terminology.
 

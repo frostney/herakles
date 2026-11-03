@@ -68,6 +68,30 @@ export const projectConfigSchema = z
   })
   .strict();
 
+/** Lowercase kebab-case, used for plugin names and plugin command route words. */
+export const kebabCasePattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+export const pluginNameSchema = z.string().regex(kebabCasePattern, {
+  message: "Plugin names must be lowercase kebab-case.",
+});
+
+/**
+ * One `[plugins.<name>]` table. The plugin host checks each table on its own,
+ * so a bad or newer entry fails only its plugin. Keys this release does not
+ * know are ignored and reported, which keeps entries forward-compatible.
+ */
+export const pluginEntrySchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    project: configKeySchema.optional(),
+    entry: relativePathSchema.optional(),
+  })
+  .refine((plugin) => (plugin.project === undefined) === (plugin.entry === undefined), {
+    message: "External plugins need both project and entry; bundled plugins take neither.",
+  });
+
+export type PluginConfig = z.infer<typeof pluginEntrySchema>;
+
 export const heraklesConfigSchema = z
   .object({
     version: z.number().default(2),
@@ -98,6 +122,14 @@ export const heraklesConfigSchema = z
       })
       .prefault({}),
     project: z.record(configKeySchema, projectConfigSchema).default({}),
+    // Checked per plugin by the plugin host, so a plugin entry never breaks core commands. Zod 4
+    // drops a `__proto__` record key, which would hide a bad plugin name, so the table passes through.
+    plugins: z
+      .custom<Record<string, unknown>>(
+        (value) => typeof value === "object" && value !== null && !Array.isArray(value),
+        { message: "Expected [plugins] to be a table." },
+      )
+      .default({}),
   })
   .strict();
 

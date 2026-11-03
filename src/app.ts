@@ -14,7 +14,7 @@ import {
 import { parseHeraklesConfig } from "./config/schema";
 import { normalizeProjectConfigOrder, writeConfigToml } from "./config/write";
 import { normalizeRemote, type ProjectDiscovery, refreshProjectDiscovery } from "./discovery";
-import { runDoctor } from "./doctor";
+import { pluginDoctorChecks, runDoctor } from "./doctor";
 import type {
   GitHubRepository,
   HostedImportCandidate,
@@ -39,6 +39,7 @@ import {
   type LocalPromotionOptions,
   promoteLocalProject,
 } from "./local/promote";
+import type { PluginStatus } from "./plugin-host/load";
 import { syncDefaultBranch } from "./project/gitStatus";
 import { flushLineCountCache } from "./project/lineCounts";
 import {
@@ -46,7 +47,7 @@ import {
   renameProject as executeProjectRename,
   InvalidProjectRenameError,
 } from "./project/rename";
-import { resolveProjects } from "./project/resolve";
+import { checkoutPathForProject, resolveProjects } from "./project/resolve";
 import { executeUpPlan, type UpExecuteOptions, type UpExecution } from "./up/execute";
 import { createUpPlan } from "./up/plan";
 import { definedProperties } from "./utils/definedProperties";
@@ -284,6 +285,32 @@ export async function project(workspaceRoot: string, id: string): Promise<Projec
   const found = findProject(await projects(workspaceRoot), id);
   if (!found) throw new Error(`Unknown project: ${id}`);
   return found;
+}
+
+/**
+ * The real checkout directory of a tracked project, derived from synced
+ * config without discovery. It must exist, resolve inside the Herakles
+ * Workspace after following symlinks, and not be the workspace root itself.
+ */
+export async function projectCheckoutDirectory(
+  workspaceRoot: string,
+  target: Pick<Project, "source" | "owner" | "repo" | "state" | "path">,
+): Promise<string> {
+  const loaded = await loadConfig(workspaceRoot);
+  const path = checkoutPathForProject(loaded, target);
+  const [workspaceRealPath, checkoutRealPath] = await Promise.all([
+    realpath(loaded.paths.workspaceRoot),
+    realpath(path).catch(() => {
+      throw new Error(`Project checkout is missing: ${path}`);
+    }),
+  ]);
+  if (
+    checkoutRealPath === workspaceRealPath ||
+    !pathIsInside(workspaceRealPath, checkoutRealPath)
+  ) {
+    throw new Error(`Refusing to run outside a project checkout in the workspace: ${path}`);
+  }
+  return checkoutRealPath;
 }
 
 export async function openProject(
@@ -776,9 +803,14 @@ export async function up(workspaceRoot: string, options: UpExecuteOptions = {}) 
   return executeUpPlan(await upPlan(workspaceRoot), options);
 }
 
-export async function doctor(workspaceRoot: string) {
+export async function doctor(
+  workspaceRoot: string,
+  options: { plugins?: readonly PluginStatus[] } = {},
+) {
   const loaded = await loadConfig(workspaceRoot);
-  return runDoctor(loaded);
+  const result = await runDoctor(loaded);
+  if (options.plugins) result.checks.push(...pluginDoctorChecks(options.plugins));
+  return result;
 }
 
 function findProject(projects: readonly Project[], id: string): Project | undefined {

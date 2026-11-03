@@ -51,6 +51,8 @@ Run a built executable directly:
 ./dist/herakles-ui --root <workspace> --no-open
 ```
 
+The CLI executable imports external plugin entries (`.ts` or `.js`) from tracked projects at runtime; it does not need Bun on `PATH` for that. Plugins resolve their own dependencies from their project's `node_modules`, not from packages bundled into Herakles ([ADR 0018](adr/0018-plugin-system.md)).
+
 The binaries are self-contained: copy `dist/herakles` (or `dist/herakles-ui`) to another directory without the source tree and run it from there. Electrobun desktop packaging remains a separate path and is unchanged by this CLI bundle flow.
 
 Cross-compilation for other OS/arch targets can use Bun's `--target=bun-<os>-<arch>` compile options when release automation needs multi-platform artifacts; the default `bun run build` targets the machine that runs it.
