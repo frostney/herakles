@@ -47,6 +47,18 @@ If Herakles discovers a hosted repository clone at a different local path than t
 
 The CLI reports progress through `executeUpPlan`'s `onItemStart(item, index, total)` and `onProgress(result)` hooks, which `app.up`, `app.upProject` and `app.upProjects` pass through. A hook that throws is ignored: it cannot abort the run or fail an item. `app.upProjects` builds and executes one plan across several projects, which `projects import` uses so its counter spans the whole import. `src/cli/progress.ts` turns the hooks into a single live line on stderr, drawn only when stderr is an interactive terminal (a TTY, `TERM` not `dumb`, `CI` unset, empty, `0` or `false`) and always cleared before results are printed or on Ctrl-C; other output is unchanged.
 
+## Plugins
+
+Optional features are plugins that add CLI commands on top of core. Core keeps workspace configuration, projects, `up`, `validate`, `doctor` and Config Exchange. [ADR 0018](adr/0018-plugin-system.md) records the design.
+
+Bundled plugins are compiled into Herakles and stay off until `[plugins.<name>]` in `_herakles/herakles.toml` enables them. External plugins name a tracked project and an entry file inside it. Herakles finds the file at the project's Canonical Checkout Path, derived from synced config alone, so `herakles up` brings the plugin to every machine. A hosted plugin project therefore needs an explicit `state`, and a local plugin project must sit at its derived path. Core config accepts any `[plugins]` tables; each entry is checked on its own, so a bad entry fails only its plugin and unknown keys are ignored. The compiled executable imports external `.ts` and `.js` entries from disk at runtime.
+
+A plugin declares the plugin `apiVersion` it targets and contributes Stricli command specs keyed by route path, such as `prs` or `projects sync`. Herakles adds `--root` and `--json` and builds the commands. A plugin may add top-level commands, add commands to a core group, or own a group of its own. It never replaces a core route or another plugin's route or adds to the core `plugins` group, and any collision rejects the whole plugin.
+
+Plugin commands receive a context with project resolution, validation, a read-only copy of the config, `git` and `gh` argument-list runners that work in project checkouts found without discovery, output and prompt helpers, a plugin cache folder under `_herakles/cache/plugins/<name>`, and `applyPlan` for confirmed repository operations. The context parses no shell strings and has no config writer. It is a capability contract, not a sandbox: plugins run in the Herakles process, and git config or aliases can still run commands.
+
+Core commands, `--version`, and a bare core group that runs its default command do not load plugins. Bare `herakles`, help, plugin routes, `herakles plugins list` and `herakles doctor` do. A plugin whose entry is malformed, that fails to resolve, throws while loading, targets another API version or collides is reported, not loaded: `herakles plugins list` shows its state and `herakles doctor` adds a check for each configured plugin.
+
 ## CLI Surface
 
 Herakles is operated through the `herakles` CLI, a thin Stricli command layer over the core services in `src/app.ts`. Commands print human-readable output by default and structured JSON with `--json`; they do not run a long-lived server or expose a network API.

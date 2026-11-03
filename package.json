@@ -6,6 +6,9 @@
   "bin": {
     "herakles": "./bin/herakles"
   },
+  "exports": {
+    "./plugin": "./src/plugin-host/api.ts"
+  },
   "scripts": {
     "herakles": "bun run src/cli/main.ts",
     "build": "bun run scripts/build.ts",

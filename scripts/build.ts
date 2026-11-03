@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { mkdir } from "node:fs/promises";
+import { compileOptions } from "./compile";
 
 const allTargets = {
   cli: { entrypoint: "./src/cli/main.ts", outfile: "./dist/herakles" },
@@ -48,16 +49,7 @@ await mkdir("dist", { recursive: true });
 
 let failed = false;
 for (const target of targets) {
-  const result = await Bun.build({
-    entrypoints: [target.entrypoint],
-    define: {
-      "process.env.NODE_ENV": JSON.stringify("production"),
-    },
-    compile: {
-      outfile: target.outfile,
-      ...(compileTarget ? { target: compileTarget } : {}),
-    },
-  });
+  const result = await Bun.build(compileOptions(target.entrypoint, target.outfile, compileTarget));
 
   if (!result.success) {
     failed = true;

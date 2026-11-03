@@ -18,6 +18,7 @@ Read the relevant source before changing that area. Keep decisions in one place;
 - Keep generated state out of synced configuration. Local Herakles artifacts belong under ignored folders inside `_herakles`.
 - Keep the CLI a thin control surface over the core services; do not duplicate project resolution, workspace up planning, validation, or config mutation logic in CLI commands.
 - Never silently move, delete, prune, push, or publish repositories.
+- Add optional features as plugins, not core commands ([ADR 0018](docs/adr/0018-plugin-system.md)).
 
 ## Runtime / Commands
 

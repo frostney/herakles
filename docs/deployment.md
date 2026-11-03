@@ -38,6 +38,8 @@ Run a built executable directly:
 ./dist/herakles doctor --root <workspace> --json
 ```
 
+The CLI executable imports external plugin entries (`.ts` or `.js`) from tracked projects at runtime; it does not need Bun on `PATH` for that. Plugins resolve their own dependencies from their project's `node_modules`, not from packages bundled into Herakles ([ADR 0018](adr/0018-plugin-system.md)).
+
 The binary is self-contained: copy `dist/herakles` to another directory without the source tree and run it from there.
 
 `bun run build` compiles for the machine that runs it. `scripts/build.ts` does not take a cross-compile target, so artifacts for other operating systems or architectures must be built on that platform.

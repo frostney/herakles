@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { LoadedConfig } from "../config/load";
 import type { DoctorCheck, DoctorResult } from "../domain";
+import type { PluginStatus } from "../plugin-host/load";
 import { runCommand } from "../utils/command";
 
 export async function runDoctor(loaded: LoadedConfig): Promise<DoctorResult> {
@@ -39,6 +40,19 @@ async function inspectStateIgnore(loaded: LoadedConfig): Promise<DoctorCheck> {
         ? "Herakles generated state is ignored in _herakles"
         : `_herakles/.gitignore should include ${missing.join(", ")}`,
   };
+}
+
+/** One check per plugin named in `[plugins]`; unconfigured bundled plugins stay quiet. */
+export function pluginDoctorChecks(statuses: readonly PluginStatus[]): DoctorCheck[] {
+  const reported = statuses.filter((status) => status.configured);
+  if (reported.length === 0) {
+    return [{ name: "plugins", status: "ok", message: "No plugins enabled" }];
+  }
+  return reported.map((status) => ({
+    name: `plugin:${status.name}`,
+    status: status.state === "failed" ? "fail" : "ok",
+    message: status.message,
+  }));
 }
 
 async function inspectTool(tool: string): Promise<DoctorCheck> {

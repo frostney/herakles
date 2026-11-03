@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, isAbsolute, join, relative, sep } from "node:path";
 import type { LoadedConfig } from "../config/load";
-import { resolveUnder } from "../config/paths";
+import { lifecycleFolders, resolveUnder } from "../config/paths";
 import type { HeraklesConfig } from "../config/schema";
 import type { ProjectDiscovery } from "../discovery";
 import type { GitHubRepository, LocalRepository, Project, ProjectState } from "../domain";
@@ -188,6 +188,94 @@ function resolveLocalProject(
     project.archiveNote = `Learning file: ${learningPath}`;
   }
   return project;
+}
+
+/**
+ * Canonical Checkout Path of a tracked project from synced config alone, with
+ * no hosted or local discovery. A hosted project needs an explicit `state`, or
+ * a lifecycle state core already resolved for it, because its default
+ * lifecycle depends on hosted visibility. A local project is expected at its
+ * derived path; the by-name search of full discovery is not repeated here.
+ */
+export function configuredCheckoutPath(
+  loaded: LoadedConfig,
+  projectKey: string,
+  resolvedState?: unknown,
+): string {
+  const config = Object.hasOwn(loaded.config.project, projectKey)
+    ? loaded.config.project[projectKey]
+    : undefined;
+  if (!config) throw new Error(`Unknown tracked project: ${projectKey}`);
+  if (config.source === "local") {
+    const state = config.state ?? loaded.config.defaults.state_for_local;
+    return derivedProjectPath(loaded, state, config.group, projectKey);
+  }
+  const state = config.state ?? (isProjectState(resolvedState) ? resolvedState : undefined);
+  if (!state) {
+    throw new Error(
+      `Tracked project ${projectKey} needs an explicit state so its path can be derived without a GitHub read.`,
+    );
+  }
+  const repoId = required(config.repo, `Tracked hosted project ${projectKey} is missing repo.`);
+  return derivedProjectPath(loaded, state, config.group, splitOwnerRepo(repoId)[1]);
+}
+
+/**
+ * Checkout path of a resolved project without discovery. The project must be
+ * tracked: it is matched by source, owner and repository name in synced
+ * config. Its reported path is used when it is what project discovery would
+ * accept for that project: a git checkout root at `<lifecycle>/<group?>/<name>`
+ * inside the workspace. That covers archived repositories, GitHub's name
+ * casing and local projects found by name. Otherwise the path is derived from
+ * config.
+ */
+export function checkoutPathForProject(
+  loaded: LoadedConfig,
+  project: Pick<Project, "source" | "owner" | "repo" | "state" | "path">,
+): string {
+  const key = projectConfigKey(loaded, project);
+  if (key === undefined) throw new Error(`Not a tracked project: ${String(project.repo)}`);
+  const name = checkoutName(loaded, key);
+  if (hasDiscoveredCheckoutShape(loaded, project.path, name)) return project.path;
+  return configuredCheckoutPath(loaded, key, project.state);
+}
+
+function checkoutName(loaded: LoadedConfig, key: string): string {
+  const config = loaded.config.project[key]!;
+  return config.source === "github" && config.repo ? splitOwnerRepo(config.repo)[1] : key;
+}
+
+function hasDiscoveredCheckoutShape(loaded: LoadedConfig, path: unknown, name: string): boolean {
+  if (typeof path !== "string" || !isAbsolute(path)) return false;
+  const segments = relative(loaded.paths.workspaceRoot, path).split(sep);
+  const [lifecycle, ...rest] = segments;
+  const last = rest.at(-1);
+  return (
+    isProjectState(lifecycle) &&
+    (rest.length === 1 || rest.length === 2) &&
+    rest.every((segment) => segment !== "" && segment !== "." && segment !== "..") &&
+    last?.toLowerCase() === name.toLowerCase() &&
+    existsSync(join(path, ".git")) &&
+    basename(realpathSync(path)).toLowerCase() === name.toLowerCase()
+  );
+}
+
+function projectConfigKey(
+  loaded: LoadedConfig,
+  project: Pick<Project, "source" | "owner" | "repo">,
+): string | undefined {
+  const entries = Object.entries(loaded.config.project);
+  if (project.source === "local") {
+    return entries.find(([key, config]) => config.source === "local" && key === project.repo)?.[0];
+  }
+  const repo = `${String(project.owner)}/${String(project.repo)}`.toLowerCase();
+  return entries.find(
+    ([, config]) => config.source === "github" && config.repo?.toLowerCase() === repo,
+  )?.[0];
+}
+
+function isProjectState(value: unknown): value is ProjectState {
+  return (lifecycleFolders as readonly unknown[]).includes(value);
 }
 
 function relativeOrAbsolutePath(loaded: LoadedConfig, path: string): string {

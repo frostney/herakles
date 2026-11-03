@@ -11,8 +11,18 @@
 ## Source Ownership
 
 - `src/app.ts` is the service facade the CLI calls.
-- `src/cli/` contains Stricli command wiring only.
+- `src/cli/` contains Stricli command wiring only, including the context handed to plugin commands.
 - `src/project/`, `src/up/`, `src/lifecycle/`, and `src/config/` own project resolution, workspace spin-up, validation, and config writes.
+- `src/plugin-host/` owns the plugin API (`api.ts`) and plugin loading, checks and command routing.
+- `src/plugins/<name>/` holds one bundled plugin; `src/plugins/index.ts` is the bundled plugin registry.
+
+## Plugins
+
+Add an optional feature as a bundled plugin under `src/plugins/<name>/` rather than as a core command. A bundled plugin imports only `src/plugin-host/api.ts`, its own files and package dependencies, the same surface an external plugin has. Core imports bundled plugins only through the registry. Fallow boundary zones in `fallow.toml` enforce both rules.
+
+When a plugin needs a core service the context lacks, add it to the context in `src/plugin-host/api.ts` as an additive change instead of importing core. Keep logic that guards a core invariant, such as Canonical Checkout Path containment, in core. Feature logic belongs in the plugin.
+
+A plugin operation that moves, deletes, prunes, pushes or publishes goes through `context.applyPlan` so the user sees the steps and confirms them.
 
 ## Naming
 

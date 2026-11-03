@@ -1,16 +1,24 @@
 import { readFile } from "node:fs/promises";
-import { stdin as input, stdout as output, stderr } from "node:process";
-import { createInterface } from "node:readline/promises";
-import { buildCommand, buildRouteMap } from "@stricli/core";
+import { stderr } from "node:process";
+import {
+  buildCommand,
+  buildRouteMap,
+  type Command,
+  type CommandContext,
+  type RouteMap,
+} from "@stricli/core";
 import * as app from "../app";
 import { initConfig } from "../config/init";
 import { selectHeraklesWorkspace } from "../config/workspace";
 import type { ProjectRenamePlan, ProjectRenameResult, ProjectState } from "../domain";
+import type { CoreCommandTree } from "../plugin-host/mount";
 import { definedProperties } from "../utils/definedProperties";
 import { formatUnifiedDiff, lineDiff } from "../utils/lineDiff";
 import { booleanFlag, optionalFlag } from "./flags";
 import { printJson, printTable } from "./output";
+import { type CliPlugins, pluginGroupRoute, pluginRoutes } from "./plugins";
 import { withProgress } from "./progress";
+import { ask } from "./prompt";
 
 type CommonFlags = {
   root?: string;
@@ -144,15 +152,8 @@ function projectSourceParser(value: string): "github" | "local" {
   throw new Error(`Unknown project source: ${value}`);
 }
 
-async function prompt(question: string, promptOutput: NodeJS.WritableStream = output) {
-  const rl = createInterface({ input, output: promptOutput });
-  // End of input while the prompt waits counts as an empty answer instead of hanging.
-  const endOfInput = new Promise<string>((resolve) => rl.once("close", () => resolve("")));
-  try {
-    return (await Promise.race([rl.question(question).catch(() => ""), endOfInput])).trim();
-  } finally {
-    rl.close();
-  }
+function prompt(question: string, promptOutput: { write(text: string): unknown } = process.stdout) {
+  return ask(question, promptOutput);
 }
 
 async function promptProjectAdd(flags: {
@@ -547,7 +548,7 @@ async function confirmConfigApply(
   (json ? console.error : console.log)(configPreview(currentToml, plan.toml));
   if (flags.yes === true) return true;
   const question = `Apply these changes to ${plan.path}? (yes/no): `;
-  const answer = await prompt(question, json ? stderr : output);
+  const answer = await prompt(question, json ? stderr : process.stdout);
   return answer.toLowerCase() === "yes";
 }
 
@@ -667,45 +668,146 @@ const upCommand = buildCommand<CommonFlags & { dryRun?: boolean }>({
   },
 });
 
-const doctorCommand = buildCommand<CommonFlags>({
-  docs: { brief: "Check local Herakles tooling." },
-  parameters: { flags: commonFlags },
-  async func(flags) {
-    const result = await app.doctor(root(flags));
-    shouldJson(flags) ? printJson(result) : printTable(result.checks);
-  },
-});
+function doctorCommand(plugins: CliPlugins) {
+  return buildCommand<CommonFlags>({
+    docs: { brief: "Check local Herakles tooling and plugin status." },
+    parameters: { flags: commonFlags },
+    async func(flags) {
+      const result = await app.doctor(root(flags), {
+        plugins: plugins.kind === "loaded" ? plugins.registry.statuses : [],
+      });
+      shouldJson(flags) ? printJson(result) : printTable(result.checks);
+    },
+  });
+}
 
-export const rootRoute = buildRouteMap({
-  docs: { brief: "Herakles workspace orchestrator." },
-  routes: {
+function pluginsListCommand(plugins: CliPlugins) {
+  return buildCommand<CommonFlags>({
+    docs: { brief: "List bundled and configured plugins with their status." },
+    parameters: { flags: commonFlags },
+    async func(flags) {
+      root(flags);
+      if (plugins.kind === "unavailable") throw plugins.error;
+      const statuses = plugins.kind === "loaded" ? plugins.registry.statuses : [];
+      if (shouldJson(flags)) return printJson(statuses);
+      if (statuses.length === 0) {
+        console.log("No plugins are bundled or configured.");
+        return;
+      }
+      printTable(
+        statuses.map((status) => ({
+          plugin: status.name,
+          source:
+            status.source.kind === "project"
+              ? `project ${status.source.project}`
+              : status.source.kind,
+          state: status.state,
+          commands: status.commands.join(", "),
+          message: status.message,
+        })),
+      );
+    },
+  });
+}
+
+const projectRoutes = {
+  list: repoListCommand,
+  show: repoShowCommand,
+  import: projectsImportCommand,
+  refresh: projectsRefreshCommand,
+  "set-state": repoSetStateCommand,
+  archive: repoArchiveCommand,
+  promote: projectPromoteCommand,
+  rename: projectRenameCommand,
+};
+
+type CoreCommand = Command<CommandContext>;
+type CoreGroup = {
+  docs: { brief: string };
+  defaultCommand?: string;
+  routes: Record<string, CoreCommand>;
+};
+
+function coreRoutes(plugins: CliPlugins): Record<string, CoreCommand | CoreGroup> {
+  return {
     init: initCommand,
     add: addProjectCommand,
     remove: removeProjectCommand,
     status: statusCommand,
     validate: validateCommand,
-    projects: buildRouteMap({
+    projects: {
       docs: { brief: "Project commands." },
       defaultCommand: "list",
-      routes: {
-        list: repoListCommand,
-        show: repoShowCommand,
-        import: projectsImportCommand,
-        refresh: projectsRefreshCommand,
-        "set-state": repoSetStateCommand,
-        archive: repoArchiveCommand,
-        promote: projectPromoteCommand,
-        rename: projectRenameCommand,
-      },
-    }),
-    config: buildRouteMap({
+      routes: projectRoutes,
+    },
+    config: {
       docs: { brief: "Config Exchange commands for _herakles/herakles.toml." },
       routes: {
         show: configShowCommand,
         apply: configApplyCommand,
       },
-    }),
+    },
     up: upCommand,
-    doctor: doctorCommand,
-  },
-});
+    doctor: doctorCommand(plugins),
+    plugins: {
+      docs: { brief: "Plugin commands." },
+      defaultCommand: "list",
+      routes: { list: pluginsListCommand(plugins) },
+    },
+  };
+}
+
+function isCoreGroup(target: CoreCommand | CoreGroup): target is CoreGroup {
+  return "routes" in target;
+}
+
+/** Core route names, derived from the core routes; plugins may add routes but never replace these. */
+export const coreCommandTree: CoreCommandTree = (() => {
+  const routes = Object.entries(coreRoutes({ kind: "skipped" }));
+  return {
+    commands: routes.filter(([, target]) => !isCoreGroup(target)).map(([name]) => name),
+    // `plugins` reports on plugins; plugins may not add commands to it.
+    sealedGroups: ["plugins"],
+    groups: Object.fromEntries(
+      routes.flatMap(([name, target]) =>
+        isCoreGroup(target) ? [[name, Object.keys(target.routes)]] : [],
+      ),
+    ),
+  };
+})();
+
+export function buildRootRoute(plugins: CliPlugins) {
+  const contributed = pluginRoutes(plugins);
+  const routes: Record<string, CoreCommand | RouteMap<CommandContext>> = {};
+  for (const [name, target] of Object.entries(coreRoutes(plugins))) {
+    routes[name] = isCoreGroup(target)
+      ? buildRouteMap({
+          docs: target.docs,
+          ...(target.defaultCommand === undefined ? {} : { defaultCommand: target.defaultCommand }),
+          routes: withoutReplacing(target.routes, contributed.grouped.get(name), name),
+        })
+      : target;
+  }
+  for (const [group, groupRoutes] of contributed.grouped) {
+    if (Object.hasOwn(routes, group)) continue;
+    routes[group] = pluginGroupRoute(contributed.groupBriefs.get(group) ?? group, groupRoutes);
+  }
+  return buildRouteMap({
+    docs: { brief: "Herakles workspace orchestrator." },
+    routes: withoutReplacing(routes, contributed.topLevel, "herakles"),
+  });
+}
+
+/** Merge plugin routes into core routes; the route table already refused collisions. */
+function withoutReplacing<T>(
+  core: Record<string, T>,
+  added: ReadonlyMap<string, T> | undefined,
+  scope: string,
+): Record<string, T> {
+  const merged = { ...core };
+  for (const [name, target] of added ?? []) {
+    if (Object.hasOwn(merged, name)) throw new Error(`Plugin route ${scope} ${name} collides.`);
+    merged[name] = target;
+  }
+  return merged;
+}
