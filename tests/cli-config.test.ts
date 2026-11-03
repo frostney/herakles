@@ -108,6 +108,19 @@ describe("herakles config apply", () => {
     expect(await readFile(configPath, "utf8")).toBe(currentToml);
   });
 
+  test("names the removed [ui] table readably instead of dumping raw issues", async () => {
+    const { root, configPath, inputPath } = await setup();
+    await writeFile(inputPath, `${currentToml}\n[ui]\nenabled = true\n`);
+
+    const result = await runCli(root, ["apply", inputPath, "--yes"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Unrecognized key: "ui"');
+    expect(result.stderr).toContain("Remove unrecognized tables and keys");
+    expect(result.stderr).not.toContain('"code"');
+    expect(await readFile(configPath, "utf8")).toBe(currentToml);
+  });
+
   test("reports No changes. without writing", async () => {
     const { root, configPath, inputPath } = await setup();
     await writeFile(inputPath, currentToml);

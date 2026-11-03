@@ -4,8 +4,6 @@ npm-debug.log
 examples/tmp
 node_modules/
 dist/
-.playwright-cli/
-output/playwright/
 _cache/
 _reports/
 _worktrees/

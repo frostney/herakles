@@ -116,3 +116,14 @@ export function parseHeraklesConfig(raw: unknown): HeraklesConfig {
   }
   return heraklesConfigSchema.parse(raw);
 }
+
+/** One readable line for a failed config parse, with a hint when keys are unrecognized. */
+export function describeConfigError(error: z.ZodError): string {
+  const problems = error.issues.map(
+    (issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message.replace(/\.$/, "")}`,
+  );
+  const hint = error.issues.some((issue) => issue.code === "unrecognized_keys")
+    ? " Remove unrecognized tables and keys from it."
+    : "";
+  return `${problems.join("; ")}.${hint}`;
+}

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { TOML } from "bun";
 import { ZodError } from "zod";
 import { lifecycleFolders, resolveWorkspacePaths, type WorkspacePaths } from "./paths";
-import { type HeraklesConfig, parseHeraklesConfig } from "./schema";
+import { describeConfigError, type HeraklesConfig, parseHeraklesConfig } from "./schema";
 import { HeraklesWorkspaceNotFoundError } from "./workspace";
 
 export type LoadedConfig = {
@@ -35,13 +35,7 @@ function parseConfig(rawToml: string, configPath: string): HeraklesConfig {
     return parseHeraklesConfig(TOML.parse(rawToml));
   } catch (error) {
     if (!(error instanceof ZodError)) throw error;
-    const problems = error.issues.map(
-      (issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message.replace(/\.$/, "")}`,
-    );
-    const hint = error.issues.some((issue) => issue.code === "unrecognized_keys")
-      ? " Remove unrecognized tables and keys from it."
-      : "";
-    throw new Error(`Invalid Herakles config ${configPath}: ${problems.join("; ")}.${hint}`, {
+    throw new Error(`Invalid Herakles config ${configPath}: ${describeConfigError(error)}`, {
       cause: error,
     });
   }

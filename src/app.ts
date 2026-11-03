@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TOML } from "bun";
+import { ZodError } from "zod";
 import { type LoadedConfig, loadConfig } from "./config/load";
 import { resolveUnder } from "./config/paths";
 import {
@@ -11,7 +12,7 @@ import {
   type ProjectConfigChanges,
   type ProjectConfigPlan,
 } from "./config/projects";
-import { parseHeraklesConfig } from "./config/schema";
+import { describeConfigError, parseHeraklesConfig } from "./config/schema";
 import { normalizeProjectConfigOrder, writeConfigToml } from "./config/write";
 import { normalizeRemote, type ProjectDiscovery, refreshProjectDiscovery } from "./discovery";
 import { runDoctor } from "./doctor";
@@ -552,13 +553,19 @@ function validateConfigToml(toml: string): ValidationResult {
     parseHeraklesConfig(TOML.parse(toml));
     return { valid: true, issues: [] };
   } catch (error) {
+    const message =
+      error instanceof ZodError
+        ? describeConfigError(error)
+        : error instanceof Error
+          ? error.message
+          : String(error);
     return {
       valid: false,
       issues: [
         {
           severity: "error",
           code: "config-toml-invalid",
-          message: error instanceof Error ? error.message : String(error),
+          message,
         },
       ],
     };

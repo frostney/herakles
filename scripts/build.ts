@@ -8,8 +8,13 @@ const allTargets = {
 type TargetName = keyof typeof allTargets;
 
 function selectedTargets(argv: string[]): TargetName[] {
-  const names = argv.filter((arg) => arg === "cli") as TargetName[];
-  return names.length > 0 ? names : (["cli"] as TargetName[]);
+  const names = argv.filter((arg) => !arg.startsWith("--"));
+  const unknown = names.filter((name) => !(name in allTargets));
+  if (unknown.length > 0) {
+    console.error(`Unknown build target: ${unknown.join(", ")}. Available targets: cli.`);
+    process.exit(1);
+  }
+  return names.length > 0 ? (names as TargetName[]) : (["cli"] as TargetName[]);
 }
 
 function flagValue(argv: string[], name: string): string | undefined {

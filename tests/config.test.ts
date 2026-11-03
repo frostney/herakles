@@ -91,6 +91,23 @@ enabled = true
     expect((error as Error).message).toContain("Remove unrecognized tables and keys");
   });
 
+  test("ignores a leftover defaults.roadmap_files key", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[defaults]
+roadmap_files = ["ROADMAP.md"]
+`,
+    );
+
+    const loaded = await loadConfig(root);
+
+    expect(loaded.config.defaults).not.toHaveProperty("roadmap_files");
+  });
+
   test("workspace root is the folder containing the _herakles folder", async () => {
     const root = await tempConfigWorkspace(
       `version = 2
