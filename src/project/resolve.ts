@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, isAbsolute, join, relative, sep } from "node:path";
 import type { LoadedConfig } from "../config/load";
 import { lifecycleFolders, resolveUnder } from "../config/paths";
 import type { HeraklesConfig } from "../config/schema";
@@ -270,7 +270,8 @@ function hasDiscoveredCheckoutShape(loaded: LoadedConfig, path: unknown, name: s
     (rest.length === 1 || rest.length === 2) &&
     rest.every((segment) => segment !== "" && segment !== "." && segment !== "..") &&
     last?.toLowerCase() === name.toLowerCase() &&
-    existsSync(join(path, ".git"))
+    existsSync(join(path, ".git")) &&
+    basename(realpathSync(path)).toLowerCase() === name.toLowerCase()
   );
 }
 

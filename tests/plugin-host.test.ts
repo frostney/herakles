@@ -406,6 +406,12 @@ describe("plugin tool checkouts", () => {
     await expect(
       projectCheckoutDirectory(root, local(root, "tool", join(root, "experiment", "other"))),
     ).rejects.toThrow("Project checkout is missing");
+    // A symlink named like the project but pointing at another checkout is not accepted.
+    await mkdir(join(root, "experiment", "l"), { recursive: true });
+    await symlink(join(root, "experiment", "other"), join(root, "experiment", "l", "tool"));
+    await expect(
+      projectCheckoutDirectory(root, local(root, "tool", join(root, "experiment", "l", "tool"))),
+    ).rejects.toThrow("Project checkout is missing");
     // A same-named folder inside another project's repository is not a checkout root.
     await expect(
       projectCheckoutDirectory(
