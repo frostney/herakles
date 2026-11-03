@@ -37,7 +37,6 @@ export function fakeGhRepositoryJson(repo: FakeGhRepository): string {
         isArchived: repo.isArchived === true,
         ...(repo.description === undefined ? {} : { description: repo.description }),
         repositoryTopics: [],
-        languages: [],
       },
     ],
     null,

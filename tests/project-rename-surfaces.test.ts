@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { routeApi } from "../src/api/routes";
 import { runCommand } from "../src/utils/command";
 import { fakeGhRepositoryJson } from "./helpers/gh";
 
@@ -167,59 +166,27 @@ describe("project rename surfaces", () => {
     });
   });
 
-  test("API exposes separate preview and apply actions", async () => {
+  test("CLI rejects owner transfers instead of planning them", async () => {
     const { root } = await renameWorkspace();
     await withFakeRenameCommands(async () => {
-      const preview = await routeApi(
-        new Request("http://x/api/projects/rename-plan", {
-          method: "POST",
-          body: JSON.stringify({
-            projectId: "old-tool",
-            targetRepo: "frostney/new-tool",
-          }),
-        }),
-        { workspaceRoot: root },
+      const result = await runCommand(
+        [
+          process.execPath,
+          "run",
+          "src/cli/main.ts",
+          "projects",
+          "rename",
+          "old-tool",
+          "elsewhere/new-tool",
+          "--root",
+          root,
+          "--json",
+        ],
+        { cwd: join(import.meta.dir, ".."), allowFailure: true },
       );
-      const plan = await preview?.json();
 
-      expect(preview?.status).toBe(200);
-      expect(plan.newRepo).toBe("frostney/new-tool");
-      expect(plan.configDiff).toContain('[project."frostney-new-tool"]');
-
-      const apply = await routeApi(
-        new Request("http://x/api/projects/rename", {
-          method: "POST",
-          body: JSON.stringify({
-            projectId: "old-tool",
-            targetRepo: "frostney/new-tool",
-          }),
-        }),
-        { workspaceRoot: root },
-      );
-      const result = await apply?.json();
-
-      expect(apply?.status).toBe(200);
-      expect(result.status).toBe("renamed");
-    });
-  });
-
-  test("API rejects owner transfers as a client error", async () => {
-    const { root } = await renameWorkspace();
-    await withFakeRenameCommands(async () => {
-      const response = await routeApi(
-        new Request("http://x/api/projects/rename-plan", {
-          method: "POST",
-          body: JSON.stringify({
-            projectId: "old-tool",
-            targetRepo: "elsewhere/new-tool",
-          }),
-        }),
-        { workspaceRoot: root },
-      );
-      const body = await response?.json();
-
-      expect(response?.status).toBe(400);
-      expect(body.error).toContain("existing owner");
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("existing owner");
     });
   });
 });

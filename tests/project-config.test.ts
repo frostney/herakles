@@ -37,8 +37,6 @@ function hostedProject(repo = "paid-api"): Project {
     pinned: false,
     topics: [],
     tags: [],
-    languages: [],
-    hasRoadmap: false,
     up: true,
   };
 }

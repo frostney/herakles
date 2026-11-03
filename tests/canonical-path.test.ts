@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync } from "node:fs";
 import { mkdir, readlink, rename, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { applyCanonicalPath, canonicalPathPlan, resolveProjectCanonicalPath } from "../src/app";
+import { applyCanonicalPath, canonicalPathPlan } from "../src/app";
 import {
   ambiguousOwnersWorkspace,
   cleanupHostedCloneTempDirs,
@@ -108,9 +108,13 @@ describe("canonical path plan and apply", () => {
       await expect(canonicalPathPlan(workspaceRoot, mismatchProjectId)).rejects.toThrow(
         "Refusing to move checkout outside workspace",
       );
-      await expect(resolveProjectCanonicalPath(workspaceRoot, mismatchProjectId)).rejects.toThrow(
-        "Refusing to move checkout outside workspace",
-      );
+      await expect(
+        applyCanonicalPath(workspaceRoot, {
+          projectId: mismatchProjectId,
+          from: duplicatePath,
+          to: join(workspaceRoot, "open-source", "herakles"),
+        }),
+      ).rejects.toThrow("Refusing to move checkout outside workspace");
       expect(existsSync(duplicatePath)).toBe(true);
     });
   });
@@ -268,9 +272,13 @@ describe("canonical path plan and apply", () => {
       await expect(canonicalPathPlan(workspaceRoot, "herakles")).rejects.toThrow(
         /Ambiguous project "herakles".*github:frostney\/herakles.*github:acme\/herakles|Ambiguous project "herakles".*github:acme\/herakles.*github:frostney\/herakles/,
       );
-      await expect(resolveProjectCanonicalPath(workspaceRoot, "herakles")).rejects.toThrow(
-        "Ambiguous project",
-      );
+      await expect(
+        applyCanonicalPath(workspaceRoot, {
+          projectId: "herakles",
+          from: join(workspaceRoot, "a"),
+          to: join(workspaceRoot, "b"),
+        }),
+      ).rejects.toThrow("Ambiguous project");
     });
   });
 });

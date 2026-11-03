@@ -2,8 +2,9 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TOML } from "bun";
+import { ZodError } from "zod";
 import { lifecycleFolders, resolveWorkspacePaths, type WorkspacePaths } from "./paths";
-import { type HeraklesConfig, parseHeraklesConfig } from "./schema";
+import { describeConfigError, type HeraklesConfig, parseHeraklesConfig } from "./schema";
 import { HeraklesWorkspaceNotFoundError } from "./workspace";
 
 export type LoadedConfig = {
@@ -22,11 +23,22 @@ export async function loadConfig(workspaceRoot: string): Promise<LoadedConfig> {
   }
   const rawToml = await readFile(paths.syncedConfigPath, "utf8");
   return {
-    config: parseHeraklesConfig(TOML.parse(rawToml)),
+    config: parseConfig(rawToml, paths.syncedConfigPath),
     rawToml,
     paths,
     source: { syncedConfigPath: paths.syncedConfigPath },
   };
+}
+
+function parseConfig(rawToml: string, configPath: string): HeraklesConfig {
+  try {
+    return parseHeraklesConfig(TOML.parse(rawToml));
+  } catch (error) {
+    if (!(error instanceof ZodError)) throw error;
+    throw new Error(`Invalid Herakles config ${configPath}: ${describeConfigError(error)}`, {
+      cause: error,
+    });
+  }
 }
 
 export async function ensureConfigScaffold(workspaceRoot: string): Promise<WorkspacePaths> {
