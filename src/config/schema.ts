@@ -102,3 +102,25 @@ export const heraklesConfigSchema = z
   .strict();
 
 export type HeraklesConfig = z.infer<typeof heraklesConfigSchema>;
+
+/**
+ * Parses a raw (TOML-decoded) config object. Zod 4 skips the `__proto__` record
+ * key before running `configKeySchema`, so project keys are checked on the raw
+ * object first; otherwise `[project."__proto__"]` would validate but vanish.
+ */
+export function parseHeraklesConfig(raw: unknown): HeraklesConfig {
+  const projects =
+    typeof raw === "object" && raw !== null ? (raw as { project?: unknown }).project : undefined;
+  if (typeof projects === "object" && projects !== null && !Array.isArray(projects)) {
+    const issues: z.core.$ZodIssue[] = [];
+    for (const key of Object.keys(projects)) {
+      const result = configKeySchema.safeParse(key);
+      if (result.success) continue;
+      for (const issue of result.error.issues) {
+        issues.push({ ...issue, path: ["project", key, ...issue.path] });
+      }
+    }
+    if (issues.length > 0) throw new z.ZodError(issues);
+  }
+  return heraklesConfigSchema.parse(raw);
+}
