@@ -34,7 +34,8 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
   const { workspaceRoot, json, stdout, stderr } = options;
   const promptStream = json ? stderr : stdout;
   const confirm = async (question: string) =>
-    (await ask(`${question} (yes/no): `, promptStream)).toLowerCase() === "yes";
+    (await ask(`${escapeTerminalLines(question)} (yes/no): `, promptStream)).toLowerCase() ===
+    "yes";
   return {
     plugin: { name: options.pluginName },
     json,
@@ -92,7 +93,7 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     },
     prompt: {
       confirm,
-      text: (question) => ask(question, promptStream),
+      text: (question) => ask(escapeTerminalLines(question), promptStream),
     },
     applyPlan: <RESULT>(plan: OperationPlan<RESULT>, applyOptions: { yes?: boolean } = {}) =>
       applyPlan(plan, applyOptions.yes === true, promptStream, confirm),

@@ -25,4 +25,10 @@ describe("terminal text escaping", () => {
   test("line escaping keeps line breaks", () => {
     expect(escapeTerminalLines("one\u001b\ntwo")).toBe("one\\u001b\ntwo");
   });
+
+  test("table cells put multi-line text on one line", () => {
+    const table = formatTable([{ reason: "fatal: repository not found\nhint: check\tthe url" }]);
+
+    expect(table.split("\n")[2]).toBe("fatal: repository not found hint: check the url");
+  });
 });
