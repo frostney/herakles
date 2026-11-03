@@ -291,17 +291,22 @@ function isInside(root: string, path: string): boolean {
 export async function gitIn(cwd: string, args: readonly string[]) {
   // Ambient repository selection would make git ignore `cwd`.
   const { GIT_DIR: _dir, GIT_WORK_TREE: _tree, GIT_INDEX_FILE: _index, ...inherited } = Bun.env;
-  const child = Bun.spawn(["git", ...args], {
-    cwd,
-    env: { ...inherited, GIT_OPTIONAL_LOCKS: "0" },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  return { stdout, stderr, exitCode };
+  try {
+    const child = Bun.spawn(["git", ...args], {
+      cwd,
+      env: { ...inherited, GIT_OPTIONAL_LOCKS: "0" },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    return { stdout, stderr, exitCode };
+  } catch (error) {
+    // A vanished directory or missing git reports as a failed command, not a crash.
+    return { stdout: "", stderr: (error as Error).message, exitCode: 127 };
+  }
 }

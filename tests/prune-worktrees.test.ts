@@ -559,6 +559,31 @@ describe("prune-worktrees command", () => {
     });
   });
 
+  test("a worktree that vanishes before the apply does not stop the others", async () => {
+    await withFixture(async (fixture) => {
+      const vanishing = await addWorktree(fixture, "feature/a-vanishing");
+      const staying = await addWorktree(fixture, "feature/b-staying");
+      const harness = createHarness(fixture, {
+        pullRequests: {
+          "feature/a-vanishing": merged(91, await tipOf(fixture, "feature/a-vanishing")),
+          "feature/b-staying": merged(92, await tipOf(fixture, "feature/b-staying")),
+        },
+        confirm: async () => {
+          await rm(vanishing, { recursive: true });
+          return true;
+        },
+      });
+
+      const report = await pruneWorktrees(harness.context, {}, { interactive: true });
+
+      const byBranch = Object.fromEntries(report.results.map((result) => [result.branch, result]));
+      expect(byBranch["feature/a-vanishing"]?.removed).toBe(false);
+      expect(byBranch["feature/a-vanishing"]?.error).toBeDefined();
+      expect(byBranch["feature/b-staying"]).toMatchObject({ removed: true, branchDeleted: true });
+      expect(existsSync(staying)).toBe(false);
+    });
+  });
+
   test("--json prints only the report on stdout", async () => {
     await withFixture(async (fixture) => {
       await addWorktree(fixture, "feature/json");

@@ -30,8 +30,25 @@ export async function applyPrune(
   prunable: readonly Candidate[],
 ): Promise<PruneResult[]> {
   const results: PruneResult[] = [];
-  for (const candidate of prunable) results.push(await pruneOne(context, candidate));
+  for (const candidate of prunable) {
+    try {
+      results.push(await pruneOne(context, candidate));
+    } catch (error) {
+      results.push(failure(candidate, (error as Error).message));
+    }
+  }
   return results;
+}
+
+function failure(candidate: Candidate, error: string): PruneResult {
+  return {
+    project: candidate.project.slug,
+    path: candidate.path,
+    branch: candidate.branch!,
+    removed: false,
+    branchDeleted: false,
+    error,
+  };
 }
 
 async function pruneOne(context: PluginContext, candidate: Candidate): Promise<PruneResult> {
