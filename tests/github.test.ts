@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { heraklesConfigSchema } from "../src/config/schema";
 import {
-  describeReadFailure,
   listGitHubRepositoriesWithRunner,
   listImportableGitHubRepositoriesWithRunner,
   listOpenPullRequestsForRepoWithRunner,
 } from "../src/github/gh";
-import { CommandError } from "../src/utils/command";
 
 describe("github context wrappers", () => {
   test("lists source repositories by default and asks gh to omit archived repos when configured", async () => {
@@ -627,79 +625,6 @@ describe("github context wrappers", () => {
         "GitHub REST fallback failed for frostney/tool: REST unavailable",
     );
     expect(calls).toHaveLength(2);
-  });
-
-  test("describes GraphQL and REST failures concisely without the gh arguments", async () => {
-    const query = "query($owner: String!) { repository { pullRequests { nodes { number } } } }";
-    const error = await listOpenPullRequestsForRepoWithRunner(
-      "octocat/Hello-World",
-      async (argv) => {
-        const stderr =
-          argv[2] === "graphql"
-            ? "gh: Could not resolve to a Repository with the name 'octocat/Hello-World'.\n"
-            : "HTTP 404\n";
-        throw new CommandError(`${argv.join(" ")} failed with 1: ${stderr.trim()}`, {
-          kind: "exit",
-          exitCode: 1,
-          stderr,
-        });
-      },
-    ).catch((caught: unknown) => caught);
-
-    expect(describeReadFailure(error)).toBe(
-      "GraphQL: Could not resolve to a Repository with the name 'octocat/Hello-World'.; REST: HTTP 404",
-    );
-    expect(String((error as Error).message)).toContain("gh api graphql");
-    expect(describeReadFailure(error)).not.toContain(query);
-    expect(describeReadFailure(error)).not.toContain("gh api");
-  });
-
-  test("describes timeouts, silent exits, GraphQL errors and long output", () => {
-    const argv = "gh api graphql -f query=SECRET";
-    expect(
-      describeReadFailure(
-        new CommandError(`${argv} timed out after 15000ms`, { kind: "timeout", timeoutMs: 15_000 }),
-      ),
-    ).toBe("timed out after 15s");
-    expect(
-      describeReadFailure(
-        new CommandError(`${argv} timed out after 1500ms`, { kind: "timeout", timeoutMs: 1_500 }),
-      ),
-    ).toBe("timed out after 1500ms");
-    expect(
-      describeReadFailure(
-        new CommandError(`${argv} failed with 4: `, { kind: "exit", exitCode: 4, stderr: "\n" }),
-      ),
-    ).toBe("exited with 4");
-    expect(describeReadFailure(new Error("plain\nfailure"))).toBe("plain failure");
-
-    const long = describeReadFailure(
-      new CommandError(`${argv} failed with 1: x`, {
-        kind: "exit",
-        exitCode: 1,
-        stderr: "x".repeat(500),
-      }),
-    );
-    expect(Array.from(long)).toHaveLength(200);
-    expect(long.endsWith("…")).toBe(true);
-  });
-
-  test("keeps both halves of a long combined reason", async () => {
-    const error = await listOpenPullRequestsForRepoWithRunner(
-      "octocat/Hello-World",
-      async (argv) => {
-        throw new CommandError("gh failed with 1: long", {
-          kind: "exit",
-          exitCode: 1,
-          stderr: `${argv[2] === "graphql" ? "G" : "R"}${"-".repeat(400)}`,
-        });
-      },
-    ).catch((caught: unknown) => caught);
-
-    const reason = describeReadFailure(error);
-    expect(reason.length).toBeLessThanOrEqual(200);
-    expect(reason).toContain("GraphQL: G");
-    expect(reason).toContain("REST: R");
   });
 
   test("collects paginated open pull request pages", async () => {

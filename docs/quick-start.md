@@ -6,8 +6,9 @@
 - Run `herakles init` once for a Herakles Workspace.
 - Add or import projects, then let `herakles up` scaffold missing hosted project folders.
 - Preview and apply same-owner hosted project renames through one coordinated flow.
-- Review open pull requests across tracked hosted projects with `herakles prs`.
+- Move `_herakles/herakles.toml` between machines with `herakles config show` and `herakles config apply`.
 - Use the UI for add/import, pull request review, project settings, drift checks, and config exchange.
+- Enable optional features as plugins in `_herakles/herakles.toml`.
 
 ## Install
 
@@ -83,6 +84,26 @@ bun run herakles projects rename frostney-tool frostney/new-tool --root ~/Code -
 
 The plan shows the GitHub rename, local origin update, Canonical Checkout Path move, and alphabetized tracked-project config re-key. Apply refuses dirty worktrees and can resume safely when an earlier attempt completed only some steps. Project Settings exposes the same preview-before-apply flow in the Workbench.
 
+## Config Exchange
+
+Config Exchange copies `_herakles/herakles.toml` text into or out of a Herakles Workspace. It moves configuration text only, not repositories, runtime state, or remote commands.
+
+Print the stored TOML. The output is the file byte for byte, so redirecting it round-trips:
+
+```sh
+bun run herakles config show --root ~/Code > herakles.toml
+bun run herakles config show --root ~/Code --json   # { path, toml }
+```
+
+Validate and apply TOML from another machine:
+
+```sh
+bun run herakles config apply --root ~/Code herakles.toml
+cat herakles.toml | bun run herakles config apply --root ~/Code --yes -
+```
+
+`apply` parses the TOML with Bun's parser and the Herakles schema, then normalizes tracked project order. Invalid input prints each issue to stderr, exits 1, and writes nothing. If the normalized TOML equals the current file it prints `No changes.`. Otherwise it previews a line diff and asks for confirmation; `--yes` skips the prompt, and reading from stdin (`-`) requires `--yes`. With `--json`, the preview and prompt go to stderr and stdout carries the plan (declined) or the applied result. The Workbench Settings screen offers a copy-paste editor for the same exchange.
+
 ## Spin Up
 
 Preview workspace changes:
@@ -97,19 +118,34 @@ Create missing folders, clone missing hosted projects, and fast-forward clean ex
 bun run herakles up --root ~/Code
 ```
 
+When stderr is an interactive terminal, `up` (including `--dry-run`), `add` and `projects import` show one live progress line on stderr: a spinner reading "Resolving workspace…" until the first item starts, then `[3/42] clone frostney-tool` for the current item. `projects import` spins up all imported projects as one plan, one after another, so its count runs across the whole import. The line is cleared before the table or JSON is printed, and `--json` stdout is unchanged. No progress is written when stderr is not a terminal, when `TERM=dumb`, or when `CI` is set to anything other than empty, `0` or `false`, so scripted output stays byte-identical. Ctrl-C clears the line and exits with code 130.
+
 `up` does not silently move, delete, or duplicate repositories. Workspace drift is reported so the user can choose to scaffold from configuration or sync the workspace.
 
-## Review Pull Requests
+## Enable Plugins
+
+Optional features are plugins. List the bundled plugins and any configured ones with their state:
 
 ```sh
-bun run herakles prs --root ~/Code
+bun run herakles plugins list --root ~/Code
 ```
 
-`prs` lists open pull requests across tracked hosted projects, starred projects first (marked `*`), then by most recently updated. The table shows project, pull request number, title, author, draft or open state, review status, check status, last update, and URL. Local experiments are skipped.
+Bundled plugins stay off until `_herakles/herakles.toml` enables them. Add a `[plugins.<name>]` table for a bundled plugin that `plugins list` shows; set `enabled = false` in it to keep the table but turn the plugin off.
 
-Titles longer than 60 characters are shortened with `…` in the table; `--json` keeps them whole. Projects whose GitHub read failed are reported on stderr, one short line per project, after the table. The command exits 1 only when there were hosted projects and none of them could be read, with the table output and with `--json` alike. It exits 0 when at least one project was read, even if others failed, and when the workspace has no hosted projects. When no pull requests are found and some reads failed, the message says how many projects could not be read instead of reporting an empty list.
+An external plugin lives in a tracked project. Name the project and the entry file inside it. A hosted project needs an explicit `state` so Herakles can find its checkout without a GitHub read, and a local project must sit at its derived path:
 
-Reads are cached briefly under `_herakles/cache`; a read where every project failed is not cached, so a rerun reads again. When the result comes from the cache, a one-line note on stderr gives the time it was read and `--json` reports `"cached": true`; pass `--refresh` to bypass the cache. Pass `--json` for the full result, including failures.
+```toml
+[project.example-herakles-release-notes]
+source = "github"
+repo = "example/herakles-release-notes"
+state = "experiment"
+
+[plugins.release-notes]
+project = "example-herakles-release-notes"
+entry = "src/plugin.ts"
+```
+
+Run `herakles up` to check the project out, then its commands appear in `herakles --help`. If a plugin cannot load, core commands keep working; `herakles plugins list` and `herakles doctor` show the reason.
 
 ## Open The UI
 

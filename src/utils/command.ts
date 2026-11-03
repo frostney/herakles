@@ -4,32 +4,13 @@ export type CommandResult = {
   stderr: string;
 };
 
-export type CommandFailure =
-  | { kind: "exit"; exitCode: number; stderr: string }
-  | { kind: "timeout"; timeoutMs: number };
-
-/** A failed command. The message is for logs and carries the argv; `failure` is safe to show. */
-export class CommandError extends Error {
-  readonly failure: CommandFailure;
-
-  constructor(message: string, failure: CommandFailure) {
-    super(message);
-    this.name = "CommandError";
-    this.failure = failure;
-  }
-}
-
 export async function runCommand(
   argv: readonly string[],
   options: { cwd?: string; allowFailure?: boolean; stdin?: string; timeoutMs?: number } = {},
 ): Promise<CommandResult> {
-  const proc = Bun.spawn([...argv], {
-    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: process.env,
-    stdin: options.stdin === undefined ? "ignore" : new Response(options.stdin),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const spawned = spawnProcess(argv, options);
+  if ("failure" in spawned) return spawned.failure;
+  const { proc } = spawned;
   const result = Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -45,26 +26,43 @@ export async function runCommand(
             new Promise<never>((_, reject) => {
               timeout = setTimeout(() => {
                 proc.kill();
-                const timeoutMs = options.timeoutMs ?? 0;
-                reject(
-                  new CommandError(`${argv.join(" ")} timed out after ${timeoutMs}ms`, {
-                    kind: "timeout",
-                    timeoutMs,
-                  }),
-                );
+                reject(new Error(`${argv.join(" ")} timed out after ${options.timeoutMs}ms`));
               }, options.timeoutMs);
             }),
           ]);
     if (exitCode !== 0 && !options.allowFailure) {
-      throw new CommandError(`${argv.join(" ")} failed with ${exitCode}: ${stderr.trim()}`, {
-        kind: "exit",
-        exitCode,
-        stderr,
-      });
+      throw new Error(`${argv.join(" ")} failed with ${exitCode}: ${stderr.trim()}`);
     }
     return { exitCode, stdout, stderr };
   } finally {
     if (timeout) clearTimeout(timeout);
     result.catch(() => undefined);
+  }
+}
+
+function spawnProcess(
+  argv: readonly string[],
+  options: { cwd?: string; allowFailure?: boolean; stdin?: string },
+) {
+  try {
+    const proc = Bun.spawn([...argv], {
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      env: process.env,
+      stdin: options.stdin === undefined ? "ignore" : new Response(options.stdin),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return { proc };
+  } catch (error) {
+    if (!options.allowFailure) throw error;
+    // The executable could not be started (for example not found on PATH). Report it the way a
+    // shell does, so allowFailure callers handle it like any other failed command.
+    const reason = error instanceof Error ? error.message : String(error);
+    const failure: CommandResult = {
+      exitCode: 127,
+      stdout: "",
+      stderr: `${argv[0] ?? "command"}: ${reason}`,
+    };
+    return { failure };
   }
 }

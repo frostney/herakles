@@ -771,6 +771,41 @@ source = "local"
     expect(written.indexOf("[project.alpha]")).toBeLessThan(written.indexOf("[project.zebra]"));
   });
 
+  test("Config Exchange rejects a __proto__ project key in preview and apply", async () => {
+    const workspaceRoot = await tempWorkspace();
+    const toml = `version = 2
+
+[project."__proto__"]
+source = "local"
+`;
+    const preview = await routeApi(
+      new Request("http://x/api/config/toml/plan", {
+        method: "POST",
+        body: JSON.stringify({ toml }),
+      }),
+      { workspaceRoot },
+    );
+    const previewBody = await preview?.json();
+    const apply = await routeApi(
+      new Request("http://x/api/config/toml/apply", {
+        method: "POST",
+        body: JSON.stringify({ toml }),
+      }),
+      { workspaceRoot },
+    );
+
+    expect(previewBody.validation.valid).toBe(false);
+    expect(previewBody.validation.issues[0].message).toContain("project");
+    expect(previewBody.validation.issues[0].message).toContain("__proto__");
+    expect(previewBody.validation.issues[0].message).toContain(
+      "Config keys must be path-safe identifiers.",
+    );
+    expect(apply?.status).toBeGreaterThanOrEqual(400);
+    expect(await readFile(join(workspaceRoot, "_herakles", "herakles.toml"), "utf8")).not.toContain(
+      "__proto__",
+    );
+  });
+
   test("reloads an in-flight workspace read after adding a hosted project", async () => {
     const workspaceRoot = await tempWorkspace();
     await configureGithubOwner(workspaceRoot);
@@ -1071,6 +1106,25 @@ group = "clients"
     );
 
     await expectInvalidBody(response, "visibility");
+  });
+
+  test("invalid config project key reports the key rule message", async () => {
+    const workspaceRoot = await tempWorkspace();
+    await appendFile(
+      join(workspaceRoot, "_herakles", "herakles.toml"),
+      `
+[project."bad key"]
+source = "local"
+`,
+    );
+
+    const response = await routeApi(new Request("http://x/api/status"), { workspaceRoot });
+    const body = await response?.json();
+
+    expect(response?.status).toBe(400);
+    expect(body.issues).toEqual([
+      { path: "project.bad key", message: "Config keys must be path-safe identifiers." },
+    ]);
   });
 });
 

@@ -8,5 +8,6 @@ Herakles documentation is split by job so the same decision is not explained in 
 - [Tooling](tooling.md): Bun commands, formatting, linting, type checks, Fallow, and GitHub Actions.
 - [Deployment](deployment.md): current source-run deployment model, generated state, and release status.
 - [Decision Records](adr/): immutable architecture decisions.
+- [prs plugin](plugins/prs.md): review open pull requests from the terminal.
 
 Use `CONTEXT.md` as the language guide for product terms.

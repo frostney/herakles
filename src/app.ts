@@ -11,10 +11,10 @@ import {
   type ProjectConfigChanges,
   type ProjectConfigPlan,
 } from "./config/projects";
-import { heraklesConfigSchema } from "./config/schema";
+import { parseHeraklesConfig } from "./config/schema";
 import { normalizeProjectConfigOrder, writeConfigToml } from "./config/write";
 import { normalizeRemote, type ProjectDiscovery, refreshProjectDiscovery } from "./discovery";
-import { runDoctor } from "./doctor";
+import { pluginDoctorChecks, runDoctor } from "./doctor";
 import type {
   GitHubRepository,
   HostedImportCandidate,
@@ -32,17 +32,14 @@ import type {
   ValidationIssue,
   ValidationResult,
 } from "./domain";
-import {
-  describeReadFailure,
-  listImportableGitHubRepositories,
-  listOpenPullRequestsForRepo,
-} from "./github/gh";
+import { listImportableGitHubRepositories, listOpenPullRequestsForRepo } from "./github/gh";
 import { type HostedClonePathMismatch, validateProjects } from "./lifecycle/validate";
 import {
   createLocalPromotionPlan,
   type LocalPromotionOptions,
   promoteLocalProject,
 } from "./local/promote";
+import type { PluginStatus } from "./plugin-host/load";
 import { syncDefaultBranch } from "./project/gitStatus";
 import { flushLineCountCache } from "./project/lineCounts";
 import {
@@ -50,8 +47,8 @@ import {
   renameProject as executeProjectRename,
   InvalidProjectRenameError,
 } from "./project/rename";
-import { resolveProjects } from "./project/resolve";
-import { executeUpPlan, type UpExecution } from "./up/execute";
+import { checkoutPathForProject, resolveProjects } from "./project/resolve";
+import { executeUpPlan, type UpExecuteOptions, type UpExecution } from "./up/execute";
 import { createUpPlan } from "./up/plan";
 import { definedProperties } from "./utils/definedProperties";
 
@@ -67,21 +64,17 @@ type WorkspaceLoad = {
   state?: WorkspaceState;
 };
 
-// What the cache holds. `cached` is stamped on each returned copy, so a stored entry never claims
-// to be fresh.
-type PullRequestSnapshot = Omit<PullRequestCollection, "cached">;
-
 type PullRequestCacheEntry = {
   expiresAt: number;
   key: string;
-  loading?: Promise<PullRequestSnapshot>;
-  value?: PullRequestSnapshot;
+  loading?: Promise<PullRequestCollection>;
+  value?: PullRequestCollection;
 };
 
 type StoredPullRequestCacheEntry = {
   expiresAt: number;
   key: string;
-  value: PullRequestSnapshot;
+  value: PullRequestCollection;
 };
 
 export class InvalidProjectOpenDestinationError extends Error {
@@ -93,7 +86,7 @@ export class InvalidProjectOpenDestinationError extends Error {
 
 const workspaceLoads = new Map<string, WorkspaceLoad>();
 const pullRequestCacheTtlMs = 60_000;
-const pullRequestCacheVersion = 5;
+const pullRequestCacheVersion = 3;
 const pullRequestCaches = new Map<string, PullRequestCacheEntry>();
 
 export { InvalidProjectRenameError };
@@ -172,22 +165,15 @@ export async function pullRequests(
   const cached = pullRequestCaches.get(workspaceRoot);
   const now = Date.now();
   if (!options.refresh && cached?.key === cacheKey) {
-    if (cached.value && cached.expiresAt > now) return { ...cached.value, cached: true };
-    if (cached.loading) return { ...(await cached.loading), cached: false };
+    if (cached.value && cached.expiresAt > now) return cached.value;
+    if (cached.loading) return cached.loading;
   }
   if (!options.refresh) {
     const stored = await readStoredPullRequestCache(workspaceRoot, cacheKey);
-    if (stored) return { ...stored, cached: true };
+    if (stored) return stored;
   }
   const loading = collectPullRequests(workspaceRoot)
     .then(async (value) => {
-      if (readNothing(value)) {
-        // Do not remember a total failure: fixing `gh` should take effect on the next call.
-        if (pullRequestCaches.get(workspaceRoot)?.loading === loading) {
-          pullRequestCaches.delete(workspaceRoot);
-        }
-        return value;
-      }
       const expiresAt = Date.now() + pullRequestCacheTtlMs;
       pullRequestCaches.set(workspaceRoot, {
         expiresAt,
@@ -206,14 +192,10 @@ export async function pullRequests(
       throw error;
     });
   pullRequestCaches.set(workspaceRoot, { expiresAt: 0, key: cacheKey, loading });
-  return { ...(await loading), cached: false };
+  return loading;
 }
 
-function readNothing(value: PullRequestSnapshot): boolean {
-  return value.projectsRead === 0 && value.failures.length > 0;
-}
-
-async function collectPullRequests(workspaceRoot: string): Promise<PullRequestSnapshot> {
+async function collectPullRequests(workspaceRoot: string): Promise<PullRequestCollection> {
   const state = await loadWorkspace(workspaceRoot);
   const hosted = state.projects.filter((project) => project.source === "github" && project.owner);
   const settled = await Promise.allSettled(
@@ -244,7 +226,6 @@ async function collectPullRequests(workspaceRoot: string): Promise<PullRequestSn
         projectSlug: project.slug,
         repo: `${project.owner}/${project.repo}`,
         message: result.reason instanceof Error ? result.reason.message : String(result.reason),
-        reason: describeReadFailure(result.reason),
       });
     }
   }
@@ -257,7 +238,6 @@ async function collectPullRequests(workspaceRoot: string): Promise<PullRequestSn
         a.projectSlug.localeCompare(b.projectSlug),
     ),
     failures,
-    projectsRead: hosted.length - failures.length,
     skippedLocalProjects: state.projects.length - hosted.length,
   };
 }
@@ -274,7 +254,7 @@ async function pullRequestWorkspaceCacheKey(workspaceRoot: string): Promise<stri
 async function readStoredPullRequestCache(
   workspaceRoot: string,
   key: string,
-): Promise<PullRequestSnapshot | undefined> {
+): Promise<PullRequestCollection | undefined> {
   try {
     const raw = JSON.parse(
       await readFile(pullRequestCachePath(workspaceRoot), "utf8"),
@@ -305,6 +285,32 @@ export async function project(workspaceRoot: string, id: string): Promise<Projec
   const found = findProject(await projects(workspaceRoot), id);
   if (!found) throw new Error(`Unknown project: ${id}`);
   return found;
+}
+
+/**
+ * The real checkout directory of a tracked project, derived from synced
+ * config without discovery. It must exist, resolve inside the Herakles
+ * Workspace after following symlinks, and not be the workspace root itself.
+ */
+export async function projectCheckoutDirectory(
+  workspaceRoot: string,
+  target: Pick<Project, "source" | "owner" | "repo" | "state" | "path">,
+): Promise<string> {
+  const loaded = await loadConfig(workspaceRoot);
+  const path = checkoutPathForProject(loaded, target);
+  const [workspaceRealPath, checkoutRealPath] = await Promise.all([
+    realpath(loaded.paths.workspaceRoot),
+    realpath(path).catch(() => {
+      throw new Error(`Project checkout is missing: ${path}`);
+    }),
+  ]);
+  if (
+    checkoutRealPath === workspaceRealPath ||
+    !pathIsInside(workspaceRealPath, checkoutRealPath)
+  ) {
+    throw new Error(`Refusing to run outside a project checkout in the workspace: ${path}`);
+  }
+  return checkoutRealPath;
 }
 
 export async function openProject(
@@ -603,14 +609,37 @@ async function applyTrackedProjectConfigPlan(
 export async function upProject(
   workspaceRoot: string,
   projectId: string,
-  options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},
+  options: UpExecuteOptions = {},
 ) {
+  const [results = []] = await upProjects(workspaceRoot, [projectId], options);
+  return results;
+}
+
+/**
+ * Spins up several hosted projects as one plan, executed once and in order, so progress hooks
+ * see a single `index`/`total` across all of them. Returns one result array per requested id, in
+ * input order; a project with no plan item gets an empty array.
+ */
+export async function upProjects(
+  workspaceRoot: string,
+  projectIds: readonly string[],
+  options: UpExecuteOptions = {},
+): Promise<UpExecution[][]> {
   const state = await loadWorkspace(workspaceRoot);
-  const target = findProject(state.projects, projectId);
-  if (!target) throw new Error(`Unknown project: ${projectId}`);
-  if (target.source !== "github") throw new Error("Only hosted projects can be checked out.");
-  const plan = applyValidationIssuesToUpPlan(createUpPlan([target]), [target], state.validation);
-  return executeUpPlan(plan, options);
+  const resolved = projectIds.map((projectId) => {
+    const target = findProject(state.projects, projectId);
+    if (!target) throw new Error(`Unknown project: ${projectId}`);
+    if (target.source !== "github") throw new Error("Only hosted projects can be checked out.");
+    return target;
+  });
+  const targets = [...new Set(resolved)];
+  const plan = applyValidationIssuesToUpPlan(createUpPlan(targets), targets, state.validation);
+  const byProject = new Map<string, UpExecution[]>();
+  for (const execution of await executeUpPlan(plan, options)) {
+    const id = execution.item.project.id;
+    byProject.set(id, [...(byProject.get(id) ?? []), execution]);
+  }
+  return resolved.map((target) => byProject.get(target.id) ?? []);
 }
 
 export async function syncProjectDefaultBranch(
@@ -770,16 +799,18 @@ export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
   );
 }
 
-export async function up(
-  workspaceRoot: string,
-  options: { dryRun?: boolean; onProgress?: (result: UpExecution) => void | Promise<void> } = {},
-) {
+export async function up(workspaceRoot: string, options: UpExecuteOptions = {}) {
   return executeUpPlan(await upPlan(workspaceRoot), options);
 }
 
-export async function doctor(workspaceRoot: string) {
+export async function doctor(
+  workspaceRoot: string,
+  options: { plugins?: readonly PluginStatus[] } = {},
+) {
   const loaded = await loadConfig(workspaceRoot);
-  return runDoctor(loaded);
+  const result = await runDoctor(loaded);
+  if (options.plugins) result.checks.push(...pluginDoctorChecks(options.plugins));
+  return result;
 }
 
 function findProject(projects: readonly Project[], id: string): Project | undefined {
@@ -877,7 +908,7 @@ function validateWorkspaceProjects(
 
 function validateConfigToml(toml: string): ValidationResult {
   try {
-    heraklesConfigSchema.parse(TOML.parse(toml));
+    parseHeraklesConfig(TOML.parse(toml));
     return { valid: true, issues: [] };
   } catch (error) {
     return {

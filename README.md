@@ -18,10 +18,11 @@ bun run herakles add --root ~/Code --repo frostney/tool
 bun run herakles up --root ~/Code
 ```
 
-Review open pull requests across tracked hosted projects from the terminal:
+Move configuration between machines with Config Exchange:
 
 ```sh
-bun run herakles prs --root ~/Code
+bun run herakles config show --root ~/Code > herakles.toml
+bun run herakles config apply --root ~/Code herakles.toml
 ```
 
 Open the local UI:
@@ -37,7 +38,7 @@ bun run build
 ./dist/herakles --help
 ```
 
-See [Quick Start](docs/quick-start.md) for add/import, rename, drift, and UI flows, and [Deployment](docs/deployment.md) for bundled executable details.
+See [Quick Start](docs/quick-start.md) for add/import, rename, Config Exchange, drift, and UI flows, and [Deployment](docs/deployment.md) for bundled executable details.
 
 ## Background
 

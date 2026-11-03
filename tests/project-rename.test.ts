@@ -66,6 +66,7 @@ function fakeRunner(
     dirty?: boolean;
     targetCollision?: boolean;
     failRemoteOnce?: boolean;
+    missingGh?: boolean;
   } = {},
 ) {
   let hostRenamed = options.hostRenamed ?? false;
@@ -75,6 +76,9 @@ function fakeRunner(
   const runner: Runner = async (argv) => {
     calls.push(argv.join(" "));
     const command = argv.join(" ");
+    if (options.missingGh && argv[0] === "gh") {
+      return { exitCode: 127, stdout: "", stderr: 'gh: Executable not found in $PATH: "gh"' };
+    }
     if (command === "gh api repos/frostney/paid-api") {
       return repositoryResult(
         hostRenamed ? "frostney/paid-api-sdk" : "frostney/paid-api",
@@ -339,5 +343,20 @@ describe("project rename apply", () => {
     expect(result.status).toBe("failed");
     expect(result.steps.at(-1)?.message).toContain("no longer present");
     expect(config).not.toContain('[project."frostney-paid-api-sdk"]');
+  });
+
+  test("reports a missing gh executable instead of a missing repository", async () => {
+    const root = await tempWorkspace();
+    const project = hostedProject(root);
+    await mkdir(join(project.path, ".git"), { recursive: true });
+
+    await expect(
+      createProjectRenamePlanWithRunner(
+        await loadConfig(root),
+        project,
+        "frostney/paid-api-sdk",
+        fakeRunner({ missingGh: true }).runner,
+      ),
+    ).rejects.toThrow("Executable not found");
   });
 });
