@@ -363,8 +363,10 @@ describe("github context wrappers", () => {
 
   test("falls back to REST for draft pull request counts", async () => {
     const config = heraklesConfigSchema.parse({ github: { owners: ["frostney"] } });
-    const repos = await listGitHubRepositoriesWithRunner(config, async (argv) => {
+    const timeouts: Array<number | undefined> = [];
+    const repos = await listGitHubRepositoriesWithRunner(config, async (argv, options) => {
       const endpoint = argv.find((arg) => arg.startsWith("repos/"));
+      if (endpoint?.startsWith("repos/frostney/tool/pulls?")) timeouts.push(options?.timeoutMs);
       if (argv.slice(0, 4).join(" ") === "gh repo list frostney") {
         return ghStdout(JSON.stringify([githubRepo("frostney", "tool")]));
       }
@@ -378,6 +380,23 @@ describe("github context wrappers", () => {
     });
 
     expect(repos[0]?.draftPullRequests).toBe(2);
+    expect(timeouts).toEqual([15_000]);
+  });
+
+  test("reports both GraphQL and REST failures for an owner repository read", async () => {
+    const config = heraklesConfigSchema.parse({ github: { owners: ["frostney"] } });
+
+    await expect(
+      listGitHubRepositoriesWithRunner(config, async (argv) => {
+        if (argv.slice(0, 4).join(" ") === "gh repo list frostney") {
+          throw new Error("GraphQL unavailable");
+        }
+        throw new Error("REST unavailable");
+      }),
+    ).rejects.toThrow(
+      "GitHub GraphQL read failed for repository list for frostney: GraphQL unavailable\n" +
+        "GitHub REST fallback failed for repository list for frostney: REST unavailable",
+    );
   });
 
   test("reports owner failures even when tracked repositories can be read", async () => {
