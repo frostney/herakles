@@ -221,19 +221,29 @@ source = "local"
     expect(Object.keys(loaded.config.project).sort()).toEqual(["alpha", "my.tool-2_x"]);
   });
 
-  test("escapes control characters from config keys in validation errors", async () => {
+  test("escapes control characters from a bad project key in validation errors", async () => {
     const root = await tempConfigWorkspace(
-      ['[project."bad\\u001b[31mkey"]', 'source = "local"', "", "[ui]", "port = 1", ""].join("\n"),
+      ['[project."bad\\u001b[31mkey"]', 'source = "local"', ""].join("\n"),
     );
 
-    const error = await loadConfig(root).then(
-      () => undefined,
-      (caught: unknown) => caught,
+    const message = await loadConfig(root).then(
+      () => "",
+      (caught: unknown) => (caught as Error).message,
     );
 
-    expect(error).toBeInstanceOf(Error);
-    const message = (error as Error).message;
     expect(message).not.toContain("\u001b");
     expect(message).toContain("project.bad\\u001b[31mkey");
+  });
+
+  test("escapes control characters an unknown key puts in the issue message", async () => {
+    const root = await tempConfigWorkspace(['"top\\u001b[31mlevel" = 1', ""].join("\n"));
+
+    const message = await loadConfig(root).then(
+      () => "",
+      (caught: unknown) => (caught as Error).message,
+    );
+
+    expect(message).not.toContain("\u001b");
+    expect(message).toContain('Unrecognized key: "top\\u001b[31mlevel"');
   });
 });
