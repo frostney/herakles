@@ -56,7 +56,7 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         }
         return runCommand(["git", ...args], {
           ...toolOptions(runOptions),
-          cwd: await app.projectCheckoutDirectory(workspaceRoot, project.id),
+          cwd: await app.projectCheckoutDirectory(workspaceRoot, project),
         });
       },
     },
@@ -66,7 +66,7 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
           ...toolOptions(runOptions),
           ...(runOptions.project === undefined
             ? {}
-            : { cwd: await app.projectCheckoutDirectory(workspaceRoot, runOptions.project.id) }),
+            : { cwd: await app.projectCheckoutDirectory(workspaceRoot, runOptions.project) }),
         }),
     },
     output: {

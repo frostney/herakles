@@ -114,8 +114,9 @@ export type PluginContext = {
   };
   readonly git: {
     /**
-     * Run `git` with an argument list in the checkout core resolves for
-     * `project.id`. The first argument must be a subcommand, not a global option.
+     * Run `git` with an argument list in the project's checkout, derived from
+     * synced config for its source and repository. The first argument must be
+     * a subcommand, not a global option.
      */
     run(
       project: Project,
@@ -124,7 +125,7 @@ export type PluginContext = {
     ): Promise<CommandResult>;
   };
   readonly gh: {
-    /** Run the GitHub CLI with an argument list, optionally in a project's core-resolved checkout. */
+    /** Run the GitHub CLI with an argument list, optionally in a project's checkout. */
     run(
       args: readonly string[],
       options?: ToolRunOptions & { project?: Project },

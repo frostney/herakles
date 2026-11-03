@@ -1,12 +1,14 @@
 import { buildCommand, buildRouteMap, type Command, type CommandContext } from "@stricli/core";
-import { ZodError } from "zod";
 import { loadConfig } from "../config/load";
 import { HeraklesWorkspaceNotFoundError, selectHeraklesWorkspace } from "../config/workspace";
-import type { HeraklesPlugin } from "../plugin-host/api";
+import type { AnyPluginCommand, HeraklesPlugin } from "../plugin-host/api";
 import { loadPlugins, type PluginRegistry } from "../plugin-host/load";
-import type { CoreCommandTree, MountedPluginCommand } from "../plugin-host/mount";
+import type { CoreCommandTree } from "../plugin-host/mount";
+import { errorMessage } from "../utils/errors";
 import { booleanFlag, optionalFlag } from "./flags";
 import { createPluginContext } from "./pluginContext";
+
+type StricliCommand = Command<CommandContext>;
 
 /**
  * Plugin state for one CLI run. `skipped` means the invoked route is a core
@@ -15,12 +17,14 @@ import { createPluginContext } from "./pluginContext";
 export type CliPlugins =
   | { kind: "skipped" }
   | { kind: "unavailable"; error: unknown }
-  | { kind: "loaded"; workspaceRoot: string; registry: PluginRegistry };
-
-const helpFlags = new Set(["--help", "-h", "--help-all", "-H"]);
+  | { kind: "loaded"; workspaceRoot: string; registry: PluginRegistry<StricliCommand> };
 
 /** Core routes that report plugin status and therefore always load plugins. */
 const statusRoutes = new Set(["doctor", "plugins"]);
+const helpFlags = new Set(["--help", "-h", "--help-all", "-H"]);
+const versionFlags = new Set(["--version", "-v"]);
+/** Global flags that take a value, so the value is not mistaken for a route word. */
+const valueFlags = new Set(["--root"]);
 
 export async function loadCliPlugins(
   args: readonly string[],
@@ -29,21 +33,22 @@ export async function loadCliPlugins(
 ): Promise<CliPlugins> {
   if (!routeNeedsPlugins(args, core)) return { kind: "skipped" };
   const stderr = options.stderr ?? process.stderr;
-  const reportsStatus = statusRoutes.has(routeTokens(args)[0] ?? "");
+  const reportsStatus = statusRoutes.has(routeWords(args)[0] ?? "");
   let workspaceRoot: string;
-  let registry: PluginRegistry;
+  let registry: PluginRegistry<StricliCommand>;
   try {
     workspaceRoot = selectHeraklesWorkspace(explicitRoot(args));
     const loaded = await loadConfig(workspaceRoot);
+    const root = workspaceRoot;
     registry = await loadPlugins(loaded, {
       core,
-      checkCommands: stricliProblem,
+      build: (plugin, _path, command) => buildPluginCommand(plugin, command, root),
       ...(options.bundled === undefined ? {} : { bundled: options.bundled }),
     });
   } catch (error) {
     // Status routes rethrow the error themselves; outside a workspace there is nothing to report.
     if (!reportsStatus && !(error instanceof HeraklesWorkspaceNotFoundError)) {
-      stderr.write(`herakles: plugins not loaded: ${loadErrorMessage(error)}\n`);
+      stderr.write(`herakles: plugins not loaded: ${errorMessage(error)}\n`);
     }
     return { kind: "unavailable", error };
   }
@@ -57,43 +62,30 @@ export async function loadCliPlugins(
 
 /**
  * Whether the invoked route could reach a plugin command or report plugin
- * status. Core commands skip plugin loading entirely, so a broken plugin
- * cannot affect them. A bare core group runs its core default command, so it
- * loads plugins only to list their group commands in help.
+ * status. Core commands, `--version`, and a bare core group running its core
+ * default command skip plugin loading entirely, so a broken plugin cannot
+ * affect them. Flags between route words do not change the route.
  */
 export function routeNeedsPlugins(args: readonly string[], core: CoreCommandTree): boolean {
-  const [first, second] = routeTokens(args);
-  if (first === undefined || statusRoutes.has(first)) return true;
+  const [first, second] = routeWords(args);
+  if (first === undefined) return !args.some((arg) => versionFlags.has(arg));
+  if (statusRoutes.has(first)) return true;
   if (core.commands.includes(first)) return false;
   if (!Object.hasOwn(core.groups, first)) return true;
   if (second === undefined) return args.some((arg) => helpFlags.has(arg));
   return !core.groups[first]!.includes(second);
 }
 
-/** Build a plugin's Stricli commands once so parameters Stricli rejects fail that plugin only. */
-function stricliProblem(plugin: HeraklesPlugin): string | undefined {
-  for (const [path, command] of Object.entries(plugin.commands ?? {})) {
-    try {
-      buildPluginCommand({ plugin, path: [path], command }, "");
-    } catch (error) {
-      return `Command "${path}": ${loadErrorMessage(error)}`;
-    }
+/** The first two non-flag words, skipping values of global flags such as `--root`. */
+function routeWords(args: readonly string[]): string[] {
+  const words: string[] = [];
+  for (let index = 0; index < args.length && words.length < 2; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--") break;
+    if (valueFlags.has(arg)) index += 1;
+    else if (!arg.startsWith("-")) words.push(arg);
   }
-  return undefined;
-}
-
-function loadErrorMessage(error: unknown): string {
-  if (error instanceof ZodError) {
-    return error.issues
-      .map((issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message}`)
-      .join("; ");
-  }
-  return error instanceof Error ? error.message : String(error);
-}
-
-function routeTokens(args: readonly string[]): string[] {
-  const end = args.findIndex((arg) => arg.startsWith("-"));
-  return end === -1 ? [...args] : args.slice(0, end);
+  return words;
 }
 
 function explicitRoot(args: readonly string[]): string | undefined {
@@ -107,19 +99,18 @@ function explicitRoot(args: readonly string[]): string | undefined {
 
 /** Stricli commands for the mounted plugin commands, grouped by route. */
 export function pluginRoutes(plugins: CliPlugins) {
-  const topLevel = new Map<string, Command<CommandContext>>();
-  const grouped = new Map<string, Map<string, Command<CommandContext>>>();
+  const topLevel = new Map<string, StricliCommand>();
+  const grouped = new Map<string, Map<string, StricliCommand>>();
   const groupBriefs = new Map<string, string>();
   if (plugins.kind !== "loaded") return { topLevel, grouped, groupBriefs };
   for (const mounted of plugins.registry.commands) {
-    const command = buildPluginCommand(mounted, plugins.workspaceRoot);
     const [first, second] = mounted.path;
     if (second === undefined) {
-      topLevel.set(first, command);
+      topLevel.set(first, mounted.built);
       continue;
     }
     const group = grouped.get(first) ?? new Map();
-    grouped.set(first, group.set(second, command));
+    grouped.set(first, group.set(second, mounted.built));
     if (!groupBriefs.has(first)) {
       groupBriefs.set(
         first,
@@ -131,15 +122,16 @@ export function pluginRoutes(plugins: CliPlugins) {
 }
 
 /** A route map for a group a plugin owns. */
-export function pluginGroupRoute(
-  brief: string,
-  routes: ReadonlyMap<string, Command<CommandContext>>,
-) {
+export function pluginGroupRoute(brief: string, routes: ReadonlyMap<string, StricliCommand>) {
   return buildRouteMap({ docs: { brief }, routes: Object.fromEntries(routes) });
 }
 
-function buildPluginCommand(mounted: MountedPluginCommand, workspaceRoot: string) {
-  const { command, plugin } = mounted;
+/** Build the Stricli command for a plugin command; Stricli rejections throw here. */
+function buildPluginCommand(
+  plugin: HeraklesPlugin,
+  command: AnyPluginCommand,
+  workspaceRoot: string,
+): StricliCommand {
   const parameters = command.parameters as { flags?: Record<string, unknown> };
   return buildCommand<Record<string, unknown>, unknown[]>({
     docs: command.docs,

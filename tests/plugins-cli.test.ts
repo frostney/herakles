@@ -14,6 +14,7 @@ const hello: FixturePlugin = { name: "hello", fixture: "hello", entry: "plugin.t
 const futureApi: FixturePlugin = { name: "future-api", fixture: "future-api", entry: "plugin.js" };
 const collides: FixturePlugin = { name: "collides", fixture: "collides", entry: "plugin.ts" };
 const throws: FixturePlugin = { name: "throws", fixture: "throws", entry: "plugin.ts" };
+const hostile: FixturePlugin = { name: "hostile", fixture: "hostile", entry: "plugin.js" };
 
 /**
  * A workspace that tracks each fixture plugin as a local experiment and
@@ -228,6 +229,21 @@ describe("plugin commands through the CLI", () => {
     });
   });
 
+  test("a plugin export that throws on every read fails only that plugin", async () => {
+    const root = await pluginWorkspace([hostile, hello]);
+
+    const statuses = await pluginStatuses(root);
+    const helloRun = await runCli(root, ["hello", "proxy"]);
+
+    expect(statuses.find((status) => status.name === "hostile")).toMatchObject({
+      state: "failed",
+      problem: "invalid-plugin",
+      message: "Reading the plugin export failed: hostile export",
+    });
+    expect(statuses.find((status) => status.name === "hello")?.state).toBe("loaded");
+    expect(helloRun.stdout).toContain("Hello, proxy.");
+  });
+
   test("reports external plugin sources that cannot be resolved", async () => {
     const root = await pluginWorkspace(
       [],
@@ -262,8 +278,12 @@ entry = "plugin.ts"
     expect(byName.hosted).toMatchObject({ state: "failed", problem: "invalid-source" });
     expect(byName.hosted?.message).toContain("needs an explicit state");
     expect(byName.missing).toMatchObject({ state: "failed", problem: "missing-entry" });
-    expect(byName.missing?.message).toContain("run herakles up");
-    expect(byName.typo).toMatchObject({ state: "failed", problem: "unknown-plugin" });
+    expect(byName.missing?.message).toContain("a local plugin project must live there");
+    expect(byName.typo).toMatchObject({
+      state: "failed",
+      problem: "unknown-plugin",
+      source: { kind: "unknown" },
+    });
     expect(byName.off).toMatchObject({ state: "disabled", message: "Disabled in config." });
   });
 
@@ -286,13 +306,51 @@ entry = "plugin.ts"
     expect(status?.message).toContain("resolves outside project hello-plugin");
   });
 
+  test("keeps core commands working with malformed or newer plugin entries", async () => {
+    const root = await pluginWorkspace(
+      [hello],
+      `[plugins.Bad_Name]
+
+[plugins.two]
+bogus = 1
+
+[plugins.abs]
+project = "hello-plugin"
+entry = "/tmp/plugin.ts"
+`,
+    );
+    const config = join(root, "_herakles", "herakles.toml");
+    await writeFile(
+      config,
+      (await readFile(config, "utf8")).replace(
+        "[plugins.hello]\n",
+        '[plugins.hello]\nchannel = "beta"\n',
+      ),
+    );
+
+    const status = await runCli(root, ["status", "--json"]);
+    const validate = await runCli(root, ["validate", "--json"]);
+    const statuses = await pluginStatuses(root);
+    const byName = Object.fromEntries(statuses.map((entry) => [entry.name, entry]));
+
+    expect(status.exitCode).toBe(0);
+    expect(validate.exitCode).toBe(0);
+    expect(byName.Bad_Name).toMatchObject({ state: "failed", problem: "invalid-config" });
+    expect(byName.two).toMatchObject({ state: "failed", problem: "unknown-plugin" });
+    expect(byName.abs).toMatchObject({ state: "failed", problem: "invalid-config" });
+    expect(byName.abs?.message).toContain("entry: Path must be relative.");
+    expect(byName.hello).toMatchObject({ state: "loaded" });
+    expect(byName.hello?.message).toBe(
+      "Loaded 5 command(s). Ignored unknown config keys: channel.",
+    );
+  });
+
   test("explains a config error on a plugin route instead of an unknown command", async () => {
-    const root = await pluginWorkspace([], "[plugins.two]\nbogus = 1\n");
+    const root = await pluginWorkspace([], '[project.broken]\nsource = "nowhere"\n');
 
     const result = await runCli(root, ["two"]);
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("herakles: plugins not loaded: plugins.two");
-    expect(result.stderr).toContain("Unrecognized key");
+    expect(result.stderr).toContain("herakles: plugins not loaded: project.broken.source");
   });
 });

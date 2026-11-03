@@ -47,7 +47,7 @@ import {
   renameProject as executeProjectRename,
   InvalidProjectRenameError,
 } from "./project/rename";
-import { resolveProjects } from "./project/resolve";
+import { checkoutPathForProject, resolveProjects } from "./project/resolve";
 import { executeUpPlan, type UpExecution } from "./up/execute";
 import { createUpPlan } from "./up/plan";
 import { definedProperties } from "./utils/definedProperties";
@@ -288,19 +288,29 @@ export async function project(workspaceRoot: string, id: string): Promise<Projec
 }
 
 /**
- * The checkout directory of a tracked project, resolved through core and
- * refused unless it exists inside the Herakles Workspace after resolving
- * symlinks.
+ * The real checkout directory of a tracked project, derived from synced
+ * config without discovery. It must exist, resolve inside the Herakles
+ * Workspace after following symlinks, and not be the workspace root itself.
  */
 export async function projectCheckoutDirectory(
   workspaceRoot: string,
-  selector: string,
+  target: Pick<Project, "source" | "owner" | "repo" | "state">,
 ): Promise<string> {
-  const found = await project(workspaceRoot, selector);
-  if (!existsSync(found.path) || !realPathIsInside(workspaceRoot, found.path)) {
-    throw new Error(`Project checkout is missing or outside the workspace: ${found.path}`);
+  const loaded = await loadConfig(workspaceRoot);
+  const path = checkoutPathForProject(loaded, target);
+  const [workspaceRealPath, checkoutRealPath] = await Promise.all([
+    realpath(loaded.paths.workspaceRoot),
+    realpath(path).catch(() => {
+      throw new Error(`Project checkout is missing: ${path}`);
+    }),
+  ]);
+  if (
+    checkoutRealPath === workspaceRealPath ||
+    !pathIsInside(workspaceRealPath, checkoutRealPath)
+  ) {
+    throw new Error(`Refusing to run outside a project checkout in the workspace: ${path}`);
   }
-  return found.path;
+  return checkoutRealPath;
 }
 
 export async function openProject(

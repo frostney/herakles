@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, realpath, symlink } from "node:fs/promises";
+import { join } from "node:path";
 import { run, type StricliProcess } from "@stricli/core";
+import { projectCheckoutDirectory } from "../src/app";
 import { buildHeraklesApplication } from "../src/cli/application";
 import { coreCommandTree } from "../src/cli/commands";
 import { loadCliPlugins, routeNeedsPlugins } from "../src/cli/plugins";
 import { loadConfig } from "../src/config/load";
-import { heraklesConfigSchema } from "../src/config/schema";
+import { heraklesConfigSchema, pluginEntrySchema } from "../src/config/schema";
 import { pluginDoctorChecks } from "../src/doctor";
 import { defineCommand, definePlugin, type HeraklesPlugin } from "../src/plugin-host/api";
 import { loadPlugins } from "../src/plugin-host/load";
@@ -166,6 +169,19 @@ describe("plugin route table", () => {
     }
   });
 
+  test("reserves the core plugins group", () => {
+    const table = new PluginRouteTable(coreCommandTree);
+
+    expect(table.mount(pluginWithCommands("sneaky", ["plugins"]))).toEqual({
+      ok: false,
+      message: "Command collision: herakles plugins is already defined by core.",
+    });
+    expect(table.mount(pluginWithCommands("sneaky", ["plugins enable"]))).toEqual({
+      ok: false,
+      message: "Command collision: herakles plugins is reserved by core.",
+    });
+  });
+
   test("mounts all of a plugin's commands or none of them", () => {
     const table = new PluginRouteTable(coreCommandTree);
 
@@ -178,6 +194,32 @@ describe("plugin route table", () => {
 });
 
 describe("plugin checks", () => {
+  test("a throwing getter or Proxy export fails the check instead of throwing", () => {
+    const getter = {
+      apiVersion: 1,
+      get name(): string {
+        throw new Error("getter exploded");
+      },
+    };
+    const proxy = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("proxy exploded");
+        },
+        ownKeys() {
+          throw new Error("proxy keys exploded");
+        },
+      },
+    );
+    expect(checkPlugin(getter, "getter")).toEqual({
+      ok: false,
+      problem: "invalid-plugin",
+      message: "Reading the plugin export failed: getter exploded",
+    });
+    expect(checkPlugin(proxy, "proxy")).toMatchObject({ ok: false, problem: "invalid-plugin" });
+  });
+
   test("rejects reserved flags and mismatched names", () => {
     const reserved = {
       apiVersion: 1,
@@ -217,6 +259,11 @@ describe("plugin checks", () => {
       [["projects", "--json"], false],
       [["projects", "--help"], true],
       [["projects", "-H"], true],
+      [["projects", "--json", "sync"], true],
+      [["projects", "--root", "/ws", "list"], false],
+      [["--root", "/ws", "status"], false],
+      [["--version"], false],
+      [["-v"], false],
       [["constructor", "foo"], true],
       [[], true],
       [["--help"], true],
@@ -231,36 +278,35 @@ describe("plugin checks", () => {
 });
 
 describe("plugin config", () => {
-  function parsePlugins(plugins: unknown) {
-    return heraklesConfigSchema.safeParse({ plugins });
-  }
-
-  test("accepts bundled toggles and project-relative external plugins", () => {
-    const result = parsePlugins({
-      "pull-requests": {},
-      sync: { enabled: false },
-      local: { project: "my-plugin", entry: "src/plugin.ts" },
+  test("core config accepts any [plugins] tables", () => {
+    const result = heraklesConfigSchema.safeParse({
+      plugins: { Bad_Name: { anything: true }, later: { channel: "beta" } },
     });
 
     expect(result.success).toBe(true);
-    expect(result.data?.plugins["pull-requests"]).toEqual({ enabled: true });
   });
 
-  test("rejects machine-specific or incomplete plugin references", () => {
-    const messages = (plugins: unknown) =>
-      parsePlugins(plugins).error?.issues.map((issue) => issue.message) ?? [];
+  test("plugin entries take bundled toggles and project-relative external plugins", () => {
+    expect(pluginEntrySchema.parse({})).toEqual({ enabled: true });
+    expect(pluginEntrySchema.parse({ enabled: false })).toEqual({ enabled: false });
+    expect(pluginEntrySchema.parse({ project: "my-plugin", entry: "src/plugin.ts" })).toEqual({
+      enabled: true,
+      project: "my-plugin",
+      entry: "src/plugin.ts",
+    });
+  });
 
-    expect(messages({ abs: { project: "p", entry: "/tmp/plugin.ts" } })).toContain(
-      "Path must be relative.",
-    );
-    expect(messages({ up: { project: "p", entry: "../plugin.ts" } })).toContain(
+  test("plugin entries reject machine-specific or incomplete references", () => {
+    const messages = (entry: unknown) =>
+      pluginEntrySchema.safeParse(entry).error?.issues.map((issue) => issue.message) ?? [];
+
+    expect(messages({ project: "p", entry: "/tmp/plugin.ts" })).toContain("Path must be relative.");
+    expect(messages({ project: "p", entry: "../plugin.ts" })).toContain(
       "Path must not contain traversal segments.",
     );
-    expect(messages({ half: { project: "p" } })).toContain(
+    expect(messages({ project: "p" })).toContain(
       "External plugins need both project and entry; bundled plugins take neither.",
     );
-    expect(messages({ Bad_Name: {} })).toContain("Plugin names must be lowercase kebab-case.");
-    expect(messages({ path: { path: "/opt/plugin.ts" } }).join(" ")).toContain("Unrecognized key");
   });
 
   test("a plugin whose parameters Stricli rejects fails alone", async () => {
@@ -291,5 +337,38 @@ describe("plugin config", () => {
     expect(statuses[0]?.message).toContain('Command "broken-help"');
     expect(statuses[1]).toMatchObject({ name: "bundled-hello", state: "loaded" });
     expect(invoked.stdout).toBe(`bundled ran in ${root}\n`);
+  });
+});
+
+describe("plugin tool checkouts", () => {
+  test("returns the real checkout path derived from config", async () => {
+    const root = await workspace('\n[project.tool]\nsource = "local"\nstate = "experiment"\n');
+    await mkdir(join(root, "experiment", "tool"), { recursive: true });
+
+    const directory = await projectCheckoutDirectory(root, {
+      source: "local",
+      repo: "tool",
+      state: "experiment",
+    });
+
+    expect(directory).toBe(await realpath(join(root, "experiment", "tool")));
+  });
+
+  test("rejects a checkout that is the workspace root, missing, or untracked", async () => {
+    const root = await workspace(
+      '\n[project.loop]\nsource = "local"\nstate = "experiment"\n\n[project.gone]\nsource = "local"\n',
+    );
+    await mkdir(join(root, "experiment"), { recursive: true });
+    await symlink(root, join(root, "experiment", "loop"));
+
+    await expect(
+      projectCheckoutDirectory(root, { source: "local", repo: "loop", state: "experiment" }),
+    ).rejects.toThrow("Refusing to run outside a project checkout in the workspace");
+    await expect(
+      projectCheckoutDirectory(root, { source: "local", repo: "gone", state: "experiment" }),
+    ).rejects.toThrow("Project checkout is missing");
+    await expect(
+      projectCheckoutDirectory(root, { source: "local", repo: "stranger", state: "experiment" }),
+    ).rejects.toThrow("Not a tracked project: stranger");
   });
 });

@@ -75,18 +75,22 @@ export const pluginNameSchema = z.string().regex(kebabCasePattern, {
   message: "Plugin names must be lowercase kebab-case.",
 });
 
-const pluginConfigSchema = z
+/**
+ * One `[plugins.<name>]` table. The plugin host checks each table on its own,
+ * so a bad or newer entry fails only its plugin. Keys this release does not
+ * know are ignored and reported, which keeps entries forward-compatible.
+ */
+export const pluginEntrySchema = z
   .object({
     enabled: z.boolean().default(true),
     project: configKeySchema.optional(),
     entry: relativePathSchema.optional(),
   })
-  .strict()
   .refine((plugin) => (plugin.project === undefined) === (plugin.entry === undefined), {
     message: "External plugins need both project and entry; bundled plugins take neither.",
   });
 
-export type PluginConfig = z.infer<typeof pluginConfigSchema>;
+export type PluginConfig = z.infer<typeof pluginEntrySchema>;
 
 export const heraklesConfigSchema = z
   .object({
@@ -118,7 +122,8 @@ export const heraklesConfigSchema = z
       })
       .default({}),
     project: z.record(configKeySchema, projectConfigSchema).default({}),
-    plugins: z.record(pluginNameSchema, pluginConfigSchema).default({}),
+    // Checked per plugin by the plugin host, so a plugin entry never breaks core commands.
+    plugins: z.record(z.string(), z.unknown()).default({}),
   })
   .strict();
 

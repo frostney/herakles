@@ -590,7 +590,10 @@ function pluginsListCommand(plugins: CliPlugins) {
       printTable(
         statuses.map((status) => ({
           plugin: status.name,
-          source: status.source.kind === "bundled" ? "bundled" : `project ${status.source.project}`,
+          source:
+            status.source.kind === "project"
+              ? `project ${status.source.project}`
+              : status.source.kind,
           state: status.state,
           commands: status.commands.join(", "),
           message: status.message,
@@ -666,6 +669,8 @@ export const coreCommandTree: CoreCommandTree = (() => {
   const routes = Object.entries(coreRoutes({ kind: "skipped" }));
   return {
     commands: routes.filter(([, target]) => !isCoreGroup(target)).map(([name]) => name),
+    // `plugins` reports on plugins; plugins may not add commands to it.
+    sealedGroups: ["plugins"],
     groups: Object.fromEntries(
       routes.flatMap(([name, target]) =>
         isCoreGroup(target) ? [[name, Object.keys(target.routes)]] : [],

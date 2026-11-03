@@ -7,6 +7,8 @@ export type CoreCommandTree = {
   commands: readonly string[];
   /** Core command groups and their commands, such as `projects`. */
   groups: Readonly<Record<string, readonly string[]>>;
+  /** Core groups plugins may not add commands to, such as `plugins`. */
+  sealedGroups: readonly string[];
 };
 
 export type MountedPluginCommand = {
@@ -27,8 +29,10 @@ type MountResult = { ok: true; commands: MountedPluginCommand[] } | { ok: false;
 export class PluginRouteTable {
   private readonly owners = new Map<string, string>();
   private readonly groupOwners = new Map<string, string>();
+  private readonly sealedGroups = new Set<string>();
 
   constructor(core: CoreCommandTree) {
+    for (const group of core.sealedGroups) this.sealedGroups.add(group);
     for (const command of core.commands) this.owners.set(command, "core");
     for (const [group, commands] of Object.entries(core.groups)) {
       this.groupOwners.set(group, "core");
@@ -63,6 +67,9 @@ export class PluginRouteTable {
     }
     const commandHolder = this.owners.get(first);
     if (commandHolder) return taken(`herakles ${first}`, commandHolder);
+    if (this.sealedGroups.has(first)) {
+      return `Command collision: herakles ${first} is reserved by core.`;
+    }
     const groupHolder = this.groupOwners.get(first);
     if (groupHolder && groupHolder !== "core" && groupHolder !== owner) {
       return taken(`herakles ${first}`, groupHolder);
@@ -75,7 +82,8 @@ export class PluginRouteTable {
   }
 
   private copy(): PluginRouteTable {
-    const table = new PluginRouteTable({ commands: [], groups: {} });
+    const table = new PluginRouteTable({ commands: [], groups: {}, sealedGroups: [] });
+    for (const group of this.sealedGroups) table.sealedGroups.add(group);
     for (const [key, owner] of this.owners) table.owners.set(key, owner);
     for (const [key, owner] of this.groupOwners) table.groupOwners.set(key, owner);
     return table;

@@ -109,7 +109,7 @@ bun run herakles plugins list --root ~/Code
 
 Bundled plugins stay off until `_herakles/herakles.toml` enables them. Add a `[plugins.<name>]` table for a bundled plugin that `plugins list` shows; set `enabled = false` in it to keep the table but turn the plugin off.
 
-An external plugin lives in a tracked project. Name the project and the entry file inside it; a hosted project needs an explicit `state` so Herakles can find its checkout without a GitHub read:
+An external plugin lives in a tracked project. Name the project and the entry file inside it. A hosted project needs an explicit `state` so Herakles can find its checkout without a GitHub read, and a local project must sit at its derived path:
 
 ```toml
 [project.example-herakles-release-notes]
