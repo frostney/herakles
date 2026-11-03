@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ZodError } from "zod";
 import { loadConfig } from "../src/config/load";
 import {
   discoverHeraklesWorkspace,
@@ -153,5 +154,53 @@ group = ".."
     );
 
     await expect(loadConfig(root)).rejects.toThrow("Project group");
+  });
+
+  test("rejects the __proto__ project key that zod record parsing would skip", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[project."__proto__"]
+source = "local"
+`,
+    );
+
+    const error = await loadConfig(root).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("project.__proto__");
+    expect((error as Error).cause).toBeInstanceOf(ZodError);
+    expect(((error as Error).cause as ZodError).issues).toMatchObject([
+      {
+        path: ["project", "__proto__"],
+        message: "Config keys must be path-safe identifiers.",
+      },
+    ]);
+  });
+
+  test("loads normal project keys unchanged by the project key check", async () => {
+    const root = await tempConfigWorkspace(
+      `version = 2
+
+[github]
+owners = []
+
+[project.alpha]
+source = "local"
+
+[project."my.tool-2_x"]
+source = "local"
+`,
+    );
+
+    const loaded = await loadConfig(root);
+
+    expect(Object.keys(loaded.config.project).sort()).toEqual(["alpha", "my.tool-2_x"]);
   });
 });

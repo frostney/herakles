@@ -34,11 +34,11 @@
   "homepage": "https://github.com/frostney/herakles#readme",
   "dependencies": {
     "@stricli/core": "^1.2.7",
-    "zod": "^3.24.1"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
-    "@types/bun": "1.4.3",
+    "@types/bun": "1.4.4",
     "fallow": "^3.33.1",
     "typescript": "7.0.2"
   }

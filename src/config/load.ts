@@ -2,8 +2,9 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TOML } from "bun";
+import { ZodError } from "zod";
 import { lifecycleFolders, resolveWorkspacePaths, type WorkspacePaths } from "./paths";
-import { type HeraklesConfig, heraklesConfigSchema } from "./schema";
+import { type HeraklesConfig, parseHeraklesConfig } from "./schema";
 import { HeraklesWorkspaceNotFoundError } from "./workspace";
 
 export type LoadedConfig = {
@@ -30,17 +31,20 @@ export async function loadConfig(workspaceRoot: string): Promise<LoadedConfig> {
 }
 
 function parseConfig(rawToml: string, configPath: string): HeraklesConfig {
-  const result = heraklesConfigSchema.safeParse(TOML.parse(rawToml));
-  if (result.success) return result.data;
-  const problems = result.error.issues.map(
-    (issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message}`,
-  );
-  const hint = result.error.issues.some((issue) => issue.code === "unrecognized_keys")
-    ? " Remove unrecognized tables and keys from it."
-    : "";
-  throw new Error(`Invalid Herakles config ${configPath}: ${problems.join("; ")}.${hint}`, {
-    cause: result.error,
-  });
+  try {
+    return parseHeraklesConfig(TOML.parse(rawToml));
+  } catch (error) {
+    if (!(error instanceof ZodError)) throw error;
+    const problems = error.issues.map(
+      (issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message.replace(/\.$/, "")}`,
+    );
+    const hint = error.issues.some((issue) => issue.code === "unrecognized_keys")
+      ? " Remove unrecognized tables and keys from it."
+      : "";
+    throw new Error(`Invalid Herakles config ${configPath}: ${problems.join("; ")}.${hint}`, {
+      cause: error,
+    });
+  }
 }
 
 export async function ensureConfigScaffold(workspaceRoot: string): Promise<WorkspacePaths> {

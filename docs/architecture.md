@@ -45,6 +45,8 @@ The default eligible set is all non-archived hosted projects unless their topics
 
 If Herakles discovers a hosted repository clone at a different local path than the canonical checkout path, validation reports `hosted-clone-path-mismatch`. Herakles has no automated fix for it yet: the user resolves the conflict by hand after reviewing the existing and canonical paths, and `up` and Sync Workspace do not silently move, delete, or duplicate repositories. Canonical-path fixing is planned as a first-party plugin (ADR 0018).
 
+The CLI reports progress through `executeUpPlan`'s `onItemStart(item, index, total)` and `onProgress(result)` hooks, which `app.up`, `app.upProject` and `app.upProjects` pass through. A hook that throws is ignored: it cannot abort the run or fail an item. `app.upProjects` builds and executes one plan across several projects, which `projects import` uses so its counter spans the whole import. `src/cli/progress.ts` turns the hooks into a single live line on stderr, drawn only when stderr is an interactive terminal (a TTY, `TERM` not `dumb`, `CI` unset, empty, `0` or `false`) and always cleared before results are printed or on Ctrl-C; other output is unchanged.
+
 ## CLI Surface
 
 Herakles is operated through the `herakles` CLI, a thin Stricli command layer over the core services in `src/app.ts`. Commands print human-readable output by default and structured JSON with `--json`; they do not run a long-lived server or expose a network API.
@@ -53,4 +55,4 @@ Herakles is operated through the `herakles` CLI, a thin Stricli command layer ov
 
 `herakles projects import` bulk-imports known GitHub repositories, listing accessible repositories for configured users/organizations plus the authenticated GitHub user's account and organizations, and writes the requested lifecycle, group, and tags before workspace spin-up starts.
 
-Project refresh, validation, and doctor checks are separate commands. Lifecycle changes, local promotion, and same-owner renames are plan-first: `projects set-state --dry-run` prints the typed plan, and `projects promote` and `projects rename` print theirs until `--apply` is passed.
+Project refresh, validation, and doctor checks are separate commands. Lifecycle changes, local promotion, and same-owner renames are plan-first: `projects set-state --dry-run` prints the typed plan, and `projects promote` and `projects rename` print theirs until `--apply` is passed. Config Exchange moves `_herakles/herakles.toml` text between machines: `herakles config show` prints the stored TOML and `herakles config apply` validates TOML with Bun's parser and the Herakles schema, previews a line diff, and asks for confirmation before writing.

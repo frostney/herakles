@@ -48,13 +48,15 @@ GitHub Actions is the CI provider. See [Tooling](tooling.md) for the workflow an
 
 ## Release Status
 
-The first release channel is a macOS arm64 Electrobun artifact attached to GitHub Releases by `.github/workflows/desktop.yml`:
+CLI releases are tag-driven and published by `.github/workflows/release.yml`:
 
-- Stable releases are created from semantic version tags. The tag is the release identity; avoid release-only manifest bumps.
-- Nightly builds are published from the latest successful `main` build as a single rolling `nightly` prerelease.
-- Stable and nightly artifacts must include enough version, channel, commit, and architecture detail in their filenames to identify what was installed.
-- Rollback is manual: download and install an earlier stable release artifact.
+- Pushing a semantic version tag (`MAJOR.MINOR.PATCH`, no prefix) builds the CLI and publishes a GitHub release for that tag.
+- The tag must equal the `version` in `package.json`, which is the version source the CLI reads for `herakles --version`. The workflow fails otherwise, so the release PR bumps `package.json` first and the tag is pushed on the merge commit.
+- The workflow runs lint, typecheck, tests and the quality gate, cross-compiles the CLI for `bun-darwin-arm64`, `bun-darwin-x64`, `bun-linux-arm64` and `bun-linux-x64` with `bun run build:cli -- --target=<bun-target> --outfile=<path>`, and packages each binary as a tarball. It smoke-tests the Linux x64 binary and the binary extracted from its tarball (`--version` must print the tag, `--help` must succeed) before anything is published.
+- Each release attaches four tarballs and a `SHA256SUMS` file: `herakles-<version>-<os>-<arch>.tar.gz`, where `<os>` is `macos` or `linux` and `<arch>` is `arm64` or `x64`. Each tarball holds only the `herakles` binary at its root; the raw binaries are not published. Verify a download with `sha256sum -c SHA256SUMS --ignore-missing`, then extract it with `tar -xzf` and run `chmod +x herakles` if needed.
+- The Homebrew tap formula (`frostney/tap/herakles`) consumes these assets and is updated per release in `frostney/homebrew-tap`.
+- Re-running the workflow for an existing release replaces its assets instead of failing.
+- The rolling desktop `nightly` prerelease is retired; `main` no longer publishes builds.
+- Rollback is manual: install an earlier release tarball, or run `bun add -g github:frostney/herakles#<tag>` to install that tag from source.
 
-Signing, notarization, auto-update metadata, update feeds, macOS x64 packaging, and cross-platform installers are intentionally deferred until the unsigned macOS arm64 artifact flow is reliable.
-
-Attaching the `dist/herakles` / `dist/herakles-ui` compile artifacts to GitHub Releases is a follow-on packaging step; local `bun run build` is the supported way to produce them today.
+Signing, notarization, auto-update metadata and further platforms (Windows) are deferred.
