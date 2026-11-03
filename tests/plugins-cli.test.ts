@@ -110,6 +110,18 @@ describe("plugin commands through the CLI", () => {
       plugin: "hello",
     });
     expect(greet.stdout).toBe("Hello, hello-plugin (experiment).\n");
+
+    const interleaved = await runCommand(
+      [process.execPath, "run", cliPath, "projects", "--root", root, "greet", "hello-plugin"],
+      { cwd: root, allowFailure: true },
+    );
+    const interleavedGroup = await runCli(root, ["hello-tools", "--json", "note", "x", "--yes"]);
+    expect(interleaved.stdout).toBe("Hello, hello-plugin (experiment).\n");
+    expect(
+      JSON.parse(interleavedGroup.stdout.slice(interleavedGroup.stdout.indexOf("{"))),
+    ).toMatchObject({
+      applied: true,
+    });
   });
 
   test("applies a plugin operation plan only after confirmation", async () => {

@@ -294,7 +294,7 @@ export async function project(workspaceRoot: string, id: string): Promise<Projec
  */
 export async function projectCheckoutDirectory(
   workspaceRoot: string,
-  target: Pick<Project, "source" | "owner" | "repo" | "state">,
+  target: Pick<Project, "source" | "owner" | "repo" | "state" | "path">,
 ): Promise<string> {
   const loaded = await loadConfig(workspaceRoot);
   const path = checkoutPathForProject(loaded, target);

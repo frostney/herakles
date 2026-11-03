@@ -5,7 +5,7 @@ import { run, type StricliProcess } from "@stricli/core";
 import { projectCheckoutDirectory } from "../src/app";
 import { buildHeraklesApplication } from "../src/cli/application";
 import { coreCommandTree } from "../src/cli/commands";
-import { loadCliPlugins, routeNeedsPlugins } from "../src/cli/plugins";
+import { hoistGlobalFlags, loadCliPlugins, routeNeedsPlugins } from "../src/cli/plugins";
 import { loadConfig } from "../src/config/load";
 import { heraklesConfigSchema, pluginEntrySchema } from "../src/config/schema";
 import { pluginDoctorChecks } from "../src/doctor";
@@ -248,6 +248,28 @@ describe("plugin checks", () => {
     ).toMatchObject({ ok: false, problem: "invalid-plugin" });
   });
 
+  test("moves global flags between route words after the route", () => {
+    const skipped = { kind: "skipped" } as const;
+    const hoist = (args: string[]) => hoistGlobalFlags(args, coreCommandTree, skipped);
+
+    expect(hoist(["projects", "--json", "sync", "tool"])).toEqual([
+      "projects",
+      "sync",
+      "--json",
+      "tool",
+    ]);
+    expect(hoist(["projects", "--root", "/ws", "show", "x"])).toEqual([
+      "projects",
+      "show",
+      "--root",
+      "/ws",
+      "x",
+    ]);
+    expect(hoist(["projects", "--json"])).toEqual(["projects", "--json"]);
+    expect(hoist(["status", "--json"])).toEqual(["status", "--json"]);
+    expect(hoist(["projects", "--verbose", "sync"])).toEqual(["projects", "--verbose", "sync"]);
+  });
+
   test("loads plugins only for routes that can reach them", () => {
     const expectations: Array<[string[], boolean]> = [
       [["status"], false],
@@ -260,6 +282,8 @@ describe("plugin checks", () => {
       [["projects", "--help"], true],
       [["projects", "-H"], true],
       [["projects", "--json", "sync"], true],
+      [["projects", "--verbose", "sync"], false],
+      [["--help", "-v"], true],
       [["projects", "--root", "/ws", "list"], false],
       [["--root", "/ws", "status"], false],
       [["--version"], false],
@@ -341,17 +365,46 @@ describe("plugin config", () => {
 });
 
 describe("plugin tool checkouts", () => {
+  const local = (root: string, repo: string, path = join(root, "experiment", repo)) => ({
+    source: "local" as const,
+    repo,
+    state: "experiment" as const,
+    path,
+  });
+
   test("returns the real checkout path derived from config", async () => {
     const root = await workspace('\n[project.tool]\nsource = "local"\nstate = "experiment"\n');
     await mkdir(join(root, "experiment", "tool"), { recursive: true });
 
-    const directory = await projectCheckoutDirectory(root, {
-      source: "local",
-      repo: "tool",
-      state: "experiment",
-    });
+    const directory = await projectCheckoutDirectory(root, local(root, "tool", "/"));
 
     expect(directory).toBe(await realpath(join(root, "experiment", "tool")));
+  });
+
+  test("uses a discovered checkout that has the project's path shape", async () => {
+    const root = await workspace(
+      '\n[project.tool]\nsource = "local"\nstate = "experiment"\n\n[project.widget]\nsource = "github"\nrepo = "example/widget"\nstate = "open-source"\n',
+    );
+    await mkdir(join(root, "candidate", "tool"), { recursive: true });
+    await mkdir(join(root, "archived", "Widget"), { recursive: true });
+    await mkdir(join(root, "experiment", "other"), { recursive: true });
+
+    const moved = await projectCheckoutDirectory(
+      root,
+      local(root, "tool", join(root, "candidate", "tool")),
+    );
+    const archived = await projectCheckoutDirectory(root, {
+      source: "github",
+      owner: "example",
+      repo: "Widget",
+      state: "archived",
+      path: join(root, "archived", "Widget"),
+    });
+    expect(moved).toBe(await realpath(join(root, "candidate", "tool")));
+    expect(archived).toBe(await realpath(join(root, "archived", "Widget")));
+    await expect(
+      projectCheckoutDirectory(root, local(root, "tool", join(root, "experiment", "other"))),
+    ).rejects.toThrow("Project checkout is missing");
   });
 
   test("rejects a checkout that is the workspace root, missing, or untracked", async () => {
@@ -361,14 +414,14 @@ describe("plugin tool checkouts", () => {
     await mkdir(join(root, "experiment"), { recursive: true });
     await symlink(root, join(root, "experiment", "loop"));
 
-    await expect(
-      projectCheckoutDirectory(root, { source: "local", repo: "loop", state: "experiment" }),
-    ).rejects.toThrow("Refusing to run outside a project checkout in the workspace");
-    await expect(
-      projectCheckoutDirectory(root, { source: "local", repo: "gone", state: "experiment" }),
-    ).rejects.toThrow("Project checkout is missing");
-    await expect(
-      projectCheckoutDirectory(root, { source: "local", repo: "stranger", state: "experiment" }),
-    ).rejects.toThrow("Not a tracked project: stranger");
+    await expect(projectCheckoutDirectory(root, local(root, "loop"))).rejects.toThrow(
+      "Refusing to run outside a project checkout in the workspace",
+    );
+    await expect(projectCheckoutDirectory(root, local(root, "gone"))).rejects.toThrow(
+      "Project checkout is missing",
+    );
+    await expect(projectCheckoutDirectory(root, local(root, "stranger"))).rejects.toThrow(
+      "Not a tracked project: stranger",
+    );
   });
 });

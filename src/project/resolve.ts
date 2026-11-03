@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import type { LoadedConfig } from "../config/load";
 import { lifecycleFolders, resolveUnder } from "../config/paths";
 import type { HeraklesConfig } from "../config/schema";
@@ -236,18 +236,40 @@ export function configuredCheckoutPath(
 }
 
 /**
- * Canonical Checkout Path of a resolved project, looked up by its source,
- * owner and repository name in synced config. Only the lifecycle state is
- * taken from the project, and only when it is a valid lifecycle state, so
- * the path always stays a derived project path.
+ * Checkout path of a resolved project without discovery. The project must be
+ * tracked: it is matched by source, owner and repository name in synced
+ * config. Its reported path is used when it has the shape project discovery
+ * accepts for that project, `<lifecycle>/<group?>/<name>` inside the
+ * workspace, which covers archived repositories, GitHub's name casing and
+ * local projects found by name. Otherwise the path is derived from config.
  */
 export function checkoutPathForProject(
   loaded: LoadedConfig,
-  project: Pick<Project, "source" | "owner" | "repo" | "state">,
+  project: Pick<Project, "source" | "owner" | "repo" | "state" | "path">,
 ): string {
   const key = projectConfigKey(loaded, project);
   if (key === undefined) throw new Error(`Not a tracked project: ${String(project.repo)}`);
+  const name = checkoutName(loaded, key);
+  if (hasDiscoveredCheckoutShape(loaded, project.path, name)) return project.path;
   return configuredCheckoutPath(loaded, key, project.state);
+}
+
+function checkoutName(loaded: LoadedConfig, key: string): string {
+  const config = loaded.config.project[key]!;
+  return config.source === "github" && config.repo ? splitOwnerRepo(config.repo)[1] : key;
+}
+
+function hasDiscoveredCheckoutShape(loaded: LoadedConfig, path: unknown, name: string): boolean {
+  if (typeof path !== "string" || !isAbsolute(path)) return false;
+  const segments = relative(loaded.paths.workspaceRoot, path).split(sep);
+  const [lifecycle, ...rest] = segments;
+  const last = rest.at(-1);
+  return (
+    isProjectState(lifecycle) &&
+    (rest.length === 1 || rest.length === 2) &&
+    rest.every((segment) => segment !== "" && segment !== "." && segment !== "..") &&
+    last?.toLowerCase() === name.toLowerCase()
+  );
 }
 
 function projectConfigKey(

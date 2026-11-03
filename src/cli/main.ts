@@ -2,12 +2,14 @@
 import { run } from "@stricli/core";
 import { buildHeraklesApplication } from "./application";
 import { coreCommandTree } from "./commands";
-import { loadCliPlugins } from "./plugins";
+import { hoistGlobalFlags, loadCliPlugins } from "./plugins";
 
 const args = normalizeGlobalArgs(Bun.argv.slice(2));
 const plugins = await loadCliPlugins(args, coreCommandTree);
 
-await run(buildHeraklesApplication(plugins), args, { process: process as never });
+await run(buildHeraklesApplication(plugins), hoistGlobalFlags(args, coreCommandTree, plugins), {
+  process: process as never,
+});
 
 function normalizeGlobalArgs(args: string[]) {
   const { leading, rest } = takeLeadingGlobalArgs(args);

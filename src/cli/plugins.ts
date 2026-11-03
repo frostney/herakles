@@ -23,8 +23,6 @@ export type CliPlugins =
 const statusRoutes = new Set(["doctor", "plugins"]);
 const helpFlags = new Set(["--help", "-h", "--help-all", "-H"]);
 const versionFlags = new Set(["--version", "-v"]);
-/** Global flags that take a value, so the value is not mistaken for a route word. */
-const valueFlags = new Set(["--root"]);
 
 export async function loadCliPlugins(
   args: readonly string[],
@@ -64,11 +62,12 @@ export async function loadCliPlugins(
  * Whether the invoked route could reach a plugin command or report plugin
  * status. Core commands, `--version`, and a bare core group running its core
  * default command skip plugin loading entirely, so a broken plugin cannot
- * affect them. Flags between route words do not change the route.
+ * affect them. `--root` and `--json` between route words do not change the
+ * route; `hoistGlobalFlags` moves them after the route before Stricli parses.
  */
 export function routeNeedsPlugins(args: readonly string[], core: CoreCommandTree): boolean {
   const [first, second] = routeWords(args);
-  if (first === undefined) return !args.some((arg) => versionFlags.has(arg));
+  if (first === undefined) return !versionFlags.has(args[0] ?? "");
   if (statusRoutes.has(first)) return true;
   if (core.commands.includes(first)) return false;
   if (!Object.hasOwn(core.groups, first)) return true;
@@ -76,16 +75,61 @@ export function routeNeedsPlugins(args: readonly string[], core: CoreCommandTree
   return !core.groups[first]!.includes(second);
 }
 
-/** The first two non-flag words, skipping values of global flags such as `--root`. */
-function routeWords(args: readonly string[]): string[] {
+/**
+ * The leading route words. `--root <path>`, `--root=<path>` and `--json` may
+ * sit between them; any other flag ends the route, as it does for Stricli.
+ */
+function routeWords(args: readonly string[], limit = 2): string[] {
   const words: string[] = [];
-  for (let index = 0; index < args.length && words.length < 2; index += 1) {
-    const arg = args[index]!;
-    if (arg === "--") break;
-    if (valueFlags.has(arg)) index += 1;
-    else if (!arg.startsWith("-")) words.push(arg);
+  for (let index = 0; index < args.length && words.length < limit; index += 1) {
+    const width = globalFlagWidth(args, index);
+    if (width > 0) index += width - 1;
+    else if (args[index]!.startsWith("-")) break;
+    else words.push(args[index]!);
   }
   return words;
+}
+
+/** How many arguments a global flag at `index` spans, or 0 when it is not one. */
+function globalFlagWidth(args: readonly string[], index: number): number {
+  const arg = args[index]!;
+  if (arg === "--root") return index + 1 < args.length ? 2 : 1;
+  return arg === "--json" || arg.startsWith("--root=") ? 1 : 0;
+}
+
+/**
+ * Move `--root` and `--json` that sit between route words to just after the
+ * route, so `herakles projects --json sync` reaches `projects sync`. A route
+ * is two words deep when its first word is a core group or a plugin group.
+ */
+export function hoistGlobalFlags(
+  args: readonly string[],
+  core: CoreCommandTree,
+  plugins: CliPlugins,
+): string[] {
+  const [first] = routeWords(args, 1);
+  const pluginGroups =
+    plugins.kind === "loaded"
+      ? plugins.registry.commands.filter((command) => command.path.length === 2)
+      : [];
+  const isGroup =
+    first !== undefined &&
+    (Object.hasOwn(core.groups, first) ||
+      pluginGroups.some((command) => command.path[0] === first));
+  const depth = isGroup ? 2 : 1;
+  const route: string[] = [];
+  const hoisted: string[] = [];
+  let index = 0;
+  for (; index < args.length && route.length < depth; index += 1) {
+    const width = globalFlagWidth(args, index);
+    if (width > 0) {
+      hoisted.push(...args.slice(index, index + width));
+      index += width - 1;
+    } else if (args[index]!.startsWith("-")) break;
+    else route.push(args[index]!);
+  }
+  if (hoisted.length === 0 || route.length < depth) return [...args];
+  return [...route, ...hoisted, ...args.slice(index)];
 }
 
 function explicitRoot(args: readonly string[]): string | undefined {
