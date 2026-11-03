@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
-import { readFile, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, mkdir, readFile, realpath, rename, rmdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { TOML } from "bun";
 import { ZodError } from "zod";
 import { type LoadedConfig, loadConfig } from "./config/load";
-import { pathIsInside, resolveUnder } from "./config/paths";
+import { nearestExistingAncestor, pathIsInside, resolveUnder } from "./config/paths";
 import {
   applyProjectConfigPlan,
   createProjectConfigPlan,
@@ -17,6 +17,7 @@ import { normalizeProjectConfigOrder, writeConfigToml } from "./config/write";
 import { normalizeRemote, type ProjectDiscovery, refreshProjectDiscovery } from "./discovery";
 import { pluginDoctorChecks, runDoctor } from "./doctor";
 import type {
+  CanonicalPathPlan,
   GitHubRepository,
   HostedImportCandidate,
   LocalRepository,
@@ -249,6 +250,158 @@ async function projectRenameTarget(workspaceRoot: string, projectId: string) {
   const target = findProject(state.projects, projectId);
   if (!target) throw new InvalidProjectRenameError(`Unknown tracked project: ${projectId}`);
   return { state, target };
+}
+
+/**
+ * Read-only plan for moving a hosted clone to its canonical path. Runs every
+ * safety check the move needs and changes nothing on disk.
+ */
+export async function canonicalPathPlan(
+  workspaceRoot: string,
+  projectId: string,
+): Promise<CanonicalPathPlan> {
+  return checkedCanonicalPathPlan(await loadWorkspace(workspaceRoot), projectId);
+}
+
+/**
+ * Applies a confirmed plan. Workspace state is reloaded and every check re-run,
+ * so a change since planning is refused instead of moved over.
+ */
+export async function applyCanonicalPath(
+  workspaceRoot: string,
+  plan: CanonicalPathPlan,
+  options: CanonicalMoveOptions = {},
+) {
+  const current = await freshCanonicalPathPlan(workspaceRoot, plan.projectId);
+  if (current.from !== plan.from || current.to !== plan.to) {
+    throw new Error(
+      `Canonical path plan changed since it was made for ${plan.projectId}: expected ${plan.from} -> ${plan.to}, found ${current.from} -> ${current.to}`,
+    );
+  }
+  return moveToCanonicalPath(workspaceRoot, current, options);
+}
+
+async function freshCanonicalPathPlan(workspaceRoot: string, projectId: string) {
+  invalidateWorkspace(workspaceRoot);
+  return canonicalPathPlan(workspaceRoot, projectId);
+}
+
+/** Filesystem operations the move uses; tests inject failures through them. */
+type CanonicalMoveOptions = { rename?: typeof rename; mkdir?: typeof mkdir };
+
+/** True when anything, including a dangling symlink, occupies the path. */
+async function pathEntryExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
+}
+
+async function assertCanonicalDestinationFree(path: string) {
+  if (await pathEntryExists(path)) {
+    throw new Error(`Canonical checkout path already exists: ${path}`);
+  }
+}
+
+/** Removes only empty directories from `leaf` up to `topCreated`, the first one this move made. */
+async function removeCreatedParents(leaf: string, topCreated: string | undefined) {
+  if (topCreated === undefined) return;
+  let directory = leaf;
+  while (pathIsInside(topCreated, directory)) {
+    try {
+      await rmdir(directory);
+    } catch {
+      return;
+    }
+    if (directory === topCreated) return;
+    directory = dirname(directory);
+  }
+}
+
+async function moveToCanonicalPath(
+  workspaceRoot: string,
+  plan: CanonicalPathPlan,
+  options: CanonicalMoveOptions = {},
+) {
+  const move = options.rename ?? rename;
+  const makeDirectory = options.mkdir ?? mkdir;
+  try {
+    await assertCanonicalDestinationFree(plan.to);
+    const parent = dirname(plan.to);
+    const createdTop = await makeDirectory(parent, { recursive: true });
+    try {
+      await assertCanonicalDestinationFree(plan.to);
+      await move(plan.from, plan.to);
+    } catch (error) {
+      await removeCreatedParents(parent, createdTop);
+      throw error;
+    }
+  } finally {
+    invalidateWorkspace(workspaceRoot);
+  }
+  return { ...plan, moved: true as const };
+}
+
+/**
+ * Resolves a fix-path selector to a project id. An exact id always wins; a slug
+ * or repository name shared by several tracked projects is refused.
+ */
+function fixPathProjectId(projects: readonly Project[], selector: string): string {
+  if (projects.some((project) => project.id === selector)) return selector;
+  const matches = projects.filter(
+    (project) => project.slug === selector || project.repo === selector,
+  );
+  if (matches.length > 1) {
+    throw new Error(
+      `Ambiguous project "${selector}" matches ${matches.map((project) => project.id).join(", ")}. Use the full project id.`,
+    );
+  }
+  return matches[0]?.id ?? selector;
+}
+
+async function checkedCanonicalPathPlan(
+  state: WorkspaceState,
+  selector: string,
+): Promise<CanonicalPathPlan> {
+  const mismatches = hostedClonePathMismatches(state.discovery, state.projects);
+  const projectId = fixPathProjectId(state.projects, selector);
+  const mismatch = mismatches.find((item) => item.projectId === projectId);
+  if (!mismatch) {
+    throw new Error(`No hosted clone path mismatch for project: ${selector}`);
+  }
+  const workspace = state.loaded.paths.workspaceRoot;
+  if (!pathIsInside(workspace, mismatch.actualPath)) {
+    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.actualPath}`);
+  }
+  if (!pathIsInside(workspace, mismatch.expectedPath)) {
+    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.expectedPath}`);
+  }
+  if (!existsSync(mismatch.actualPath)) {
+    throw new Error(`Existing checkout is missing: ${mismatch.actualPath}`);
+  }
+  await assertCanonicalMoveInsideWorkspace(workspace, mismatch);
+  await assertCanonicalDestinationFree(mismatch.expectedPath);
+  return { projectId: mismatch.projectId, from: mismatch.actualPath, to: mismatch.expectedPath };
+}
+
+async function assertCanonicalMoveInsideWorkspace(
+  workspaceRoot: string,
+  mismatch: HostedClonePathMismatch,
+) {
+  const workspaceRealPath = await realpath(workspaceRoot);
+  const actualRealPath = await realpath(mismatch.actualPath);
+  if (!pathIsInside(workspaceRealPath, actualRealPath)) {
+    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.actualPath}`);
+  }
+  const expectedAncestor = nearestExistingAncestor(mismatch.expectedPath);
+  const expectedAncestorRealPath = await realpath(expectedAncestor);
+  if (!pathIsInside(workspaceRealPath, expectedAncestorRealPath)) {
+    throw new Error(`Refusing to move checkout outside workspace: ${mismatch.expectedPath}`);
+  }
 }
 
 export async function importHostedProjects(

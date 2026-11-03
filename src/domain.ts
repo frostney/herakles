@@ -144,6 +144,12 @@ export type ProjectRenamePlanStep = {
   command?: string[];
 };
 
+export type CanonicalPathPlan = {
+  projectId: string;
+  from: string;
+  to: string;
+};
+
 export type ProjectRenamePlan = {
   projectId: string;
   owner: string;

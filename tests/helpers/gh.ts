@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +19,7 @@ export async function withFakeGhScript(prefix: string, script: string, run: () =
     await run();
   } finally {
     process.env.PATH = previousPath;
+    await rm(bin, { recursive: true, force: true });
   }
 }
 
