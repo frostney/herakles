@@ -11,6 +11,7 @@ import type {
 } from "../plugin-host/api";
 import { runCommand } from "../utils/command";
 import { definedProperties } from "../utils/definedProperties";
+import { escapeTerminalLines } from "../utils/terminalText";
 import { formatTable } from "./output";
 import { ask } from "./prompt";
 
@@ -33,7 +34,8 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
   const { workspaceRoot, json, stdout, stderr } = options;
   const promptStream = json ? stderr : stdout;
   const confirm = async (question: string) =>
-    (await ask(`${question} (yes/no): `, promptStream)).toLowerCase() === "yes";
+    (await ask(`${escapeTerminalLines(question)} (yes/no): `, promptStream)).toLowerCase() ===
+    "yes";
   return {
     plugin: { name: options.pluginName },
     json,
@@ -85,13 +87,13 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     output: {
       json: (value) => stdout.write(`${JSON.stringify(value, null, 2)}\n`),
       table: (rows) => stdout.write(`${formatTable(rows)}\n`),
-      line: (text) => stdout.write(`${text}\n`),
-      warn: (text) => stderr.write(`${text}\n`),
-      progress: (text) => stderr.write(`${text}\n`),
+      line: (text) => stdout.write(`${escapeTerminalLines(text)}\n`),
+      warn: (text) => stderr.write(`${escapeTerminalLines(text)}\n`),
+      progress: (text) => stderr.write(`${escapeTerminalLines(text)}\n`),
     },
     prompt: {
       confirm,
-      text: (question) => ask(question, promptStream),
+      text: (question) => ask(escapeTerminalLines(question), promptStream),
     },
     applyPlan: <RESULT>(plan: OperationPlan<RESULT>, applyOptions: { yes?: boolean } = {}) =>
       applyPlan(plan, applyOptions.yes === true, promptStream, confirm),

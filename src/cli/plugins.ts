@@ -5,6 +5,7 @@ import type { AnyPluginCommand, HeraklesPlugin } from "../plugin-host/api";
 import { loadPlugins, type PluginRegistry } from "../plugin-host/load";
 import type { CoreCommandTree } from "../plugin-host/mount";
 import { errorMessage } from "../utils/errors";
+import { escapeTerminalText } from "../utils/terminalText";
 import { booleanFlag, optionalFlag } from "./flags";
 import { createPluginContext } from "./pluginContext";
 
@@ -52,7 +53,9 @@ export async function loadCliPlugins(
   }
   if (!reportsStatus) {
     for (const status of registry.statuses.filter((entry) => entry.state === "failed")) {
-      stderr.write(`herakles: plugin ${status.name} not loaded: ${status.message}\n`);
+      stderr.write(
+        `herakles: plugin ${escapeTerminalText(status.name)} not loaded: ${escapeTerminalText(status.message)}\n`,
+      );
     }
   }
   return { kind: "loaded", workspaceRoot, registry };

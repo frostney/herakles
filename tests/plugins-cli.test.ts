@@ -223,6 +223,34 @@ describe("plugin commands through the CLI", () => {
     expect(extra.stderr).toContain("plugin collides not loaded: Command collision");
   });
 
+  test("escapes control characters in plugin names and ignored keys", async () => {
+    const root = await pluginWorkspace(
+      [],
+      ['[plugins."x\\u001b[31mred"]', "", "[plugins.prs]", '"k\\u001b[32mgreen" = 1', ""].join(
+        "\n",
+      ),
+    );
+
+    const help = await runCli(root, ["--help"]);
+    const list = await runCli(root, ["plugins", "list"]);
+
+    expect(help.stderr).not.toContain("\u001b");
+    expect(help.stderr).toContain("herakles: plugin x\\u001b[31mred not loaded");
+    expect(list.stdout).not.toContain("\u001b");
+    expect(list.stdout).toContain("x\\u001b[31mred");
+    expect(list.stdout).toContain("Ignored unknown config keys: k\\u001b[32mgreen.");
+  });
+
+  test("escapes control characters in plugin line output", async () => {
+    const root = await pluginWorkspace([hello]);
+
+    const result = await runCli(root, ["hello", "x\u001b[31my"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain("\u001b");
+    expect(result.stdout).toContain("Hello, x\\u001b[31my.\nTracked projects:");
+  });
+
   test("keeps core commands working when a plugin throws at load", async () => {
     const root = await pluginWorkspace([throws, hello]);
 

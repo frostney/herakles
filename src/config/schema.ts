@@ -1,6 +1,7 @@
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import type { ProjectState } from "../domain";
+import { escapeTerminalText } from "../utils/terminalText";
 
 const projectStateSchema = z.enum([
   "experiment",
@@ -149,11 +150,15 @@ export function parseHeraklesConfig(raw: unknown): HeraklesConfig {
   return heraklesConfigSchema.parse(raw);
 }
 
-/** One readable line for a failed config parse, with a hint when keys are unrecognized. */
+/**
+ * One readable line for a failed config parse, with a hint when keys are unrecognized.
+ * Characters from config keys that could drive or spoof the terminal are escaped.
+ */
 export function describeConfigError(error: z.ZodError): string {
-  const problems = error.issues.map(
-    (issue) => `${issue.path.join(".") || "(top level)"}: ${issue.message.replace(/\.$/, "")}`,
-  );
+  const problems = error.issues.map((issue) => {
+    const path = issue.path.map(String).join(".") || "(top level)";
+    return escapeTerminalText(`${path}: ${issue.message.replace(/\.$/, "")}`);
+  });
   const hint = error.issues.some((issue) => issue.code === "unrecognized_keys")
     ? " Remove unrecognized tables and keys."
     : "";
