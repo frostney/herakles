@@ -114,7 +114,7 @@ class StackStateTest(unittest.TestCase):
     def test_inspect_preserves_native_bottom_to_top_order_and_exact_heads(self) -> None:
         self.write_scenario(stack(member(11, "head-11"), member(12, "head-12")))
         result, output = self.run_json(
-            "inspect", "--repo", "a private repository", "--stack", "7"
+            "inspect", "--repo", "owner/repo", "--stack", "7"
         )
         self.assertEqual(result.returncode, 0)
         self.assertEqual(output["state"], "observed")
@@ -128,7 +128,7 @@ class StackStateTest(unittest.TestCase):
             stack(member(11, "head-11"), member(12, "head-12"), number=8)
         )
         result, output = self.run_json(
-            "inspect", "--repo", "a private repository", "--stack", "7"
+            "inspect", "--repo", "owner/repo", "--stack", "7"
         )
         self.assertEqual(result.returncode, 2)
         self.assertEqual(output["state"], "operational-error")
@@ -138,7 +138,7 @@ class StackStateTest(unittest.TestCase):
         original = stack(member(11, "head-11"), member(12, "head-12"))
         self.write_scenario(original)
         _, baseline = self.run_json(
-            "inspect", "--repo", "a private repository", "--stack", "7"
+            "inspect", "--repo", "owner/repo", "--stack", "7"
         )
         self.counter.unlink()
         self.write_scenario(
@@ -147,7 +147,7 @@ class StackStateTest(unittest.TestCase):
         _, output = self.run_json(
             "inspect",
             "--repo",
-            "a private repository",
+            "owner/repo",
             "--stack",
             "7",
             "--expect",
@@ -163,7 +163,7 @@ class StackStateTest(unittest.TestCase):
         original = stack(member(11, "head-11"), member(12, "head-12"), member(13, "head-13"))
         self.write_scenario(original)
         _, baseline = self.run_json(
-            "inspect", "--repo", "a private repository", "--stack", "7"
+            "inspect", "--repo", "owner/repo", "--stack", "7"
         )
         self.counter.unlink()
         self.write_scenario(
@@ -172,7 +172,7 @@ class StackStateTest(unittest.TestCase):
         _, output = self.run_json(
             "inspect",
             "--repo",
-            "a private repository",
+            "owner/repo",
             "--stack",
             "7",
             "--expect",
@@ -187,14 +187,14 @@ class StackStateTest(unittest.TestCase):
         original = stack(member(11, "head-11"), member(12, "head-12"))
         self.write_scenario(original)
         _, baseline = self.run_json(
-            "inspect", "--repo", "a private repository", "--stack", "7"
+            "inspect", "--repo", "owner/repo", "--stack", "7"
         )
         self.counter.unlink()
         self.write_scenario(stack(member(12, "head-12"), member(11, "head-11")))
         _, output = self.run_json(
             "inspect",
             "--repo",
-            "a private repository",
+            "owner/repo",
             "--stack",
             "7",
             "--expect",
@@ -209,7 +209,7 @@ class StackStateTest(unittest.TestCase):
         original = stack(member(11, "head-11"), member(12, "head-12"))
         self.write_scenario(original)
         _, baseline = self.run_json(
-            "inspect", "--repo", "a private repository", "--stack", "7"
+            "inspect", "--repo", "owner/repo", "--stack", "7"
         )
         changed = stack(member(11, "head-11"), member(12, "head-12"))
         changed["base"] = {"ref": "release", "sha": "new-base"}
@@ -218,7 +218,7 @@ class StackStateTest(unittest.TestCase):
         _, output = self.run_json(
             "inspect",
             "--repo",
-            "a private repository",
+            "owner/repo",
             "--stack",
             "7",
             "--expect",
@@ -234,12 +234,12 @@ class StackStateTest(unittest.TestCase):
         original = stack(member(11, "head-11"), member(12, "head-12"))
         original["base"] = {"ref": "main"}  # Actual native API omits sha.
         self.write_scenario(original)
-        _, baseline = self.run_json("inspect", "--repo", "a private repository", "--stack", "7")
+        _, baseline = self.run_json("inspect", "--repo", "owner/repo", "--stack", "7")
         self.assertEqual(baseline["observation"]["base"]["sha"], "a" * 40)
         self.counter.unlink()
         changed = {**original, "resolvedBase": "b" * 40}
         self.write_scenario(changed)
-        _, output = self.run_json("inspect", "--repo", "a private repository", "--stack", "7",
+        _, output = self.run_json("inspect", "--repo", "owner/repo", "--stack", "7",
                                   "--expect", str(self.write_expected(baseline)))
         self.assertEqual(output["state"], "invalidated")
         self.assertTrue(output["observation"]["comparison"]["baseChanged"])
@@ -252,7 +252,7 @@ class StackStateTest(unittest.TestCase):
         result, output = self.run_json(
             "inspect",
             "--repo",
-            "a private repository",
+            "owner/repo",
             "--stack",
             "7",
             "--expect",
@@ -269,7 +269,7 @@ class StackStateTest(unittest.TestCase):
         )
         self.write_scenario(original)
         _, baseline = self.run_json(
-            "inspect", "--repo", "a private repository", "--stack", "7"
+            "inspect", "--repo", "owner/repo", "--stack", "7"
         )
         self.counter.unlink()
         self.write_scenario(original, changed)
@@ -280,7 +280,7 @@ class StackStateTest(unittest.TestCase):
         _, output = self.run_json(
             "wait",
             "--repo",
-            "a private repository",
+            "owner/repo",
             "--stack",
             "7",
             "--expect",
@@ -296,11 +296,11 @@ class StackStateTest(unittest.TestCase):
     def test_wait_retries_a_racing_packet_before_accepting_a_stable_transition(self) -> None:
         original = stack(member(11, "head-11"), member(12, "head-12"))
         self.write_scenario(original)
-        _, baseline = self.run_json("inspect", "--repo", "a private repository", "--stack", "7")
+        _, baseline = self.run_json("inspect", "--repo", "owner/repo", "--stack", "7")
         self.counter.unlink()
         changed = {**original, "resolvedBase": "b" * 40}
         self.scenario.write_text(json.dumps({"stack": original, "states": [original, changed], "racyReads": True}))
-        _, output = self.run_json("wait", "--repo", "a private repository", "--stack", "7",
+        _, output = self.run_json("wait", "--repo", "owner/repo", "--stack", "7",
             "--expect", str(self.write_expected(baseline)), "--interval", "0.01",
             "--deadline", (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat())
         self.assertEqual(output["state"], "invalidated")
@@ -311,10 +311,10 @@ class StackStateTest(unittest.TestCase):
     def test_racing_until_deadline_does_not_claim_the_stack_was_unchanged(self) -> None:
         original = stack(member(11, "head-11"), member(12, "head-12"))
         self.write_scenario(original)
-        _, baseline = self.run_json("inspect", "--repo", "a private repository", "--stack", "7")
+        _, baseline = self.run_json("inspect", "--repo", "owner/repo", "--stack", "7")
         self.counter.unlink()
         self.scenario.write_text(json.dumps({"stack": original, "racyReads": "always"}))
-        _, output = self.run_json("wait", "--repo", "a private repository", "--stack", "7",
+        _, output = self.run_json("wait", "--repo", "owner/repo", "--stack", "7",
             "--expect", str(self.write_expected(baseline)), "--interval", "0.01",
             "--deadline", datetime.now(timezone.utc).isoformat())
         self.assertEqual(output["state"], "pending")
@@ -333,7 +333,7 @@ class ObservationRaceTest(unittest.TestCase):
         class SequenceGh:
             def rest(self, endpoint):
                 return responses.pop(0)
-        return self.subject.stack_snapshot(SequenceGh(), "a private repository", 7)
+        return self.subject.stack_snapshot(SequenceGh(), "owner/repo", 7)
 
     def ref(self, sha: str = "a" * 40) -> dict:
         return {"ref": "refs/heads/main", "object": {"type": "commit", "sha": sha}}
