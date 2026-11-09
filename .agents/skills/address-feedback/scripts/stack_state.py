@@ -35,7 +35,7 @@ from kgr_github import (  # noqa: E402
 def repo_parts(repo: str) -> tuple[str, str]:
     pieces = repo.split("/", 1)
     if len(pieces) != 2 or not all(pieces):
-        raise WaitError("--repo must be a private repository")
+        raise WaitError("--repo must be OWNER/REPO")
     return pieces[0], pieces[1]
 
 

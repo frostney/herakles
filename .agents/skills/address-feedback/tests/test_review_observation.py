@@ -61,7 +61,7 @@ T1, T2, T3 = (f"2026-09-06T01:0{i}:00Z" for i in range(1, 4))
 
 class ReviewCurrencyTest(unittest.TestCase):
     def terminal(self, checks=(), reviews=()):
-        return review.review_snapshot(StaticGH(checks, reviews), "a private repository", 1, POLICY)["automations"][0]["terminal"]
+        return review.review_snapshot(StaticGH(checks, reviews), "owner/repo", 1, POLICY)["automations"][0]["terminal"]
 
     def test_new_check_attempt_invalidates_prior_success_regardless_of_array_order(self):
         old = check("old", T1, T2)
@@ -192,7 +192,7 @@ class PagedGH:
 class ReviewPaginationTest(unittest.TestCase):
     def test_collects_all_connections_and_nested_replies_before_judgment(self):
         gh = PagedGH()
-        observation = review.review_snapshot(gh, "a private repository", 1, POLICY, include_bodies=True)
+        observation = review.review_snapshot(gh, "owner/repo", 1, POLICY, include_bodies=True)
         self.assertEqual(review.classify("head", observation)[0], "judgment-required")
         self.assertEqual({s["id"] for s in observation["findingSurfaces"]}, {"comment-200", "review-200", "thread-100"})
         self.assertEqual(len(observation["checks"]), 101)
@@ -228,7 +228,7 @@ class ReviewPaginationTest(unittest.TestCase):
                         del page["nodes"][0]["id"]
                 gh.mutate = mutate
                 with self.assertRaises(WaitError):
-                    review.review_snapshot(gh, "a private repository", 1, POLICY)
+                    review.review_snapshot(gh, "owner/repo", 1, POLICY)
 
     def test_changed_head_or_thread_resolution_invalidates_pagination(self):
         from kgr_github import TransientError
@@ -242,7 +242,7 @@ class ReviewPaginationTest(unittest.TestCase):
                         result["node"]["isResolved"] = False
                 gh.mutate = mutate
                 with self.assertRaises(TransientError):
-                    review.review_snapshot(gh, "a private repository", 1, POLICY)
+                    review.review_snapshot(gh, "owner/repo", 1, POLICY)
 
     def test_same_head_edit_between_complete_censuses_requires_a_fresh_read(self):
         from kgr_github import TransientError
@@ -256,7 +256,7 @@ class ReviewPaginationTest(unittest.TestCase):
                 result["repository"]["pullRequest"]["comments"]["nodes"][0]["body"] = "edited finding"
         gh.mutate = mutate
         with self.assertRaises(TransientError):
-            review.review_snapshot(gh, "a private repository", 1, POLICY)
+            review.review_snapshot(gh, "owner/repo", 1, POLICY)
 
     def test_review_comment_pagination_distinguishes_reply_transport_from_verdict(self):
         for reply_only in (False, True):
@@ -266,7 +266,7 @@ class ReviewPaginationTest(unittest.TestCase):
                 gh.collections["reviews"][-1] = verdict("latest", T3, state="COMMENTED")
                 gh.review_comments["latest"] = [{"id": f"review-comment-{i}",
                     "replyTo": {"id": "original"} if i < 100 or reply_only else None} for i in range(101)]
-                value = review.review_snapshot(gh, "a private repository", 1, POLICY)
+                value = review.review_snapshot(gh, "owner/repo", 1, POLICY)
                 self.assertEqual(value["automations"][0]["terminal"], not reply_only)
                 self.assertEqual(sum("review" in variables for _, variables in gh.calls), 2)
 
@@ -316,7 +316,7 @@ class AutomationThreadReplyTest(unittest.TestCase):
         gh = StaticGH()
         thread = dict(thread, comments={"nodes": thread["comments"], "pageInfo": {"hasNextPage": False}})
         gh.pull["reviewThreads"]["nodes"] = [thread]
-        return review.review_snapshot(gh, "a private repository", 1, policy)
+        return review.review_snapshot(gh, "owner/repo", 1, policy)
 
     def surface(self, observation):
         return next((s for s in observation["findingSurfaces"] if s["kind"] == "inline-thread"), None)

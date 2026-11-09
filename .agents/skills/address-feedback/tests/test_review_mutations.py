@@ -15,10 +15,10 @@ class GH:
     def __init__(self):
         self.head = "head"
         self.actor = "maintainer"
-        self.comments = {10: {"id": 10, "pull_request_url": "a pull request in a private repository",
+        self.comments = {10: {"id": 10, "pull_request_url": "https://api.github.com/repos/owner/repo/pulls/7",
             "body": "finding", "user": {"login": "reviewer"}}}
         self.thread = {"id": "thread", "isResolved": False, "pullRequest": {
-            "number": 7, "headRefOid": "head", "repository": {"nameWithOwner": "a private repository"}}}
+            "number": 7, "headRefOid": "head", "repository": {"nameWithOwner": "owner/repo"}}}
         self.posts = 0
         self.resolutions = 0
         self.hide_replies = False
@@ -72,7 +72,7 @@ class MutationTest(unittest.TestCase):
         self.temp.cleanup()
 
     def reply(self, **changes):
-        args = dict(gh=self.gh, repo="a private repository", pr=7, head="head", comment_id=10,
+        args = dict(gh=self.gh, repo="owner/repo", pr=7, head="head", comment_id=10,
                     body="Fixed with verified regression coverage.", operation_id="operation", state_path=self.state)
         return reply(**(args | changes))
 
@@ -109,7 +109,7 @@ class MutationTest(unittest.TestCase):
         self.assertEqual(self.gh.posts, 1)
 
     def test_cross_pr_reply_target_never_posts(self):
-        self.gh.comments[10]["pull_request_url"] = "a pull request in a private repository"
+        self.gh.comments[10]["pull_request_url"] = "https://api.github.com/repos/owner/repo/pulls/8"
         with self.assertRaises(WaitError):
             self.reply()
         self.assertEqual(self.gh.posts, 0)
@@ -152,7 +152,7 @@ class MutationTest(unittest.TestCase):
         self.assertEqual(self.gh.posts, 1)
 
     def test_cross_repository_or_pr_thread_never_resolves(self):
-        for repo, pr in (("other/repo", 7), ("a private repository", 8)):
+        for repo, pr in (("other/repo", 7), ("owner/repo", 8)):
             with self.subTest(repo=repo, pr=pr):
                 with self.assertRaises(WaitError):
                     resolve(self.gh, repo, pr, "head", "thread")
@@ -160,15 +160,15 @@ class MutationTest(unittest.TestCase):
 
     def test_resolution_uses_independent_current_thread_state(self):
         self.gh.fail_resolve = True
-        value = resolve(self.gh, "a private repository", 7, "head", "thread")
+        value = resolve(self.gh, "owner/repo", 7, "head", "thread")
         self.assertEqual(value["state"], "satisfied")
         self.assertEqual(value["observation"]["threadId"], "thread")
-        self.assertEqual(resolve(self.gh, "a private repository", 7, "head", "thread")["state"], "satisfied")
+        self.assertEqual(resolve(self.gh, "owner/repo", 7, "head", "thread")["state"], "satisfied")
         self.assertEqual(self.gh.resolutions, 1)
 
     def test_resolution_during_head_change_is_invalidated(self):
         self.gh.drift_after_write = True
-        self.assertEqual(resolve(self.gh, "a private repository", 7, "head", "thread")["state"], "invalidated")
+        self.assertEqual(resolve(self.gh, "owner/repo", 7, "head", "thread")["state"], "invalidated")
         self.assertEqual(self.gh.resolutions, 1)
 
 
