@@ -173,20 +173,22 @@ group = ".."
     await expect(loadConfig(root)).rejects.toThrow("Project group");
   });
 
-  test("defaults the up fetch timeout to 60 seconds and accepts an override", async () => {
+  test("defaults the up fetch idle timeout to 60 seconds and accepts an override", async () => {
     const plain = await tempConfigWorkspace("version = 2\n");
-    const custom = await tempConfigWorkspace("version = 2\n\n[up]\nfetch_timeout_seconds = 300\n");
+    const custom = await tempConfigWorkspace(
+      "version = 2\n\n[up]\nfetch_idle_timeout_seconds = 300\n",
+    );
 
-    expect((await loadConfig(plain)).config.up.fetch_timeout_seconds).toBe(60);
-    expect((await loadConfig(custom)).config.up.fetch_timeout_seconds).toBe(300);
+    expect((await loadConfig(plain)).config.up.fetch_idle_timeout_seconds).toBe(60);
+    expect((await loadConfig(custom)).config.up.fetch_idle_timeout_seconds).toBe(300);
   });
 
-  test("rejects an up fetch timeout that is not a positive whole number of seconds", async () => {
+  test("rejects an up fetch idle timeout that is not a positive whole number of seconds", async () => {
     for (const value of ["0", "-5", "1.5", '"soon"']) {
       const root = await tempConfigWorkspace(
-        `version = 2\n\n[up]\nfetch_timeout_seconds = ${value}\n`,
+        `version = 2\n\n[up]\nfetch_idle_timeout_seconds = ${value}\n`,
       );
-      await expect(loadConfig(root)).rejects.toThrow("fetch_timeout_seconds");
+      await expect(loadConfig(root)).rejects.toThrow("fetch_idle_timeout_seconds");
     }
   });
 

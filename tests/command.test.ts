@@ -48,6 +48,53 @@ describe("command runner", () => {
     expect(() => process.kill(child, 0)).toThrow();
   });
 
+  test("output restarts the timeout when asked, so only silence trips it", async () => {
+    const ticking = 'for i in 1 2 3 4 5 6; do echo "tick $i"; sleep 0.2; done';
+
+    // About 1.2 seconds of steady output against a 600ms limit.
+    const steady = await runCommand(["sh", "-c", ticking], {
+      timeoutMs: 600,
+      resetTimeoutOnOutput: true,
+    });
+    expect(steady.exitCode).toBe(0);
+    expect(steady.stdout).toContain("tick 6");
+
+    // The same command against the same limit is a wall-clock timeout without the option.
+    await expect(runCommand(["sh", "-c", ticking], { timeoutMs: 600 })).rejects.toBeInstanceOf(
+      CommandTimeoutError,
+    );
+
+    // Output followed by silence still trips the limit.
+    const error = await runCommand(["sh", "-c", "echo hello; sleep 30"], {
+      timeoutMs: 400,
+      resetTimeoutOnOutput: true,
+    }).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(CommandTimeoutError);
+    expect((error as CommandTimeoutError).stdout).toContain("hello");
+  });
+
+  test("a command that exited is a result, not a timeout, and its leftover child is not signalled", async () => {
+    // The shell exits at once; its background child keeps the output pipes open, like an ssh
+    // ControlPersist master that outlives git.
+    const started = Date.now();
+    const result = await runCommand(["sh", "-c", "sleep 30 & echo $!; exit 0"], {
+      timeoutMs: 200,
+    });
+    const child = Number(result.stdout.trim());
+    try {
+      expect(result.exitCode).toBe(0);
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect(Number.isInteger(child)).toBe(true);
+      // Still running: nothing walked or signalled the tree of a command that had exited.
+      expect(() => process.kill(child, 0)).not.toThrow();
+    } finally {
+      if (Number.isInteger(child)) process.kill(child, "SIGKILL");
+    }
+  });
+
   test("returns a 127 result for a missing executable when failure is allowed", async () => {
     const result = await runCommand(["herakles-missing-tool", "--version"], {
       allowFailure: true,

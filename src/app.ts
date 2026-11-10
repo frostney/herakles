@@ -617,8 +617,7 @@ export async function applyConfigToml(workspaceRoot: string, toml: string) {
   };
 }
 
-export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
-  const state = await loadWorkspace(workspaceRoot);
+function upPlanFor(state: WorkspaceState): UpPlan {
   return applyValidationIssuesToUpPlan(
     createUpPlan(state.projects),
     state.projects,
@@ -626,16 +625,21 @@ export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
   );
 }
 
-export async function up(workspaceRoot: string, options: UpExecuteOptions = {}) {
-  const plan = await upPlan(workspaceRoot);
-  return executeUpPlan(plan, withFetchTimeout(await loadWorkspace(workspaceRoot), options));
+export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
+  return upPlanFor(await loadWorkspace(workspaceRoot));
 }
 
-/** Applies `up.fetch_timeout_seconds` unless the caller already chose a timeout. */
+export async function up(workspaceRoot: string, options: UpExecuteOptions = {}) {
+  const state = await loadWorkspace(workspaceRoot);
+  return executeUpPlan(upPlanFor(state), withFetchTimeout(state, options));
+}
+
+/** Applies `up.fetch_idle_timeout_seconds` unless the caller already chose a timeout. */
 function withFetchTimeout(state: WorkspaceState, options: UpExecuteOptions): UpExecuteOptions {
   return {
     ...options,
-    fetchTimeoutMs: options.fetchTimeoutMs ?? state.loaded.config.up.fetch_timeout_seconds * 1000,
+    fetchIdleTimeoutMs:
+      options.fetchIdleTimeoutMs ?? state.loaded.config.up.fetch_idle_timeout_seconds * 1000,
   };
 }
 

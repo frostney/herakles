@@ -4,10 +4,24 @@ export type CommandResult = {
   stderr: string;
 };
 
+export type CommandOptions = {
+  cwd?: string;
+  allowFailure?: boolean;
+  stdin?: string;
+  /**
+   * Longest the command may run. With `resetTimeoutOnOutput` it is the longest the command may
+   * stay silent instead: every chunk on stdout or stderr starts the wait over.
+   */
+  timeoutMs?: number;
+  resetTimeoutOnOutput?: boolean;
+};
+
 /** How long a timed-out command gets to exit after SIGTERM before its process tree is killed. */
 const KILL_GRACE_MS = 2000;
-/** How long a killed command's output pipes get to close before the output read so far is used. */
+/** How long a command's output pipes get to close once it has exited or been stopped. */
 const OUTPUT_DRAIN_MS = 500;
+
+const TIMED_OUT = Symbol("timed out");
 
 /**
  * Thrown when a command exceeds `timeoutMs`. It carries the output captured before the process
@@ -29,60 +43,108 @@ export class CommandTimeoutError extends Error {
 
 export async function runCommand(
   argv: readonly string[],
-  options: { cwd?: string; allowFailure?: boolean; stdin?: string; timeoutMs?: number } = {},
+  options: CommandOptions = {},
 ): Promise<CommandResult> {
   const spawned = spawnProcess(argv, options);
   if ("failure" in spawned) return spawned.failure;
   const { proc } = spawned;
-  const stdout = collectText(proc.stdout);
-  const stderr = collectText(proc.stderr);
-  const result = Promise.all([stdout.done, stderr.done, proc.exited]);
   const { timeoutMs } = options;
-  let timeout: Timer | undefined;
-  let timedOut = false;
+  const watchdog = timeoutMs === undefined ? undefined : startWatchdog(proc, timeoutMs);
+  const onOutput = options.resetTimeoutOnOutput ? () => watchdog?.restart() : undefined;
+  const stdout = collectText(proc.stdout, onOutput);
+  const stderr = collectText(proc.stderr, onOutput);
+  const streamsClosed = Promise.all([stdout.done, stderr.done]);
+  streamsClosed.catch(() => undefined);
+  // The command is finished when it exits, not when its output ends: a descendant that outlives
+  // it (an ssh ControlPersist master, say) can hold the pipes open for good. Output already
+  // written is read within the grace period; after that the pipes are left alone.
+  const finished = proc.exited.then(async (code) => {
+    watchdog?.stop();
+    await settleWithin(streamsClosed, OUTPUT_DRAIN_MS);
+    return code;
+  });
   try {
-    const exited = result.then(([, , code]) => code);
-    const exitCode =
-      timeoutMs === undefined
-        ? await exited
-        : await Promise.race([
-            exited,
-            // Resolves, never rejects, once the process tree is stopped, so it cannot go
-            // unhandled when the command finishes first.
-            new Promise<undefined>((resolve) => {
-              timeout = setTimeout(async () => {
-                timedOut = true;
-                await terminateProcessTree(proc, result);
-                // The output pipes close with the tree; do not wait on one that never does.
-                await Promise.race([result.catch(() => undefined), Bun.sleep(OUTPUT_DRAIN_MS)]);
-                resolve(undefined);
-              }, timeoutMs);
-            }),
-          ]);
-    // The command can also exit from the kill itself, which would look like an ordinary failure.
-    if ((timedOut || exitCode === undefined) && timeoutMs !== undefined) {
-      throw new CommandTimeoutError(argv, timeoutMs, {
+    let outcome = await Promise.race([finished, ...(watchdog ? [watchdog.expired] : [])]);
+    // The command can exit just as the timer fires; an exited command is never a timeout.
+    if (outcome === TIMED_OUT && hasExited(proc)) outcome = await finished;
+    if (outcome === TIMED_OUT) {
+      await terminateProcessTree(proc, streamsClosed);
+      await settleWithin(streamsClosed, OUTPUT_DRAIN_MS);
+      throw new CommandTimeoutError(argv, timeoutMs ?? 0, {
         stdout: stdout.text(),
         stderr: stderr.text(),
       });
     }
-    if (exitCode === undefined) throw new Error(`${argv.join(" ")} did not report an exit code`);
-    if (exitCode !== 0 && !options.allowFailure) {
-      throw new Error(`${argv.join(" ")} failed with ${exitCode}: ${stderr.text().trim()}`);
+    if (outcome !== 0 && !options.allowFailure) {
+      throw new Error(`${argv.join(" ")} failed with ${outcome}: ${stderr.text().trim()}`);
     }
-    return { exitCode, stdout: stdout.text(), stderr: stderr.text() };
+    return { exitCode: outcome, stdout: stdout.text(), stderr: stderr.text() };
   } finally {
-    if (timeout) clearTimeout(timeout);
-    result.catch(() => undefined);
+    watchdog?.stop();
+    finished.catch(() => undefined);
+  }
+}
+
+function hasExited(proc: Bun.Subprocess): boolean {
+  return proc.exitCode !== null || proc.signalCode !== null;
+}
+
+/**
+ * A timer for a running command. `expired` resolves once the timer runs out while the command is
+ * still running; `restart` starts the wait over and `stop` ends it for good.
+ */
+function startWatchdog(proc: Bun.Subprocess, timeoutMs: number) {
+  let timer: Timer | undefined;
+  let stopped = false;
+  let expire: (reason: typeof TIMED_OUT) => void = () => undefined;
+  const expired = new Promise<typeof TIMED_OUT>((resolve) => {
+    expire = resolve;
+  });
+  const restart = () => {
+    if (stopped) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (!hasExited(proc)) expire(TIMED_OUT);
+    }, timeoutMs);
+  };
+  restart();
+  return {
+    expired,
+    restart,
+    stop() {
+      stopped = true;
+      clearTimeout(timer);
+    },
+  };
+}
+
+/** Waits for `promise` (a rejection counts as settled) for at most `ms`; true if it settled. */
+async function settleWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: Timer | undefined;
+  try {
+    return await Promise.race([
+      promise.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 /** Reads a stream to the end while keeping what has arrived so far available. */
-function collectText(stream: ReadableStream<Uint8Array>) {
+function collectText(stream: ReadableStream<Uint8Array>, onChunk?: () => void) {
   const decoder = new TextDecoder();
   let text = "";
   const done = (async () => {
-    for await (const chunk of stream) text += decoder.decode(chunk, { stream: true });
+    for await (const chunk of stream) {
+      text += decoder.decode(chunk, { stream: true });
+      onChunk?.();
+    }
     text += decoder.decode();
   })();
   return { done, text: () => text };
@@ -93,23 +155,40 @@ function collectText(stream: ReadableStream<Uint8Array>) {
  * enough: an ssh child that git started can outlive it, hold the output pipes open and keep
  * waiting on the remote. Descendants are listed before the signal, because they are re-parented
  * once their parent dies. SIGTERM goes first so git can release its lock files; whatever is
- * still running after a short grace period gets SIGKILL.
+ * still running after a short grace period gets SIGKILL. The command's own pid is signalled only
+ * while the command has not exited, because the pid could be reused afterwards.
  */
-async function terminateProcessTree(proc: Bun.Subprocess, settled: Promise<unknown>) {
-  const tree = [...descendantPids(proc.pid), proc.pid];
-  signalAll(tree, "SIGTERM");
-  let grace: Timer | undefined;
-  const settledInTime = await Promise.race([
-    settled.then(
-      () => true,
-      () => true,
-    ),
-    new Promise<boolean>((resolve) => {
-      grace = setTimeout(() => resolve(false), KILL_GRACE_MS);
-    }),
-  ]);
-  clearTimeout(grace);
-  if (!settledInTime) signalAll(tree, "SIGKILL");
+async function terminateProcessTree(proc: Bun.Subprocess, streamsClosed: Promise<unknown>) {
+  if (hasExited(proc)) return;
+  const descendants = descendantPids(proc.pid);
+  const signalTree = (signal: NodeJS.Signals) => {
+    signalAll(descendants, signal);
+    if (!hasExited(proc)) signalAll([proc.pid], signal);
+  };
+  signalTree("SIGTERM");
+  const stopped = await settleWithin(
+    Promise.all([proc.exited, streamsClosed, waitUntilGone(descendants, KILL_GRACE_MS)]),
+    KILL_GRACE_MS,
+  );
+  if (stopped) return;
+  signalTree("SIGKILL");
+  // A killed process stays visible until it is reaped; give that a moment.
+  await waitUntilGone(descendants, OUTPUT_DRAIN_MS);
+}
+
+/** Polls until none of `pids` is running any more, or `ms` have passed. */
+async function waitUntilGone(pids: readonly number[], ms: number) {
+  const deadline = Date.now() + ms;
+  while (pids.some(isRunning) && Date.now() < deadline) await Bun.sleep(25);
+}
+
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function signalAll(pids: readonly number[], signal: NodeJS.Signals) {
@@ -141,23 +220,19 @@ function descendantPids(root: number): number[] {
     if (pid === undefined || ppid === undefined || Number.isNaN(pid) || Number.isNaN(ppid)) {
       continue;
     }
-    childrenOf.set(ppid, [...(childrenOf.get(ppid) ?? []), pid]);
+    const siblings = childrenOf.get(ppid);
+    if (siblings) siblings.push(pid);
+    else childrenOf.set(ppid, [pid]);
   }
-  const found: number[] = [];
+  // Breadth-first walk: `queue` is read by index, so each pid is visited once.
   const queue = [root];
-  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    for (const child of childrenOf.get(next) ?? []) {
-      found.push(child);
-      queue.push(child);
-    }
+  for (let next = 0; next < queue.length; next++) {
+    queue.push(...(childrenOf.get(queue[next] as number) ?? []));
   }
-  return found;
+  return queue.slice(1);
 }
 
-function spawnProcess(
-  argv: readonly string[],
-  options: { cwd?: string; allowFailure?: boolean; stdin?: string },
-) {
+function spawnProcess(argv: readonly string[], options: CommandOptions) {
   try {
     const proc = Bun.spawn([...argv], {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),

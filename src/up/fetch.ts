@@ -1,8 +1,5 @@
 import { CommandTimeoutError, runCommand } from "../utils/command";
 
-/** Longest `herakles up` waits on one remote when the config does not say otherwise. */
-export const DEFAULT_FETCH_TIMEOUT_MS = 60_000;
-
 const DETAIL_MAX_LENGTH = 160;
 // Tailscale SSH in "check" mode holds the session open until someone approves this URL.
 const TAILSCALE_CHECK_URL = /https:\/\/login\.tailscale\.com\/[A-Za-z0-9\-._~/?=&%]+/;
@@ -13,37 +10,52 @@ export type RemoteFetchFailure = {
   message: string;
 };
 
+/** What the checked-out HEAD tracks, which decides whether it can be fast-forwarded. */
+export type HeadTracking =
+  | { kind: "detached" }
+  | { kind: "no-upstream" }
+  | { kind: "tracking"; remote: string };
+
 /**
  * Fetches every remote that `git fetch --all` would, one at a time, so a remote that hangs or
- * fails is named, bounded by `timeoutMs` and does not stop the others. One `git fetch --all`
+ * fails is named, bounded by `idleTimeoutMs` and does not stop the others. One `git fetch --all`
  * has a single timeout for every remote and cannot say which remote hung; killing it would also
  * skip the remotes after it. Failures are returned, not thrown.
+ *
+ * The limit is inactivity, not total time: `git fetch --progress` keeps writing while it works,
+ * so a large fetch that makes progress finishes, and a fetch that goes silent (an ssh session
+ * waiting for a login approval) is stopped after `idleTimeoutMs`. A server that computes a very
+ * large pack without sending anything for that long is also stopped; raise
+ * `up.fetch_idle_timeout_seconds` for such a remote.
  */
 export async function fetchRemotes(
   cwd: string,
-  timeoutMs: number,
-): Promise<{ failures: RemoteFetchFailure[] }> {
+  idleTimeoutMs: number,
+): Promise<{ fetched: string[]; failures: RemoteFetchFailure[] }> {
+  const fetched: string[] = [];
   const failures: RemoteFetchFailure[] = [];
   for (const remote of await fetchableRemotes(cwd)) {
-    const failure = await fetchRemote(cwd, remote, timeoutMs);
+    const failure = await fetchRemote(cwd, remote, idleTimeoutMs);
     if (failure) failures.push(failure);
+    else fetched.push(remote);
   }
-  return { failures };
+  return { fetched, failures };
 }
 
-/** The remote the checked-out branch tracks, which `git pull` fetches again; undefined if none. */
-export async function upstreamRemote(cwd: string): Promise<string | undefined> {
+/** The checked-out branch's upstream remote, or why there is none. */
+export async function headTracking(cwd: string): Promise<HeadTracking> {
   const refs = await runCommand(
-    ["git", "for-each-ref", "--format=%(HEAD) %(upstream:remotename)", "refs/heads"],
-    { cwd, allowFailure: true },
+    ["git", "for-each-ref", "--format=%(HEAD) %(upstream) %(upstream:remotename)", "refs/heads"],
+    { cwd },
   );
-  if (refs.exitCode !== 0) return undefined;
   const current = refs.stdout.split("\n").find((line) => line.startsWith("*"));
-  return current?.slice(1).trim() || undefined;
+  if (current === undefined) return { kind: "detached" };
+  const [upstream, remote] = current.slice(1).trim().split(/\s+/);
+  return upstream ? { kind: "tracking", remote: remote ?? "" } : { kind: "no-upstream" };
 }
 
-export function describeTimeout(timeoutMs: number): string {
-  return timeoutMs % 1000 === 0 ? `${timeoutMs / 1000}s` : `${timeoutMs}ms`;
+function describeDuration(ms: number): string {
+  return ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`;
 }
 
 /** The approval URL of a Tailscale SSH check, when the command's output contains one. */
@@ -53,16 +65,21 @@ function tailscaleCheckUrl(output: string): string | undefined {
 
 async function fetchableRemotes(cwd: string): Promise<string[]> {
   const listed = await runCommand(["git", "remote"], { cwd });
-  const skipped = await runCommand(
-    ["git", "config", "--get-regexp", "^remote\\..*\\.skipfetchall$"],
+  // `git fetch --all` leaves out remotes with remote.<name>.skipFetchAll set. Git's own boolean
+  // parser decides what counts as set (true, yes, on, 1, any non-zero number, a bare key), and
+  // `--type=bool` prints the normalized value. Exit 1 means no such key; any other failure (a
+  // malformed value, say) is one `git fetch --all` would hit too, so it is not hidden.
+  const flagged = await runCommand(
+    ["git", "config", "--type=bool", "--get-regexp", "^remote\\..*\\.skipfetchall$"],
     { cwd, allowFailure: true },
   );
-  // `git fetch --all` leaves out remotes with remote.<name>.skipFetchAll set. Values are read
-  // raw, so one malformed value cannot hide the others; a key without a value means true.
+  if (flagged.exitCode > 1) {
+    throw new Error(`could not read remote skipFetchAll settings: ${firstLine(flagged.stderr)}`);
+  }
   const skip = new Set(
-    skipped.stdout
+    flagged.stdout
       .split("\n")
-      .map((line) => /^remote\.(.+)\.skipfetchall(?: (true|yes|on|1))?$/i.exec(line.trim()))
+      .map((line) => /^remote\.(.+)\.skipfetchall true$/i.exec(line.trim()))
       .flatMap((match) => (match?.[1] === undefined ? [] : [match[1]])),
   );
   return listed.stdout
@@ -74,36 +91,58 @@ async function fetchableRemotes(cwd: string): Promise<string[]> {
 async function fetchRemote(
   cwd: string,
   remote: string,
-  timeoutMs: number,
+  idleTimeoutMs: number,
 ): Promise<RemoteFetchFailure | undefined> {
   const subject = `fetch from remote '${remote}'`;
   try {
-    const result = await runCommand(["git", "fetch", "--prune", "--", remote], {
+    const result = await runCommand(["git", "fetch", "--progress", "--prune", "--", remote], {
       cwd,
       allowFailure: true,
-      timeoutMs,
+      timeoutMs: idleTimeoutMs,
+      resetTimeoutOnOutput: true,
     });
     if (result.exitCode === 0) return undefined;
-    const detail = firstLine(result.stderr);
+    const detail = failureDetail(result.stderr);
     return {
       remote,
-      message: `${subject} failed with ${result.exitCode}${detail ? `: ${detail}` : ""}; skipped`,
+      message:
+        `${subject} failed with ${result.exitCode}${detail ? `: ${detail}` : ""}; skipped` +
+        approvalNote(`${result.stderr}\n${result.stdout}`),
     };
   } catch (error) {
     if (!(error instanceof CommandTimeoutError)) throw error;
-    const url = tailscaleCheckUrl(`${error.stderr}\n${error.stdout}`);
-    const approval = url ? ` (Tailscale SSH check, approve the login at ${url})` : "";
     return {
       remote,
-      message: `${subject} timed out after ${describeTimeout(timeoutMs)}; skipped${approval}`,
+      message:
+        `${subject} timed out after ${describeDuration(idleTimeoutMs)} without output; skipped` +
+        approvalNote(`${error.stderr}\n${error.stdout}`),
     };
   }
 }
 
+function approvalNote(output: string): string {
+  const url = tailscaleCheckUrl(output);
+  return url ? ` (Tailscale SSH check, approve the login at ${url})` : "";
+}
+
+/**
+ * The line that says why a fetch failed. With `--progress` stderr is full of progress lines and
+ * ssh may print notices first, so the last `fatal:` or `error:` line wins, then the last line.
+ */
+function failureDetail(stderr: string): string {
+  const lines = stderr
+    .split(/[\r\n]+/)
+    .map((line) => line.trim().replace(/\s+/g, " "))
+    .filter((line) => line !== "");
+  const reason = lines.findLast((line) => /^(fatal|error):/i.test(line)) ?? lines.at(-1) ?? "";
+  return reason.length > DETAIL_MAX_LENGTH ? `${reason.slice(0, DETAIL_MAX_LENGTH - 1)}…` : reason;
+}
+
 function firstLine(text: string): string {
-  const line = text.split("\n").find((entry) => entry.trim() !== "") ?? "";
-  const collapsed = line.trim().replace(/\s+/g, " ");
-  return collapsed.length > DETAIL_MAX_LENGTH
-    ? `${collapsed.slice(0, DETAIL_MAX_LENGTH - 1)}…`
-    : collapsed;
+  return (
+    text
+      .split("\n")
+      .find((entry) => entry.trim() !== "")
+      ?.trim() ?? ""
+  );
 }

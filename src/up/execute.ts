@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS } from "../config/schema";
 import type { UpPlan, UpPlanItem } from "../domain";
-import { type CommandResult, CommandTimeoutError, runCommand } from "../utils/command";
-import { DEFAULT_FETCH_TIMEOUT_MS, describeTimeout, fetchRemotes, upstreamRemote } from "./fetch";
+import { runCommand } from "../utils/command";
+import { fetchRemotes, headTracking } from "./fetch";
 
 export type UpExecution = {
   item: UpPlanItem;
@@ -14,10 +15,11 @@ export type UpExecution = {
 export type UpExecuteOptions = {
   dryRun?: boolean;
   /**
-   * Longest to wait on one remote fetch (and on the pull after it) before skipping it. Defaults
-   * to 60 seconds; `app.up` passes `up.fetch_timeout_seconds` from the synced configuration.
+   * Longest one remote fetch may stay silent before it is skipped. Defaults to
+   * `DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS`; `app.up` passes `up.fetch_idle_timeout_seconds` from
+   * the synced configuration.
    */
-  fetchTimeoutMs?: number;
+  fetchIdleTimeoutMs?: number;
   /**
    * Fires before each item runs (dry runs included) with its zero-based index and the item count.
    * Errors from the hook are ignored: a progress hook cannot abort the run.
@@ -42,7 +44,10 @@ export async function executeUpPlan(
     try {
       await pushResult(
         results,
-        await executeItem(item, options.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS),
+        await executeItem(
+          item,
+          options.fetchIdleTimeoutMs ?? DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS * 1000,
+        ),
         options,
       );
     } catch (error) {
@@ -78,7 +83,7 @@ async function ignoreHookError(hook: () => void | Promise<void> | undefined) {
   }
 }
 
-async function executeItem(item: UpPlanItem, fetchTimeoutMs: number): Promise<UpExecution> {
+async function executeItem(item: UpPlanItem, fetchIdleTimeoutMs: number): Promise<UpExecution> {
   const project = item.project;
   if (item.action === "skip" || item.action === "validate") {
     return { item, status: "skipped", message: item.reason };
@@ -101,44 +106,57 @@ async function executeItem(item: UpPlanItem, fetchTimeoutMs: number): Promise<Up
   if (dirty.exitCode !== 0) {
     return { item, status: "failed", message: "not a readable git repository" };
   }
-  const { failures } = await fetchRemotes(project.path, fetchTimeoutMs);
+  const { fetched, failures } = await fetchRemotes(project.path, fetchIdleTimeoutMs);
   const problems = failures.map((failure) => failure.message);
+  // Never claim a fetch that did not happen.
+  const lead = fetchSummary(fetched.length, failures.length);
   if (dirty.stdout.trim()) {
-    return outcome(item, "skipped", "fetched; skipped pull because worktree is dirty", problems);
-  }
-  // `git pull` fetches the branch's upstream remote again. When that fetch just failed, pulling
-  // would wait on the same remote; a failure on any other remote does not affect the pull. A
-  // branch without an upstream cannot be pulled (git stops with "no tracking information" after
-  // trying a remote of its own choosing), so it is not pulled at all.
-  const upstream = await upstreamRemote(project.path);
-  if (upstream === undefined) {
     return outcome(
       item,
       "skipped",
-      "fetched; skipped pull because the branch has no upstream",
+      `${lead}; skipped fast-forward because worktree is dirty`,
       problems,
     );
   }
-  if (failures.some((failure) => failure.remote === upstream)) {
-    return outcome(item, "skipped", "skipped pull because the upstream remote failed", problems);
+  const tracking = await headTracking(project.path);
+  if (tracking.kind === "detached") {
+    return outcome(
+      item,
+      "skipped",
+      `${lead}; not fast-forwarded because HEAD is detached`,
+      problems,
+    );
   }
-  let pull: CommandResult;
-  try {
-    pull = await runCommand(["git", "pull", "--ff-only"], {
-      cwd: project.path,
-      allowFailure: true,
-      timeoutMs: fetchTimeoutMs,
-    });
-  } catch (error) {
-    if (!(error instanceof CommandTimeoutError)) throw error;
-    const waited = describeTimeout(fetchTimeoutMs);
-    return outcome(item, "skipped", `pull timed out after ${waited}; skipped`, problems);
+  if (tracking.kind === "no-upstream") {
+    return outcome(
+      item,
+      "skipped",
+      `${lead}; not fast-forwarded because the branch has no upstream`,
+      problems,
+    );
   }
-  if (pull.exitCode !== 0) {
-    return outcome(item, "skipped", "fetched; not fast-forwardable", problems);
+  // The fast-forward is a local merge of the upstream ref the fetches updated: no network, so
+  // nothing to time out and nothing to kill halfway through a checkout. When the upstream remote
+  // did not answer, that ref is whatever an earlier run fetched. Moving to it is still a safe
+  // fast-forward (never a rewind or a merge commit), but it may be out of date, so say so.
+  const merge = await runCommand(["git", "merge", "--ff-only", "@{upstream}"], {
+    cwd: project.path,
+    allowFailure: true,
+  });
+  if (merge.exitCode !== 0) {
+    return outcome(item, "skipped", `${lead}; not fast-forwardable`, problems);
   }
-  const status = problems.length === 0 ? "done" : "skipped";
-  return outcome(item, status, "fetched and fast-forwarded", problems);
+  if (failures.some((failure) => failure.remote === tracking.remote)) {
+    const stale = `fast-forwarded to the last fetched upstream; remote '${tracking.remote}' did not answer, so it may be out of date`;
+    return outcome(item, "skipped", `${lead}; ${stale}`, problems);
+  }
+  const summary = fetched.length > 0 ? "fetched and fast-forwarded" : `${lead}; fast-forwarded`;
+  return outcome(item, problems.length === 0 ? "done" : "skipped", summary, problems);
+}
+
+function fetchSummary(fetched: number, failed: number): string {
+  if (fetched > 0) return "fetched";
+  return failed > 0 ? "nothing fetched" : "no remotes to fetch";
 }
 
 /** A failed remote makes the item skipped, never done; its messages follow the summary. */

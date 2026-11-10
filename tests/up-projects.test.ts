@@ -96,8 +96,8 @@ describe("upProjects", () => {
     });
   });
 
-  test("up and upProjects wait on a remote for up.fetch_timeout_seconds", async () => {
-    const timeoutToml = `${workspaceToml}\n[up]\nfetch_timeout_seconds = 1\n`;
+  test("up and upProjects stop waiting on a silent remote after up.fetch_idle_timeout_seconds", async () => {
+    const timeoutToml = `${workspaceToml}\n[up]\nfetch_idle_timeout_seconds = 1\n`;
     const root = await createTestWorkspace("herakles-up-timeout-", timeoutToml);
     await mkdir(join(root, "open-source", "herakles"), { recursive: true });
     const gh = `#!/bin/sh
@@ -130,7 +130,7 @@ exit 0
         for (const result of [fromUp, fromUpProjects]) {
           expect(result?.status).toBe("skipped");
           expect(result?.message).toContain(
-            "fetch from remote 'origin' timed out after 1s; skipped",
+            "fetch from remote 'origin' timed out after 1s without output; skipped",
           );
         }
       });
