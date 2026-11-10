@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Project, UpPlan } from "../src/domain";
@@ -77,6 +77,10 @@ describe("workspace up execution", () => {
       expect(log).not.toContain("git clone");
       expect(existsSync(join(clone, ".git"))).toBe(true);
       expect(await readdir(root)).toEqual(["tool"]);
+      // The private staging mode does not carry over: the checkout gets a new folder's mode.
+      const fresh = join(root, "fresh");
+      await mkdir(fresh);
+      expect((await stat(clone)).mode & 0o7777).toBe((await stat(fresh)).mode & 0o7777);
     });
   });
 

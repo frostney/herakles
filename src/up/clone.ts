@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readdir, rename, rm, rmdir } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readdir, rename, rm, rmdir, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { CommandTimeoutError, runCommand } from "../utils/command";
 import { formatDuration } from "../utils/text";
@@ -80,7 +80,9 @@ export async function cloneRepository(
  * claimed with a non-recursive mkdir, which fails if anything is there, and the clone is renamed
  * onto that empty directory of our own. If the rename still fails (another process wrote into
  * the claimed directory), the claim is undone with rmdir, which removes only an empty directory.
- * Whatever was in the way is left alone and the new clone is removed.
+ * Whatever was in the way is left alone and the new clone is removed. mkdtemp made the staging
+ * directory private (0700) for the clone; it takes the claimed directory's mode, which the umask
+ * set as for any new folder, so the checkout is as accessible as a direct clone would be.
  */
 async function moveIntoPlace(staging: string, path: string): Promise<CloneOutcome> {
   const taken = async () => ({
@@ -94,6 +96,7 @@ async function moveIntoPlace(staging: string, path: string): Promise<CloneOutcom
     return cannotMove(staging, error);
   }
   try {
+    await chmod(staging, (await stat(path)).mode & 0o7777);
     await rename(staging, path);
     return { status: "done", message: "cloned" };
   } catch (error) {
