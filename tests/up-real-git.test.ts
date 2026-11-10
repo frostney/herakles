@@ -9,7 +9,14 @@ import { withEnvironment } from "./helpers/environment";
 // These tests drive a real git against repositories on the local disk: no network, no fakes.
 
 function git(cwd: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  // Pass process.env explicitly: without `env`, Bun.spawnSync does not see the variables
+  // withIsolatedGit sets, so the commits would need an identity from the machine's own config.
+  const result = Bun.spawnSync(["git", ...args], {
+    cwd,
+    env: process.env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   if (result.exitCode !== 0) {
     throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
   }
