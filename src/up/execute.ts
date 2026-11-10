@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS } from "../config/schema";
 import type { UpPlan, UpPlanItem } from "../domain";
 import { runCommand } from "../utils/command";
-import { fetchRemotes, headTracking } from "./fetch";
+import { fetchRemotes, fetchUpstreamRef, headCommit, headTracking } from "./fetch";
 
 export type UpExecution = {
   item: UpPlanItem;
@@ -35,6 +35,8 @@ export async function executeUpPlan(
 ): Promise<UpExecution[]> {
   const results: UpExecution[] = [];
   const total = plan.items.length;
+  const fetchIdleTimeoutMs =
+    options.fetchIdleTimeoutMs ?? DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS * 1000;
   for (const [index, item] of plan.items.entries()) {
     await ignoreHookError(() => options.onItemStart?.(item, index, total));
     if (options.dryRun) {
@@ -42,14 +44,7 @@ export async function executeUpPlan(
       continue;
     }
     try {
-      await pushResult(
-        results,
-        await executeItem(
-          item,
-          options.fetchIdleTimeoutMs ?? DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS * 1000,
-        ),
-        options,
-      );
+      await pushResult(results, await executeItem(item, fetchIdleTimeoutMs), options);
     } catch (error) {
       await pushResult(
         results,
@@ -106,52 +101,75 @@ async function executeItem(item: UpPlanItem, fetchIdleTimeoutMs: number): Promis
   if (dirty.exitCode !== 0) {
     return { item, status: "failed", message: "not a readable git repository" };
   }
-  const { fetched, failures } = await fetchRemotes(project.path, fetchIdleTimeoutMs);
+  return fastForwardClone(item, dirty.stdout.trim() !== "", fetchIdleTimeoutMs);
+}
+
+/**
+ * Fetches every remote of an existing clone, then fast-forwards the checked-out branch to its
+ * upstream when that is safe. The fast-forward is a local merge: no network, so nothing to time
+ * out and nothing to kill halfway through a checkout.
+ */
+async function fastForwardClone(
+  item: UpPlanItem,
+  dirty: boolean,
+  fetchIdleTimeoutMs: number,
+): Promise<UpExecution> {
+  const path = item.project.path;
+  const tracking = await headTracking(path);
+  // The tracking remote is fetched even when skipFetchAll leaves it out of `fetch --all`,
+  // because the merge below needs a current ref from it.
+  const { fetched, failures } = await fetchRemotes(
+    path,
+    fetchIdleTimeoutMs,
+    tracking.kind === "tracking" ? tracking.remote : undefined,
+  );
   const problems = failures.map((failure) => failure.message);
   // Never claim a fetch that did not happen.
   const lead = fetchSummary(fetched.length, failures.length);
-  if (dirty.stdout.trim()) {
-    return outcome(
-      item,
-      "skipped",
-      `${lead}; skipped fast-forward because worktree is dirty`,
-      problems,
-    );
-  }
-  const tracking = await headTracking(project.path);
+  const skipped = (reason: string) => outcome(item, "skipped", `${lead}; ${reason}`, problems);
+  if (dirty) return skipped("skipped fast-forward because worktree is dirty");
   if (tracking.kind === "detached") {
-    return outcome(
-      item,
-      "skipped",
-      `${lead}; not fast-forwarded because HEAD is detached`,
-      problems,
-    );
+    return skipped("not fast-forwarded because HEAD is detached");
   }
   if (tracking.kind === "no-upstream") {
-    return outcome(
-      item,
-      "skipped",
-      `${lead}; not fast-forwarded because the branch has no upstream`,
-      problems,
-    );
+    return skipped("not fast-forwarded because the branch has no upstream");
   }
-  // The fast-forward is a local merge of the upstream ref the fetches updated: no network, so
-  // nothing to time out and nothing to kill halfway through a checkout. When the upstream remote
-  // did not answer, that ref is whatever an earlier run fetched. Moving to it is still a safe
-  // fast-forward (never a rewind or a merge commit), but it may be out of date, so say so.
-  const merge = await runCommand(["git", "merge", "--ff-only", "@{upstream}"], {
-    cwd: project.path,
+  const upstreamFailed = failures.some((failure) => failure.remote === tracking.remote);
+  let target = "@{upstream}";
+  if (tracking.unmappedRef !== undefined) {
+    // No remote-tracking branch exists for the merge ref, so fetch it by name and merge what
+    // came back. There is no older ref to fall back on if that fetch fails.
+    const failure = upstreamFailed
+      ? undefined
+      : await fetchUpstreamRef(path, tracking.remote, tracking.unmappedRef, fetchIdleTimeoutMs);
+    if (failure) problems.push(failure.message);
+    if (upstreamFailed || failure) {
+      return skipped(
+        `not fast-forwarded because '${tracking.unmappedRef}' could not be fetched from remote '${tracking.remote}'`,
+      );
+    }
+    target = "FETCH_HEAD";
+  }
+  const before = await headCommit(path);
+  const merge = await runCommand(["git", "merge", "--ff-only", target], {
+    cwd: path,
     allowFailure: true,
   });
-  if (merge.exitCode !== 0) {
-    return outcome(item, "skipped", `${lead}; not fast-forwardable`, problems);
+  if (merge.exitCode !== 0) return skipped("not fast-forwardable");
+  const moved = (await headCommit(path)) !== before;
+  if (upstreamFailed) {
+    // The ref is whatever an earlier run fetched. Merging it is still a safe fast-forward
+    // (never a rewind or a merge commit), but it may be out of date, so say so.
+    const result = moved ? "fast-forwarded to" : "already up to date with";
+    return skipped(
+      `${result} the last fetched upstream; remote '${tracking.remote}' did not answer, so it may be out of date`,
+    );
   }
-  if (failures.some((failure) => failure.remote === tracking.remote)) {
-    const stale = `fast-forwarded to the last fetched upstream; remote '${tracking.remote}' did not answer, so it may be out of date`;
-    return outcome(item, "skipped", `${lead}; ${stale}`, problems);
-  }
-  const summary = fetched.length > 0 ? "fetched and fast-forwarded" : `${lead}; fast-forwarded`;
-  return outcome(item, problems.length === 0 ? "done" : "skipped", summary, problems);
+  const status = problems.length === 0 ? "done" : "skipped";
+  const progress = moved ? "fast-forwarded" : "already up to date";
+  const summary =
+    moved && fetched.length > 0 ? "fetched and fast-forwarded" : `${lead}; ${progress}`;
+  return outcome(item, status, summary, problems);
 }
 
 function fetchSummary(fetched: number, failed: number): string {

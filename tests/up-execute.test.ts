@@ -73,9 +73,9 @@ describe("workspace up execution", () => {
       expect(result[0]?.status).toBe("skipped");
       expect(result[0]?.message).toBe("fetched; skipped fast-forward because worktree is dirty");
       expect(log).toContain("status --porcelain");
-      expect(log).toContain("fetch --progress --prune -- origin");
+      expect(log).toContain("fetch --progress --no-write-fetch-head --prune -- origin");
       expect(log).not.toContain("fetch --all");
-      expect(log).not.toContain("merge");
+      expect(log).not.toContain("merge --ff-only");
     });
   });
 
@@ -87,7 +87,7 @@ describe("workspace up execution", () => {
 
       expect(result[0]?.status).toBe("done");
       expect(result[0]?.message).toBe("fetched and fast-forwarded");
-      expect(log).toContain("fetch --progress --prune -- origin");
+      expect(log).toContain("fetch --progress --no-write-fetch-head --prune -- origin");
       expect(log).not.toContain("fetch --all");
       expect(log).toContain("merge --ff-only @{upstream}");
       expect(log).not.toContain("pull");
@@ -170,8 +170,8 @@ describe("workspace up execution", () => {
           `output; skipped ${APPROVAL_NOTE}`,
       );
       // The remote after the silent one was still fetched, and the local fast-forward still ran.
-      expect(log).toContain("fetch --progress --prune -- backup");
-      expect(log).toContain("fetch --progress --prune -- origin");
+      expect(log).toContain("fetch --progress --no-write-fetch-head --prune -- backup");
+      expect(log).toContain("fetch --progress --no-write-fetch-head --prune -- origin");
       expect(log).toContain("merge --ff-only @{upstream}");
       await expectChildrenStopped(join(bin, "children.log"));
     });
@@ -202,7 +202,7 @@ describe("workspace up execution", () => {
         "fetched; fast-forwarded to the last fetched upstream; remote 'origin' did not answer, " +
           "so it may be out of date; fetch from remote 'origin' timed out after 300ms without output",
       );
-      expect(log).toContain("fetch --progress --prune -- backup");
+      expect(log).toContain("fetch --progress --no-write-fetch-head --prune -- backup");
       expect(log).toContain("merge --ff-only @{upstream}");
       expect(log).not.toContain("pull");
     });
@@ -242,6 +242,31 @@ describe("workspace up execution", () => {
     });
   });
 
+  test("fetches remotes side by side and reports failures in remote order", async () => {
+    const clone = await existingClone("herakles-up-parallel-");
+    // Each slow fake logs when it starts and ends, one second apart. Run one after another, the
+    // first would end before the second starts.
+    const slow = { status: "", remotes: "origin backup mirror", slowRemotes: "origin backup" };
+    await withFakeGit(slow, async (logPath) => {
+      await executeUpPlan(plan(clone));
+      const lines = (await readFile(logPath, "utf8")).split("\n");
+      const index = (line: string) => lines.indexOf(line);
+
+      expect(index("start origin")).toBeGreaterThan(-1);
+      expect(index("start backup")).toBeGreaterThan(-1);
+      expect(Math.max(index("start origin"), index("start backup"))).toBeLessThan(
+        Math.min(index("end origin"), index("end backup")),
+      );
+    });
+    const failing = { status: "", remotes: "zeta alpha origin", failingRemotes: "zeta alpha" };
+    await withFakeGit(failing, async () => {
+      const message = (await executeUpPlan(plan(clone)))[0]?.message ?? "";
+
+      expect(message.indexOf("'zeta'")).toBeGreaterThan(-1);
+      expect(message.indexOf("'zeta'")).toBeLessThan(message.indexOf("'alpha'"));
+    });
+  });
+
   test("names the Tailscale approval URL when the fetch fails instead of timing out", async () => {
     const clone = await existingClone("herakles-up-approval-");
     const options = { status: "", remotes: "backup origin", approvalRemotes: "backup" };
@@ -266,7 +291,9 @@ describe("workspace up execution", () => {
       expect(result[0]?.message).toStartWith(
         "fetched; skipped fast-forward because worktree is dirty; fetch from remote 'backup' timed out",
       );
-      expect(await readFile(logPath, "utf8")).toContain("fetch --progress --prune -- origin");
+      expect(await readFile(logPath, "utf8")).toContain(
+        "fetch --progress --no-write-fetch-head --prune -- origin",
+      );
     });
   });
 
@@ -277,10 +304,90 @@ describe("workspace up execution", () => {
       await executeUpPlan(plan(clone));
       const log = await readFile(logPath, "utf8");
 
-      expect(log).toContain("fetch --progress --prune -- origin");
+      expect(log).toContain("fetch --progress --no-write-fetch-head --prune -- origin");
       expect(log).not.toContain("mirror\n");
       // git's own boolean parser decides, so the lookup must ask for normalized booleans.
       expect(log).toContain("config --type=bool --get-regexp");
+    });
+  });
+
+  test("still fetches the tracking remote when skipFetchAll leaves it out of fetch --all", async () => {
+    const clone = await existingClone("herakles-up-skip-tracking-");
+    const options = { status: "", remotes: "origin mirror", skipFetchAll: "origin mirror" };
+    await withFakeGit(options, async (logPath) => {
+      const result = await executeUpPlan(plan(clone));
+      const log = await readFile(logPath, "utf8");
+
+      // Without this the merge would use a ref nothing refreshes and still say "fetched".
+      expect(log).toContain("fetch --progress --no-write-fetch-head --prune -- origin");
+      expect(log).not.toContain("-- mirror");
+      expect(result[0]?.message).toBe("fetched and fast-forwarded");
+    });
+  });
+
+  test("fetches a merge ref without a remote-tracking branch by name and merges FETCH_HEAD", async () => {
+    const clone = await existingClone("herakles-up-unmapped-");
+    const options = {
+      status: "",
+      upstream: "* main",
+      branchRemote: "origin",
+      branchMerge: "refs/heads/next",
+    };
+    await withFakeGit(options, async (logPath) => {
+      const result = await executeUpPlan(plan(clone));
+      const log = await readFile(logPath, "utf8");
+
+      expect(result[0]?.status).toBe("done");
+      expect(result[0]?.message).toBe("fetched and fast-forwarded");
+      expect(log).toContain("fetch --progress -- origin refs/heads/next");
+      expect(log).toContain("merge --ff-only FETCH_HEAD");
+      expect(log).not.toContain("@{upstream}");
+    });
+  });
+
+  test("does not merge when the merge ref without a remote-tracking branch cannot be fetched", async () => {
+    const clone = await existingClone("herakles-up-unmapped-fail-");
+    const options = {
+      status: "",
+      upstream: "* main",
+      branchRemote: "origin",
+      branchMerge: "refs/heads/next",
+      failingRefFetch: true,
+    };
+    await withFakeGit(options, async (logPath) => {
+      const result = await executeUpPlan(plan(clone));
+
+      expect(result[0]?.status).toBe("skipped");
+      expect(result[0]?.message).toBe(
+        "fetched; not fast-forwarded because 'refs/heads/next' could not be fetched from remote 'origin'; " +
+          "fetch of 'refs/heads/next' from remote 'origin' failed with 128: " +
+          "fatal: couldn't find remote ref refs/heads/next; skipped",
+      );
+      expect(await readFile(logPath, "utf8")).not.toContain("merge --ff-only");
+    });
+  });
+
+  test("says already up to date when the merge moved nothing", async () => {
+    const clone = await existingClone("herakles-up-uptodate-");
+    await withFakeGit({ status: "", mergeMoves: false }, async () => {
+      const result = await executeUpPlan(plan(clone));
+
+      expect(result[0]?.status).toBe("done");
+      expect(result[0]?.message).toBe("fetched; already up to date");
+    });
+    const stale = {
+      status: "",
+      remotes: "origin backup",
+      hangingRemotes: "origin",
+      mergeMoves: false,
+    };
+    await withFakeGit(stale, async () => {
+      const result = await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 300 });
+
+      expect(result[0]?.message).toStartWith(
+        "fetched; already up to date with the last fetched upstream; remote 'origin' did not answer",
+      );
+      expect(result[0]?.message).not.toContain("fast-forwarded");
     });
   });
 
@@ -291,20 +398,20 @@ describe("workspace up execution", () => {
 
       expect(result[0]?.status).toBe("skipped");
       expect(result[0]?.message).toBe("fetched; not fast-forwarded because HEAD is detached");
-      expect(await readFile(logPath, "utf8")).not.toContain("merge");
+      expect(await readFile(logPath, "utf8")).not.toContain("merge --ff-only");
     });
   });
 
   test("does not fast-forward a branch without an upstream", async () => {
     const clone = await existingClone("herakles-up-no-upstream-");
-    await withFakeGit({ status: "", upstream: "*  " }, async (logPath) => {
+    await withFakeGit({ status: "", upstream: "* main" }, async (logPath) => {
       const result = await executeUpPlan(plan(clone));
 
       expect(result[0]?.status).toBe("skipped");
       expect(result[0]?.message).toBe(
         "fetched; not fast-forwarded because the branch has no upstream",
       );
-      expect(await readFile(logPath, "utf8")).not.toContain("merge");
+      expect(await readFile(logPath, "utf8")).not.toContain("merge --ff-only");
     });
   });
 
@@ -322,9 +429,18 @@ describe("workspace up execution", () => {
 type FakeGitOptions = {
   status: string;
   mergeExit?: string;
+  /** Whether a successful merge moves HEAD. Defaults to true; false is "Already up to date". */
+  mergeMoves?: boolean;
+  /** branch.<current>.remote and .merge, for a merge ref that has no remote-tracking branch. */
+  branchRemote?: string;
+  branchMerge?: string;
+  /** Makes a fetch of a named ref (not a whole remote) fail. */
+  failingRefFetch?: boolean;
+  /** Remotes whose fetch stays silent for one second, logging when it starts and ends. */
+  slowRemotes?: string;
   /** Remotes `git remote` lists, space separated. Defaults to "origin". */
   remotes?: string;
-  /** Output of the branch/upstream lookup. Defaults to a branch tracking origin. */
+  /** Output of the branch lookup: `* <branch> <upstream ref> <remote>`. Defaults to origin/main. */
   upstream?: string;
   /** Remotes whose fetch prints a Tailscale check URL and then never finishes. */
   hangingRemotes?: string;
@@ -373,14 +489,46 @@ case "$1" in
     for name in $HERAKLES_GIT_REMOTES; do echo "$name"; done
     ;;
   config)
-    for name in $HERAKLES_GIT_SKIP_FETCH_ALL; do echo "remote.$name.skipfetchall true"; done
-    [ -n "$HERAKLES_GIT_SKIP_FETCH_ALL" ] || exit 1
+    case "$2" in
+      --type=bool)
+        for name in $HERAKLES_GIT_SKIP_FETCH_ALL; do echo "remote.$name.skipfetchall true"; done
+        [ -n "$HERAKLES_GIT_SKIP_FETCH_ALL" ] || exit 1
+        ;;
+      --get)
+        case "$3" in
+          branch.*.remote) [ -n "$HERAKLES_GIT_BRANCH_REMOTE" ] || exit 1; echo "$HERAKLES_GIT_BRANCH_REMOTE" ;;
+          branch.*.merge) [ -n "$HERAKLES_GIT_BRANCH_MERGE" ] || exit 1; echo "$HERAKLES_GIT_BRANCH_MERGE" ;;
+          *) exit 1 ;;
+        esac
+        ;;
+    esac
+    ;;
+  rev-parse)
+    cat "$HERAKLES_GIT_HEAD_FILE"
     ;;
   for-each-ref)
     printf '%s\\n' "$HERAKLES_GIT_UPSTREAM"
     ;;
   fetch)
-    for remote; do :; done
+    # The remote is the first argument after "--"; a second one is a ref to fetch by name.
+    remote=""; ref=""; after=0
+    for arg; do
+      if [ "$after" = 1 ]; then
+        if [ -z "$remote" ]; then remote="$arg"; else ref="$arg"; fi
+      fi
+      [ "$arg" = "--" ] && after=1
+    done
+    if [ -n "$ref" ] && [ -n "$HERAKLES_GIT_FAILING_REF" ]; then
+      echo "fatal: couldn't find remote ref $ref" >&2
+      exit 128
+    fi
+    for name in $HERAKLES_GIT_SLOW; do
+      if [ "$name" = "$remote" ]; then
+        echo "start $remote" >> "$HERAKLES_GIT_LOG"
+        sleep 1
+        echo "end $remote" >> "$HERAKLES_GIT_LOG"
+      fi
+    done
     for name in $HERAKLES_GIT_HANGING; do
       [ "$name" = "$remote" ] && hang "# To authenticate, visit: ${APPROVAL_URL}"
     done
@@ -410,7 +558,9 @@ case "$1" in
     done
     ;;
   merge)
-    exit "$HERAKLES_GIT_MERGE_EXIT"
+    [ "$HERAKLES_GIT_MERGE_EXIT" = 0 ] || exit "$HERAKLES_GIT_MERGE_EXIT"
+    [ "$HERAKLES_GIT_MERGE_MOVES" = 1 ] && echo moved > "$HERAKLES_GIT_HEAD_FILE"
+    exit 0
     ;;
   pull)
     echo "pull must not run" >&2
@@ -430,6 +580,7 @@ fi
 exit 0
 `,
   );
+  await writeFile(join(bin, "head"), "base\n");
   await chmod(join(bin, "git"), 0o755);
   await chmod(join(bin, "gh"), 0o755);
   await withEnvironment(
@@ -439,7 +590,13 @@ exit 0
       HERAKLES_GIT_STATUS: options.status,
       HERAKLES_GIT_MERGE_EXIT: options.mergeExit ?? "0",
       HERAKLES_GIT_REMOTES: options.remotes ?? "origin",
-      HERAKLES_GIT_UPSTREAM: options.upstream ?? "* refs/remotes/origin/main origin",
+      HERAKLES_GIT_UPSTREAM: options.upstream ?? "* main refs/remotes/origin/main origin",
+      HERAKLES_GIT_BRANCH_REMOTE: options.branchRemote ?? "",
+      HERAKLES_GIT_BRANCH_MERGE: options.branchMerge ?? "",
+      HERAKLES_GIT_MERGE_MOVES: options.mergeMoves === false ? "0" : "1",
+      HERAKLES_GIT_FAILING_REF: options.failingRefFetch ? "1" : "",
+      HERAKLES_GIT_SLOW: options.slowRemotes ?? "",
+      HERAKLES_GIT_HEAD_FILE: join(bin, "head"),
       HERAKLES_GIT_HANGING: options.hangingRemotes ?? "",
       HERAKLES_GIT_TRICKLE: options.trickleRemotes ?? "",
       HERAKLES_GIT_FAILING: options.failingRemotes ?? "",

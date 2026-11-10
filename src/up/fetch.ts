@@ -1,4 +1,5 @@
 import { CommandTimeoutError, runCommand } from "../utils/command";
+import { formatDuration, truncateText } from "../utils/text";
 
 const DETAIL_MAX_LENGTH = 160;
 // Tailscale SSH in "check" mode holds the session open until someone approves this URL.
@@ -14,13 +15,25 @@ export type RemoteFetchFailure = {
 export type HeadTracking =
   | { kind: "detached" }
   | { kind: "no-upstream" }
-  | { kind: "tracking"; remote: string };
+  | {
+      kind: "tracking";
+      /** The upstream's remote; `.` when the upstream is a local branch. */
+      remote: string;
+      /**
+       * Set when the branch's merge ref has no remote-tracking branch (a single-branch clone, or
+       * a ref outside `remote.<name>.fetch`). A plain fetch never updates it, so it has to be
+       * fetched by name and merged from FETCH_HEAD, as `git pull` does.
+       */
+      unmappedRef?: string;
+    };
 
 /**
- * Fetches every remote that `git fetch --all` would, one at a time, so a remote that hangs or
- * fails is named, bounded by `idleTimeoutMs` and does not stop the others. One `git fetch --all`
- * has a single timeout for every remote and cannot say which remote hung; killing it would also
- * skip the remotes after it. Failures are returned, not thrown.
+ * Fetches every remote that `git fetch --all` would, plus `trackingRemote` even when it is
+ * marked skipFetchAll (the fast-forward needs a current ref from it), all at once. A remote that
+ * hangs or fails is named, bounded by `idleTimeoutMs` and does not stop the others, and running
+ * them side by side means N silent remotes cost one limit, not N. One `git fetch --all` has a
+ * single timeout for every remote and cannot say which remote hung; killing it would also skip
+ * the remotes after it. Results come back in remote order. Failures are returned, not thrown.
  *
  * The limit is inactivity, not total time: `git fetch --progress` keeps writing while it works,
  * so a large fetch that makes progress finishes, and a fetch that goes silent (an ssh session
@@ -31,39 +44,76 @@ export type HeadTracking =
 export async function fetchRemotes(
   cwd: string,
   idleTimeoutMs: number,
+  trackingRemote?: string,
 ): Promise<{ fetched: string[]; failures: RemoteFetchFailure[] }> {
-  const fetched: string[] = [];
-  const failures: RemoteFetchFailure[] = [];
-  for (const remote of await fetchableRemotes(cwd)) {
-    const failure = await fetchRemote(cwd, remote, idleTimeoutMs);
-    if (failure) failures.push(failure);
-    else fetched.push(remote);
-  }
-  return { fetched, failures };
+  const remotes = await fetchableRemotes(cwd, trackingRemote);
+  // Parallel fetches would overwrite each other's FETCH_HEAD, and nothing reads it here.
+  const results = await Promise.all(
+    remotes.map((remote) =>
+      runFetch(
+        cwd,
+        ["--no-write-fetch-head", "--prune", "--", remote],
+        { remote, subject: `fetch from remote '${remote}'` },
+        idleTimeoutMs,
+      ),
+    ),
+  );
+  return {
+    fetched: remotes.filter((_, index) => results[index] === undefined),
+    failures: results.flatMap((failure) => (failure ? [failure] : [])),
+  };
 }
 
-/** The checked-out branch's upstream remote, or why there is none. */
+/** Fetches the branch's merge ref by name, which leaves its tip in FETCH_HEAD. */
+export function fetchUpstreamRef(
+  cwd: string,
+  remote: string,
+  ref: string,
+  idleTimeoutMs: number,
+): Promise<RemoteFetchFailure | undefined> {
+  return runFetch(
+    cwd,
+    ["--", remote, ref],
+    { remote, subject: `fetch of '${ref}' from remote '${remote}'` },
+    idleTimeoutMs,
+  );
+}
+
+/** The checked-out branch's upstream, or why there is none. */
 export async function headTracking(cwd: string): Promise<HeadTracking> {
   const refs = await runCommand(
-    ["git", "for-each-ref", "--format=%(HEAD) %(upstream) %(upstream:remotename)", "refs/heads"],
+    [
+      "git",
+      "for-each-ref",
+      "--format=%(HEAD) %(refname:lstrip=2) %(upstream) %(upstream:remotename)",
+      "refs/heads",
+    ],
     { cwd },
   );
   const current = refs.stdout.split("\n").find((line) => line.startsWith("*"));
   if (current === undefined) return { kind: "detached" };
-  const [upstream, remote] = current.slice(1).trim().split(/\s+/);
-  return upstream ? { kind: "tracking", remote: remote ?? "" } : { kind: "no-upstream" };
+  const [branch = "", upstream, remote] = current.slice(1).trim().split(/\s+/);
+  if (upstream) return { kind: "tracking", remote: remote ?? "" };
+  // No remote-tracking branch for the merge ref. git still knows what the branch tracks.
+  const configuredRemote = await configValue(cwd, `branch.${branch}.remote`);
+  const unmappedRef = await configValue(cwd, `branch.${branch}.merge`);
+  if (configuredRemote && configuredRemote !== "." && unmappedRef) {
+    return { kind: "tracking", remote: configuredRemote, unmappedRef };
+  }
+  return { kind: "no-upstream" };
 }
 
-function describeDuration(ms: number): string {
-  return ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`;
+/** The commit HEAD points at. */
+export async function headCommit(cwd: string): Promise<string> {
+  return (await runCommand(["git", "rev-parse", "HEAD"], { cwd })).stdout.trim();
 }
 
-/** The approval URL of a Tailscale SSH check, when the command's output contains one. */
-function tailscaleCheckUrl(output: string): string | undefined {
-  return TAILSCALE_CHECK_URL.exec(output)?.[0];
+async function configValue(cwd: string, key: string): Promise<string | undefined> {
+  const result = await runCommand(["git", "config", "--get", key], { cwd, allowFailure: true });
+  return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined;
 }
 
-async function fetchableRemotes(cwd: string): Promise<string[]> {
+async function fetchableRemotes(cwd: string, trackingRemote?: string): Promise<string[]> {
   const listed = await runCommand(["git", "remote"], { cwd });
   // `git fetch --all` leaves out remotes with remote.<name>.skipFetchAll set. Git's own boolean
   // parser decides what counts as set (true, yes, on, 1, any non-zero number, a bare key), and
@@ -85,17 +135,18 @@ async function fetchableRemotes(cwd: string): Promise<string[]> {
   return listed.stdout
     .split("\n")
     .map((line) => line.trim())
-    .filter((name) => name !== "" && !skip.has(name));
+    .filter((name) => name !== "" && (name === trackingRemote || !skip.has(name)));
 }
 
-async function fetchRemote(
+async function runFetch(
   cwd: string,
-  remote: string,
+  args: readonly string[],
+  target: { remote: string; subject: string },
   idleTimeoutMs: number,
 ): Promise<RemoteFetchFailure | undefined> {
-  const subject = `fetch from remote '${remote}'`;
+  const { remote, subject } = target;
   try {
-    const result = await runCommand(["git", "fetch", "--progress", "--prune", "--", remote], {
+    const result = await runCommand(["git", "fetch", "--progress", ...args], {
       cwd,
       allowFailure: true,
       timeoutMs: idleTimeoutMs,
@@ -114,14 +165,15 @@ async function fetchRemote(
     return {
       remote,
       message:
-        `${subject} timed out after ${describeDuration(idleTimeoutMs)} without output; skipped` +
+        `${subject} timed out after ${formatDuration(idleTimeoutMs)} without output; skipped` +
         approvalNote(`${error.stderr}\n${error.stdout}`),
     };
   }
 }
 
+/** The approval URL of a Tailscale SSH check, when the command's output contains one. */
 function approvalNote(output: string): string {
-  const url = tailscaleCheckUrl(output);
+  const url = TAILSCALE_CHECK_URL.exec(output)?.[0];
   return url ? ` (Tailscale SSH check, approve the login at ${url})` : "";
 }
 
@@ -135,7 +187,7 @@ function failureDetail(stderr: string): string {
     .map((line) => line.trim().replace(/\s+/g, " "))
     .filter((line) => line !== "");
   const reason = lines.findLast((line) => /^(fatal|error):/i.test(line)) ?? lines.at(-1) ?? "";
-  return reason.length > DETAIL_MAX_LENGTH ? `${reason.slice(0, DETAIL_MAX_LENGTH - 1)}…` : reason;
+  return truncateText(reason, DETAIL_MAX_LENGTH);
 }
 
 function firstLine(text: string): string {

@@ -57,10 +57,13 @@ export async function runCommand(
   streamsClosed.catch(() => undefined);
   // The command is finished when it exits, not when its output ends: a descendant that outlives
   // it (an ssh ControlPersist master, say) can hold the pipes open for good. Output already
-  // written is read within the grace period; after that the pipes are left alone.
+  // written is read within the grace period; after that the pipes are cancelled so they cannot
+  // keep this process alive.
+  const releasePipes = () => Promise.all([stdout.cancel(), stderr.cancel()]);
   const finished = proc.exited.then(async (code) => {
     watchdog?.stop();
     await settleWithin(streamsClosed, OUTPUT_DRAIN_MS);
+    await releasePipes();
     return code;
   });
   try {
@@ -70,6 +73,7 @@ export async function runCommand(
     if (outcome === TIMED_OUT) {
       await terminateProcessTree(proc, streamsClosed);
       await settleWithin(streamsClosed, OUTPUT_DRAIN_MS);
+      await releasePipes();
       throw new CommandTimeoutError(argv, timeoutMs ?? 0, {
         stdout: stdout.text(),
         stderr: stderr.text(),
@@ -82,6 +86,7 @@ export async function runCommand(
   } finally {
     watchdog?.stop();
     finished.catch(() => undefined);
+    await releasePipes();
   }
 }
 
@@ -136,18 +141,27 @@ async function settleWithin(promise: Promise<unknown>, ms: number): Promise<bool
   }
 }
 
-/** Reads a stream to the end while keeping what has arrived so far available. */
+/**
+ * Reads a stream to the end while keeping what has arrived so far available. `cancel` stops
+ * reading and releases the pipe, which a process that holds the write end open would otherwise
+ * keep alive (and with it this process) for as long as it runs.
+ */
 function collectText(stream: ReadableStream<Uint8Array>, onChunk?: () => void) {
   const decoder = new TextDecoder();
+  const reader = stream.getReader();
   let text = "";
   const done = (async () => {
-    for await (const chunk of stream) {
-      text += decoder.decode(chunk, { stream: true });
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+      text += decoder.decode(chunk.value, { stream: true });
       onChunk?.();
     }
     text += decoder.decode();
   })();
-  return { done, text: () => text };
+  return {
+    done,
+    text: () => text,
+    cancel: () => reader.cancel().catch(() => undefined),
+  };
 }
 
 /**

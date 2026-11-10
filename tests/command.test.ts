@@ -95,6 +95,40 @@ describe("command runner", () => {
     }
   });
 
+  test("a leftover child holding the pipes does not keep the calling process alive", async () => {
+    // The shell exits at once; its background child holds the output pipes for 8 seconds. The
+    // runner returns after the pipe grace period, and the process running it must be able to
+    // exit then, not when the child finally does.
+    const commandModule = new URL("../src/utils/command.ts", import.meta.url).pathname;
+    const script = `
+      import { runCommand } from ${JSON.stringify(commandModule)};
+      const result = await runCommand(["sh", "-c", "sleep 8 & echo $!"], {
+        timeoutMs: 3000,
+        resetTimeoutOnOutput: true,
+      });
+      console.log(result.stdout.trim());
+    `;
+    const started = Date.now();
+    const runner = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+    const output = new Response(runner.stdout).text();
+    const exited = await Promise.race([runner.exited, Bun.sleep(6000).then(() => "still running")]);
+    const child = Number((await Promise.race([output, Bun.sleep(1000).then(() => "")])).trim());
+    try {
+      expect(exited).toBe(0);
+      expect(Date.now() - started).toBeLessThan(6000);
+      expect(Number.isInteger(child)).toBe(true);
+    } finally {
+      runner.kill("SIGKILL");
+      if (Number.isInteger(child) && child > 0) {
+        try {
+          process.kill(child, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+    }
+  }, 15_000);
+
   test("returns a 127 result for a missing executable when failure is allowed", async () => {
     const result = await runCommand(["herakles-missing-tool", "--version"], {
       allowFailure: true,
