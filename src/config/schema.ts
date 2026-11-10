@@ -69,6 +69,9 @@ export const projectConfigSchema = z
   })
   .strict();
 
+/** Seconds `herakles up` lets one remote fetch stay silent when the config does not say. */
+const DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS = 60;
+
 /** Lowercase kebab-case, used for plugin names and plugin command route words. */
 export const kebabCasePattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
@@ -113,7 +116,19 @@ export const heraklesConfigSchema = z
         learning_files: z.array(relativePathSchema).default(["LEARNING.md", "docs/LEARNING.md"]),
       })
       .prefault({}),
-    up: z.object({ exclude_topics: z.array(z.string()).default(["no-up"]) }).prefault({}),
+    up: z
+      .object({
+        exclude_topics: z.array(z.string()).default(["no-up"]),
+        // Longest `herakles up` waits without any output from one remote fetch before it skips
+        // that remote.
+        fetch_idle_timeout_seconds: z
+          .number()
+          .int()
+          .min(1)
+          .max(3600)
+          .default(DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS),
+      })
+      .prefault({}),
     project: z.record(configKeySchema, projectConfigSchema).default({}),
     // Checked per plugin by the plugin host, so a plugin entry never breaks core commands. Zod 4
     // drops a `__proto__` record key, which would hide a bad plugin name, so the table passes through.

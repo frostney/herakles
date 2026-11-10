@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { upProject, upProjects } from "../src/app";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { up, upProject, upProjects } from "../src/app";
+import { withEnvironment } from "./helpers/environment";
 import { fakeGhRepositoryJson, withFakeGhScript } from "./helpers/gh";
 import { createTestWorkspace } from "./helpers/workspace";
 
@@ -89,6 +93,47 @@ describe("upProjects", () => {
       const results = await upProject(root, "herakles", { dryRun: true });
       expect(results.map((result) => result.item.project.slug)).toEqual(["frostney-herakles"]);
       expect(await upProject(root, "oven-sh-bun", { dryRun: true })).toEqual([]);
+    });
+  });
+
+  test("up and upProjects stop waiting on a silent remote after up.fetch_idle_timeout_seconds", async () => {
+    const timeoutToml = `${workspaceToml}\n[up]\nfetch_idle_timeout_seconds = 1\n`;
+    const root = await createTestWorkspace("herakles-up-timeout-", timeoutToml);
+    await mkdir(join(root, "open-source", "herakles"), { recursive: true });
+    const gh = `#!/bin/sh
+if [ "$1 $2" = "repo list" ]; then
+  cat <<'JSON'
+${repositories}
+JSON
+  exit 0
+fi
+exit 1
+`;
+    // Only the remote fetch hangs; every other command answers at once.
+    const hangingFetch = `#!/bin/sh
+case "$1" in
+  remote) echo origin ;;
+  fetch) sleep 30 ;;
+esac
+exit 0
+`;
+    await withFakeGhScript("herakles-up-timeout-gh-", gh, async () => {
+      const bin = await mkdtemp(join(tmpdir(), "herakles-up-timeout-git-"));
+      await writeFile(join(bin, "git"), hangingFetch);
+      await chmod(join(bin, "git"), 0o755);
+      await withEnvironment({ PATH: `${bin}:${process.env.PATH ?? ""}` }, async () => {
+        const fromUp = (await up(root)).find(
+          (entry) => entry.item.project.slug === "frostney-herakles",
+        );
+        const fromUpProjects = (await upProjects(root, ["herakles"]))[0]?.[0];
+
+        for (const result of [fromUp, fromUpProjects]) {
+          expect(result?.status).toBe("skipped");
+          expect(result?.message).toContain(
+            "fetch from remote 'origin' timed out after 1s without output; skipped",
+          );
+        }
+      });
     });
   });
 });

@@ -42,7 +42,12 @@ import {
   InvalidProjectRenameError,
 } from "./project/rename";
 import { checkoutPathForProject, resolveProjects } from "./project/resolve";
-import { executeUpPlan, type UpExecuteOptions, type UpExecution } from "./up/execute";
+import {
+  executeUpPlan,
+  type UpExecuteOptions,
+  type UpExecutePlanOptions,
+  type UpExecution,
+} from "./up/execute";
 import { createUpPlan } from "./up/plan";
 import { definedProperties } from "./utils/definedProperties";
 
@@ -471,7 +476,7 @@ export async function upProjects(
   const targets = [...new Set(resolved)];
   const plan = applyValidationIssuesToUpPlan(createUpPlan(targets), targets, state.validation);
   const byProject = new Map<string, UpExecution[]>();
-  for (const execution of await executeUpPlan(plan, options)) {
+  for (const execution of await executeUpPlan(plan, withFetchTimeout(state, options))) {
     const id = execution.item.project.id;
     byProject.set(id, [...(byProject.get(id) ?? []), execution]);
   }
@@ -617,8 +622,7 @@ export async function applyConfigToml(workspaceRoot: string, toml: string) {
   };
 }
 
-export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
-  const state = await loadWorkspace(workspaceRoot);
+function upPlanFor(state: WorkspaceState): UpPlan {
   return applyValidationIssuesToUpPlan(
     createUpPlan(state.projects),
     state.projects,
@@ -626,8 +630,21 @@ export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
   );
 }
 
+export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
+  return upPlanFor(await loadWorkspace(workspaceRoot));
+}
+
 export async function up(workspaceRoot: string, options: UpExecuteOptions = {}) {
-  return executeUpPlan(await upPlan(workspaceRoot), options);
+  const state = await loadWorkspace(workspaceRoot);
+  return executeUpPlan(upPlanFor(state), withFetchTimeout(state, options));
+}
+
+/** Adds `up.fetch_idle_timeout_seconds` from the configuration, the one source of that limit. */
+function withFetchTimeout(state: WorkspaceState, options: UpExecuteOptions): UpExecutePlanOptions {
+  return {
+    ...options,
+    fetchIdleTimeoutMs: state.loaded.config.up.fetch_idle_timeout_seconds * 1000,
+  };
 }
 
 export async function doctor(
