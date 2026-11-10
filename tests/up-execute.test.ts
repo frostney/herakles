@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Project, UpPlan } from "../src/domain";
@@ -27,6 +28,9 @@ function project(path: string): Project {
     up: true,
   };
 }
+
+/** The fixture's `owner/repo`, as `up` names it in clone messages. */
+const REPOSITORY = `${project("").owner}/${project("").repo}`;
 
 function plan(path: string): UpPlan {
   return {
@@ -64,8 +68,154 @@ describe("workspace up execution", () => {
 
       expect(result[0]?.status).toBe("done");
       expect(result[0]?.message).toBe("cloned");
-      expect(log).toContain("gh repo clone frostney/tool");
+      // gh clones into a hidden directory beside the clone path, renamed into place at the end.
+      // --progress makes git report on stderr, which keeps the idle limit from stopping a
+      // clone that is still working.
+      expect(log).toContain(`gh repo clone ${REPOSITORY} ${join(root, ".tool.clone-")}`);
+      expect(log).toContain(" -- --progress");
+      expect(log).toContain("gh prompt=0");
       expect(log).not.toContain("git clone");
+      expect(existsSync(join(clone, ".git"))).toBe(true);
+      expect(await readdir(root)).toEqual(["tool"]);
+      // The private staging mode does not carry over: the checkout gets a new folder's mode.
+      const fresh = join(root, "fresh");
+      await mkdir(fresh);
+      expect((await stat(clone)).mode & 0o7777).toBe((await stat(fresh)).mode & 0o7777);
+    });
+  });
+
+  test("skips a silent clone, names it and its approval URL, and removes what it left", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-clone-hang-"));
+    const clone = join(root, "tool");
+    await withFakeGit({ status: "", clone: "hang" }, async (_logPath, bin) => {
+      const started = Date.now();
+      const result = await runPlan(clonePlan(clone), { fetchIdleTimeoutMs: 300 });
+
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect(result[0]?.status).toBe("skipped");
+      expect(result[0]?.message).toBe(
+        `clone of ${REPOSITORY} timed out after 300ms without output; removed the unfinished ` +
+          `clone; skipped ${APPROVAL_NOTE}`,
+      );
+      // Nothing is left that the next up would take for an existing clone.
+      expect(existsSync(clone)).toBe(false);
+      expect(await readdir(root)).toEqual([]);
+      await expectChildrenStopped(join(bin, "children.log"));
+    });
+  });
+
+  test("a clone that keeps printing progress outlives the silence limit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-clone-trickle-"));
+    const clone = join(root, "tool");
+    // The fake prints for about 1.2 seconds in total, twice the 600ms silence limit.
+    await withFakeGit({ status: "", clone: "trickle" }, async () => {
+      const started = Date.now();
+      const result = await runPlan(clonePlan(clone), { fetchIdleTimeoutMs: 600 });
+
+      expect(Date.now() - started).toBeGreaterThan(900);
+      expect(result[0]?.status).toBe("done");
+      expect(result[0]?.message).toBe("cloned");
+      expect(existsSync(join(clone, ".git"))).toBe(true);
+    });
+  });
+
+  test("reports a failed clone by its fatal line and approval URL and removes what it left", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-clone-fail-"));
+    const clone = join(root, "tool");
+    await withFakeGit({ status: "", clone: "fail" }, async () => {
+      const result = await runPlan(clonePlan(clone));
+
+      expect(result[0]?.status).toBe("failed");
+      expect(result[0]?.message).toBe(
+        `clone of ${REPOSITORY} failed with 1: fatal: Could not read from remote repository.; ` +
+          `removed the unfinished clone ${APPROVAL_NOTE}`,
+      );
+      expect(await readdir(root)).toEqual([]);
+    });
+  });
+
+  test("does not claim a removal when the failed clone left nothing behind", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-clone-refused-"));
+    const clone = join(root, "tool");
+    await withFakeGit({ status: "", clone: "refused" }, async () => {
+      const result = await runPlan(clonePlan(clone));
+
+      expect(result[0]?.status).toBe("failed");
+      expect(result[0]?.message).toBe(
+        `clone of ${REPOSITORY} failed with 1: fatal: repository not found`,
+      );
+      expect(await readdir(root)).toEqual([]);
+    });
+    await withFakeGit({ status: "", clone: "silent" }, async () => {
+      const result = await runPlan(clonePlan(clone), { fetchIdleTimeoutMs: 300 });
+
+      expect(result[0]?.status).toBe("skipped");
+      expect(result[0]?.message).toBe(
+        `clone of ${REPOSITORY} timed out after 300ms without output; skipped`,
+      );
+      expect(await readdir(root)).toEqual([]);
+    });
+  });
+
+  test("reports a missing gh as a failed clone and leaves nothing behind", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-clone-no-gh-"));
+    const clone = join(root, "tool");
+    await withEnvironment({ PATH: root }, async () => {
+      const result = await runPlan(clonePlan(clone));
+
+      expect(result[0]?.status).toBe("failed");
+      expect(result[0]?.message).toStartWith(`clone of ${REPOSITORY} failed with 127: gh`);
+      expect(await readdir(root)).toEqual([]);
+    });
+  });
+
+  test("does not clone into a path that appeared since the plan was made", async () => {
+    const clone = await existingClone("herakles-up-clone-existing-");
+    await writeFile(join(clone, "notes.md"), "keep me\n");
+    await withFakeGit({ status: "" }, async (logPath) => {
+      const result = await runPlan(clonePlan(clone));
+
+      expect(result[0]?.status).toBe("skipped");
+      expect(result[0]?.message).toBe("not cloned because something is already at the clone path");
+      expect(await readFile(logPath, "utf8").catch(() => "")).not.toContain("repo clone");
+      expect(await readdir(clone)).toEqual(["notes.md"]);
+    });
+  });
+
+  test("keeps what another process put at the clone path while the clone ran", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-clone-occupied-"));
+    const clone = join(root, "tool");
+    for (const mode of ["fail", "hang", undefined] as const) {
+      await rm(clone, { recursive: true, force: true });
+      const options = { status: "", occupy: clone, ...(mode === undefined ? {} : { clone: mode }) };
+      await withFakeGit(options, async () => {
+        const result = await runPlan(clonePlan(clone), { fetchIdleTimeoutMs: 300 });
+
+        if (mode === undefined) {
+          expect(result[0]?.status).toBe("skipped");
+          expect(result[0]?.message).toBe(
+            "not moved into place because something is already at the clone path; removed the new clone",
+          );
+        }
+        // Only the clone's own staging directory was removed.
+        expect(await readdir(root)).toEqual(["tool"]);
+        expect(await readFile(join(clone, "notes.md"), "utf8")).toBe("keep me\n");
+      });
+    }
+  });
+
+  test("never replaces an empty directory another process created at the clone path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-clone-empty-"));
+    const clone = join(root, "tool");
+    await withFakeGit({ status: "", occupy: clone, occupyEmpty: true }, async () => {
+      const result = await runPlan(clonePlan(clone));
+
+      expect(result[0]?.status).toBe("skipped");
+      expect(result[0]?.message).toBe(
+        "not moved into place because something is already at the clone path; removed the new clone",
+      );
+      expect(await readdir(root)).toEqual(["tool"]);
+      expect(await readdir(clone)).toEqual([]);
     });
   });
 
@@ -516,6 +666,18 @@ type FakeGitOptions = {
   approvalRemotes?: string;
   /** Remotes with remote.<name>.skipFetchAll set. */
   skipFetchAll?: string;
+  /**
+   * How `gh repo clone` behaves after it fills the directory up gave it:
+   * `hang` prints a Tailscale check URL and never finishes, `trickle` prints progress for about
+   * 1.2 seconds, `fail` prints progress, the check notice and a fatal line and exits 1. `refused`
+   * exits 1 with a fatal line and `silent` never finishes, both without adding anything to it.
+   * Succeeds by default.
+   */
+  clone?: "hang" | "silent" | "trickle" | "fail" | "refused";
+  /** A path the fake `gh repo clone` fills with `notes.md` first, like another process would. */
+  occupy?: string;
+  /** Only create `occupy` as an empty directory. */
+  occupyEmpty?: boolean;
 };
 
 // A killed fake must not leave its sleep child running: it would hold the output pipes open.
@@ -642,8 +804,47 @@ exit 0
     join(bin, "gh"),
     `#!/bin/sh
 printf 'gh %s\\n' "$*" >> "$HERAKLES_GIT_LOG"
+printf 'gh prompt=%s\\n' "$GIT_TERMINAL_PROMPT" >> "$HERAKLES_GIT_LOG"
 if [ "$1 $2 $3" = "repo clone frostney/tool" ]; then
-  mkdir -p "$4/.git"
+  if [ -n "$HERAKLES_GH_OCCUPY" ]; then
+    mkdir -p "$HERAKLES_GH_OCCUPY"
+    [ -n "$HERAKLES_GH_OCCUPY_EMPTY" ] || echo "keep me" > "$HERAKLES_GH_OCCUPY/notes.md"
+  fi
+  if [ "$HERAKLES_GH_CLONE" = refused ]; then
+    echo "fatal: repository not found" >&2
+    exit 1
+  fi
+  echo "Cloning into '$4'..." >&2
+  [ "$HERAKLES_GH_CLONE" = silent ] || mkdir -p "$4/.git"
+  case "$HERAKLES_GH_CLONE" in
+    silent)
+      sleep 30 &
+      echo $! >> "$HERAKLES_GIT_CHILDREN"
+      wait
+      ;;
+    hang)
+      echo "# To authenticate, visit: ${APPROVAL_URL}" >&2
+      sleep 30 &
+      echo $! >> "$HERAKLES_GIT_CHILDREN"
+      wait
+      ;;
+    trickle)
+      i=0
+      while [ $i -lt 6 ]; do
+        echo "Receiving objects: $i" >&2
+        sleep 0.2
+        i=$((i + 1))
+      done
+      ;;
+    fail)
+      echo "Receiving objects: 10%" >&2
+      echo "# Tailscale SSH requires an additional check." >&2
+      echo "# To authenticate, visit: ${APPROVAL_URL}" >&2
+      echo "fatal: Could not read from remote repository." >&2
+      echo "failed to run git: exit status 128" >&2
+      exit 1
+      ;;
+  esac
 fi
 exit 0
 `,
@@ -672,6 +873,9 @@ exit 0
       HERAKLES_GIT_APPROVAL: options.approvalRemotes ?? "",
       HERAKLES_GIT_SKIP_FETCH_ALL: options.skipFetchAll ?? "",
       HERAKLES_GIT_CHILDREN: join(bin, "children.log"),
+      HERAKLES_GH_CLONE: options.clone ?? "",
+      HERAKLES_GH_OCCUPY: options.occupy ?? "",
+      HERAKLES_GH_OCCUPY_EMPTY: options.occupyEmpty ? "1" : "",
       // The fake records what a fetch sees; the code under test must be what sets it.
       GIT_TERMINAL_PROMPT: undefined,
     },
