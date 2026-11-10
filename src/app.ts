@@ -48,6 +48,7 @@ import {
   type UpExecutePlanOptions,
   type UpExecution,
 } from "./up/execute";
+import { fetchRemotes, type RemoteFetchResult } from "./up/fetch";
 import { createUpPlan } from "./up/plan";
 import { definedProperties } from "./utils/definedProperties";
 
@@ -160,6 +161,21 @@ export async function projectCheckoutDirectory(
     throw new Error(`Refusing to run outside a project checkout in the workspace: ${path}`);
   }
   return checkoutRealPath;
+}
+
+/**
+ * Fetches a tracked project's remotes the way `up` does: one after another, each stopped after
+ * `up.fetch_idle_timeout_seconds` without output, with a message per remote that did not answer.
+ * `trackingRemote` is fetched even when skipFetchAll is set, and last.
+ */
+export async function fetchProjectRemotes(
+  workspaceRoot: string,
+  target: Pick<Project, "source" | "owner" | "repo" | "state" | "path">,
+  trackingRemote?: string,
+): Promise<RemoteFetchResult> {
+  const cwd = await projectCheckoutDirectory(workspaceRoot, target);
+  const { config } = await loadConfig(workspaceRoot);
+  return fetchRemotes(cwd, config.up.fetch_idle_timeout_seconds * 1000, trackingRemote);
 }
 
 export async function projectConfigPlan(
