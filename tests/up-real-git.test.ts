@@ -75,11 +75,11 @@ describe("workspace up against real repositories", () => {
       git(root, "clone", "--quiet", origin, clone);
       const next = commit(origin, "second");
 
-      const moved = (await executeUpPlan(plan(clone)))[0];
+      const moved = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
       expect(moved?.message).toBe("fetched and fast-forwarded");
       expect(git(clone, "rev-parse", "HEAD")).toBe(next);
 
-      const unchanged = (await executeUpPlan(plan(clone)))[0];
+      const unchanged = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
       expect(unchanged?.status).toBe("done");
       expect(unchanged?.message).toBe("fetched; already up to date");
     });
@@ -93,7 +93,7 @@ describe("workspace up against real repositories", () => {
       git(clone, "config", "remote.origin.skipFetchAll", "true");
       const next = commit(origin, "second");
 
-      const result = (await executeUpPlan(plan(clone)))[0];
+      const result = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
 
       expect(result?.message).toBe("fetched and fast-forwarded");
       expect(git(clone, "rev-parse", "HEAD")).toBe(next);
@@ -111,7 +111,7 @@ describe("workspace up against real repositories", () => {
       git(root, "clone", "--quiet", "--single-branch", "-b", "main", origin, clone);
       git(clone, "config", "branch.main.merge", "refs/heads/next");
 
-      const result = (await executeUpPlan(plan(clone)))[0];
+      const result = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
 
       expect(result?.message).toBe("fetched and fast-forwarded");
       expect(git(clone, "rev-parse", "HEAD")).toBe(next);
@@ -125,14 +125,45 @@ describe("workspace up against real repositories", () => {
       git(root, "clone", "--quiet", origin, clone);
 
       git(clone, "branch", "--unset-upstream");
-      const noUpstream = (await executeUpPlan(plan(clone)))[0];
+      const noUpstream = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
       expect(noUpstream?.message).toBe(
         "fetched; not fast-forwarded because the branch has no upstream",
       );
 
       git(clone, "checkout", "--quiet", "--detach");
-      const detached = (await executeUpPlan(plan(clone)))[0];
+      const detached = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
       expect(detached?.message).toBe("fetched; not fast-forwarded because HEAD is detached");
+    });
+  });
+
+  test("says so when the upstream branch was deleted on the remote and pruned", async () => {
+    await withIsolatedGit(async (root) => {
+      const origin = createOrigin(root);
+      git(origin, "branch", "feature");
+      const clone = join(root, "clone");
+      git(root, "clone", "--quiet", origin, clone);
+      git(clone, "checkout", "--quiet", "feature");
+      git(origin, "branch", "--delete", "--force", "feature");
+
+      const result = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
+
+      expect(result?.status).toBe("skipped");
+      expect(result?.message).toBe(
+        "fetched; not fast-forwarded because its upstream branch no longer exists",
+      );
+    });
+  });
+
+  test("reports an empty clone as having no commits, not as detached", async () => {
+    await withIsolatedGit(async (root) => {
+      const origin = join(root, "empty-origin");
+      git(root, "init", "--quiet", "--bare", "-b", "main", origin);
+      const clone = join(root, "clone");
+      git(root, "clone", "--quiet", origin, clone);
+
+      const result = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
+
+      expect(result?.message).toBe("fetched; nothing to fast-forward: the branch has no commits");
     });
   });
 });

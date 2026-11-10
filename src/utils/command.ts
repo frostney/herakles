@@ -14,11 +14,19 @@ export type CommandOptions = {
    */
   timeoutMs?: number;
   resetTimeoutOnOutput?: boolean;
+  /**
+   * Treat the command as finished when it exits, even if a descendant it started (an ssh
+   * ControlPersist master, say) still holds its output pipes open. After the exit the pipes are
+   * read until they have been quiet for a moment, then released so they cannot keep this process
+   * alive. Without it the output is always read to its end, which is what a caller that needs all
+   * of it wants.
+   */
+  releasePipesAfterExit?: boolean;
 };
 
 /** How long a timed-out command gets to exit after SIGTERM before its process tree is killed. */
 const KILL_GRACE_MS = 2000;
-/** How long a command's output pipes get to close once it has exited or been stopped. */
+/** How long a pipe may stay quiet after the command is gone before it is given up on. */
 const OUTPUT_DRAIN_MS = 500;
 
 const TIMED_OUT = Symbol("timed out");
@@ -49,27 +57,36 @@ export async function runCommand(
   if ("failure" in spawned) return spawned.failure;
   const { proc } = spawned;
   const { timeoutMs } = options;
-  const watchdog = timeoutMs === undefined ? undefined : startWatchdog(proc, timeoutMs);
-  const onOutput = options.resetTimeoutOnOutput ? () => watchdog?.restart() : undefined;
-  const stdout = collectText(proc.stdout, onOutput);
-  const stderr = collectText(proc.stderr, onOutput);
+  const startedAt = Date.now();
+  const lastOutput = { at: startedAt };
+  const watchdog =
+    timeoutMs === undefined
+      ? undefined
+      : startWatchdog(timeoutMs, () => (options.resetTimeoutOnOutput ? lastOutput.at : startedAt));
+  const onChunk = () => {
+    lastOutput.at = Date.now();
+  };
+  const stdout = collectText(proc.stdout, onChunk);
+  const stderr = collectText(proc.stderr, onChunk);
   const streamsClosed = Promise.all([stdout.done, stderr.done]);
   streamsClosed.catch(() => undefined);
-  // The command is finished when it exits, not when its output ends: a descendant that outlives
-  // it (an ssh ControlPersist master, say) can hold the pipes open for good. Output already
-  // written is read within the grace period; after that the pipes are cancelled so they cannot
-  // keep this process alive.
   const releasePipes = () => Promise.all([stdout.cancel(), stderr.cancel()]);
-  const finished = proc.exited.then(async (code) => {
-    watchdog?.stop();
-    await settleWithin(streamsClosed, OUTPUT_DRAIN_MS);
-    await releasePipes();
-    return code;
-  });
+  const finished = options.releasePipesAfterExit
+    ? proc.exited.then(async (code) => {
+        watchdog?.stop();
+        lastOutput.at = Date.now();
+        await drainWhileActive(streamsClosed, lastOutput);
+        await releasePipes();
+        return code;
+      })
+    : Promise.all([proc.exited, streamsClosed]).then(([code]) => code);
   try {
     let outcome = await Promise.race([finished, ...(watchdog ? [watchdog.expired] : [])]);
-    // The command can exit just as the timer fires; an exited command is never a timeout.
-    if (outcome === TIMED_OUT && hasExited(proc)) outcome = await finished;
+    // The command can exit just as the timer fires; with pipes released on exit, an exited
+    // command is never a timeout.
+    if (outcome === TIMED_OUT && options.releasePipesAfterExit && hasExited(proc)) {
+      outcome = await finished;
+    }
     if (outcome === TIMED_OUT) {
       await terminateProcessTree(proc, streamsClosed);
       await settleWithin(streamsClosed, OUTPUT_DRAIN_MS);
@@ -95,27 +112,26 @@ function hasExited(proc: Bun.Subprocess): boolean {
 }
 
 /**
- * A timer for a running command. `expired` resolves once the timer runs out while the command is
- * still running; `restart` starts the wait over and `stop` ends it for good.
+ * One timer for a running command. When it fires it checks how long the command has been idle
+ * since `idleSince()`: if the limit is reached, `expired` resolves; otherwise the timer waits
+ * out the remainder. Output that arrives in between therefore costs nothing, not a timer reset.
  */
-function startWatchdog(proc: Bun.Subprocess, timeoutMs: number) {
+function startWatchdog(timeoutMs: number, idleSince: () => number) {
   let timer: Timer | undefined;
   let stopped = false;
   let expire: (reason: typeof TIMED_OUT) => void = () => undefined;
   const expired = new Promise<typeof TIMED_OUT>((resolve) => {
     expire = resolve;
   });
-  const restart = () => {
+  const check = () => {
     if (stopped) return;
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      if (!hasExited(proc)) expire(TIMED_OUT);
-    }, timeoutMs);
+    const remaining = idleSince() + timeoutMs - Date.now();
+    if (remaining <= 0) expire(TIMED_OUT);
+    else timer = setTimeout(check, remaining);
   };
-  restart();
+  timer = setTimeout(check, timeoutMs);
   return {
     expired,
-    restart,
     stop() {
       stopped = true;
       clearTimeout(timer);
@@ -141,19 +157,27 @@ async function settleWithin(promise: Promise<unknown>, ms: number): Promise<bool
   }
 }
 
+/** Waits until the pipes close, or have been quiet for the drain period; data extends the wait. */
+async function drainWhileActive(streamsClosed: Promise<unknown>, lastOutput: { at: number }) {
+  for (;;) {
+    const remaining = lastOutput.at + OUTPUT_DRAIN_MS - Date.now();
+    if (remaining <= 0 || (await settleWithin(streamsClosed, remaining))) return;
+  }
+}
+
 /**
  * Reads a stream to the end while keeping what has arrived so far available. `cancel` stops
  * reading and releases the pipe, which a process that holds the write end open would otherwise
  * keep alive (and with it this process) for as long as it runs.
  */
-function collectText(stream: ReadableStream<Uint8Array>, onChunk?: () => void) {
+function collectText(stream: ReadableStream<Uint8Array>, onChunk: () => void) {
   const decoder = new TextDecoder();
   const reader = stream.getReader();
   let text = "";
   const done = (async () => {
     for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
       text += decoder.decode(chunk.value, { stream: true });
-      onChunk?.();
+      onChunk();
     }
     text += decoder.decode();
   })();
@@ -169,25 +193,33 @@ function collectText(stream: ReadableStream<Uint8Array>, onChunk?: () => void) {
  * enough: an ssh child that git started can outlive it, hold the output pipes open and keep
  * waiting on the remote. Descendants are listed before the signal, because they are re-parented
  * once their parent dies. SIGTERM goes first so git can release its lock files; whatever is
- * still running after a short grace period gets SIGKILL. The command's own pid is signalled only
- * while the command has not exited, because the pid could be reused afterwards.
+ * still running after a short grace period gets SIGKILL, but only the processes that are still
+ * the ones first listed (same pid, same start time), since a pid can be reused in between. The
+ * command's own pid is signalled only while the command has not exited, for the same reason.
  */
 async function terminateProcessTree(proc: Bun.Subprocess, streamsClosed: Promise<unknown>) {
   if (hasExited(proc)) return;
-  const descendants = descendantPids(proc.pid);
-  const signalTree = (signal: NodeJS.Signals) => {
-    signalAll(descendants, signal);
+  const first = processTable();
+  const descendants = descendantPids(first, proc.pid);
+  const signalTree = (pids: readonly number[], signal: NodeJS.Signals) => {
+    signalAll(pids, signal);
     if (!hasExited(proc)) signalAll([proc.pid], signal);
   };
-  signalTree("SIGTERM");
+  signalTree(descendants, "SIGTERM");
   const stopped = await settleWithin(
     Promise.all([proc.exited, streamsClosed, waitUntilGone(descendants, KILL_GRACE_MS)]),
     KILL_GRACE_MS,
   );
   if (stopped) return;
-  signalTree("SIGKILL");
+  const second = processTable();
+  const survivors = descendants.filter((pid) => {
+    const before = first.get(pid);
+    const now = second.get(pid);
+    return before !== undefined && now !== undefined && before.started === now.started;
+  });
+  signalTree(survivors, "SIGKILL");
   // A killed process stays visible until it is reaped; give that a moment.
-  await waitUntilGone(descendants, OUTPUT_DRAIN_MS);
+  await waitUntilGone(survivors, OUTPUT_DRAIN_MS);
 }
 
 /** Polls until none of `pids` is running any more, or `ms` have passed. */
@@ -215,30 +247,41 @@ function signalAll(pids: readonly number[], signal: NodeJS.Signals) {
   }
 }
 
-/** Every transitive child of `root`, read from the process table (`ps` exists on macOS and Linux). */
-function descendantPids(root: number): number[] {
-  let table: string;
+type ProcessEntry = { ppid: number; started: string };
+
+/**
+ * The process table: pid to parent and start time (`ps` exists on macOS and Linux). Empty when
+ * `ps` cannot be run, which leaves nothing to signal rather than something unverified.
+ */
+function processTable(): Map<number, ProcessEntry> {
+  const table = new Map<number, ProcessEntry>();
+  let listing: string;
   try {
-    const listing = Bun.spawnSync(["ps", "-A", "-o", "pid=,ppid="], {
+    const result = Bun.spawnSync(["ps", "-A", "-o", "pid=,ppid=,lstart="], {
       stdout: "pipe",
       stderr: "ignore",
     });
-    if (listing.exitCode !== 0) return [];
-    table = listing.stdout.toString();
+    if (result.exitCode !== 0) return table;
+    listing = result.stdout.toString();
   } catch {
-    return [];
+    return table;
   }
+  for (const line of listing.split("\n")) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\S.*?)\s*$/.exec(line);
+    if (match) table.set(Number(match[1]), { ppid: Number(match[2]), started: match[3] ?? "" });
+  }
+  return table;
+}
+
+/** Every transitive child of `root` in the table, breadth first. */
+function descendantPids(table: ReadonlyMap<number, ProcessEntry>, root: number): number[] {
   const childrenOf = new Map<number, number[]>();
-  for (const line of table.split("\n")) {
-    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
-    if (pid === undefined || ppid === undefined || Number.isNaN(pid) || Number.isNaN(ppid)) {
-      continue;
-    }
-    const siblings = childrenOf.get(ppid);
+  for (const [pid, entry] of table) {
+    const siblings = childrenOf.get(entry.ppid);
     if (siblings) siblings.push(pid);
-    else childrenOf.set(ppid, [pid]);
+    else childrenOf.set(entry.ppid, [pid]);
   }
-  // Breadth-first walk: `queue` is read by index, so each pid is visited once.
+  // `queue` is read by index, so each pid is visited once.
   const queue = [root];
   for (let next = 0; next < queue.length; next++) {
     queue.push(...(childrenOf.get(queue[next] as number) ?? []));

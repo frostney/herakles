@@ -1,10 +1,9 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS } from "../config/schema";
 import type { UpPlan, UpPlanItem } from "../domain";
 import { runCommand } from "../utils/command";
-import { fetchRemotes, fetchUpstreamRef, headCommit, headTracking } from "./fetch";
+import { fetchRemotes, headCommit, headTracking, refExists } from "./fetch";
 
 export type UpExecution = {
   item: UpPlanItem;
@@ -15,12 +14,6 @@ export type UpExecution = {
 export type UpExecuteOptions = {
   dryRun?: boolean;
   /**
-   * Longest one remote fetch may stay silent before it is skipped. Defaults to
-   * `DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS`; `app.up` passes `up.fetch_idle_timeout_seconds` from
-   * the synced configuration.
-   */
-  fetchIdleTimeoutMs?: number;
-  /**
    * Fires before each item runs (dry runs included) with its zero-based index and the item count.
    * Errors from the hook are ignored: a progress hook cannot abort the run.
    */
@@ -29,14 +22,22 @@ export type UpExecuteOptions = {
   onProgress?: (result: UpExecution) => void | Promise<void>;
 };
 
+export type UpExecutePlanOptions = UpExecuteOptions & {
+  /**
+   * Longest one remote fetch may stay silent before it is skipped. Required: the caller resolves
+   * it (`app.up` takes `up.fetch_idle_timeout_seconds` from the synced configuration), so the
+   * default lives in the config schema only.
+   */
+  fetchIdleTimeoutMs: number;
+};
+
 export async function executeUpPlan(
   plan: UpPlan,
-  options: UpExecuteOptions = {},
+  options: UpExecutePlanOptions,
 ): Promise<UpExecution[]> {
   const results: UpExecution[] = [];
   const total = plan.items.length;
-  const fetchIdleTimeoutMs =
-    options.fetchIdleTimeoutMs ?? DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS * 1000;
+  const { fetchIdleTimeoutMs } = options;
   for (const [index, item] of plan.items.entries()) {
     await ignoreHookError(() => options.onItemStart?.(item, index, total));
     if (options.dryRun) {
@@ -128,27 +129,27 @@ async function fastForwardClone(
   const lead = fetchSummary(fetched.length, failures.length);
   const skipped = (reason: string) => outcome(item, "skipped", `${lead}; ${reason}`, problems);
   if (dirty) return skipped("skipped fast-forward because worktree is dirty");
-  if (tracking.kind === "detached") {
-    return skipped("not fast-forwarded because HEAD is detached");
-  }
+  if (tracking.kind === "detached") return skipped("not fast-forwarded because HEAD is detached");
+  if (tracking.kind === "unborn")
+    return skipped("nothing to fast-forward: the branch has no commits");
   if (tracking.kind === "no-upstream") {
     return skipped("not fast-forwarded because the branch has no upstream");
   }
   const upstreamFailed = failures.some((failure) => failure.remote === tracking.remote);
   let target = "@{upstream}";
   if (tracking.unmappedRef !== undefined) {
-    // No remote-tracking branch exists for the merge ref, so fetch it by name and merge what
-    // came back. There is no older ref to fall back on if that fetch fails.
-    const failure = upstreamFailed
-      ? undefined
-      : await fetchUpstreamRef(path, tracking.remote, tracking.unmappedRef, fetchIdleTimeoutMs);
-    if (failure) problems.push(failure.message);
-    if (upstreamFailed || failure) {
+    // The tracking remote's own fetch left the merge ref in FETCH_HEAD. If that fetch failed,
+    // FETCH_HEAD is from some other fetch and there is no older ref to fall back on.
+    if (upstreamFailed) {
       return skipped(
         `not fast-forwarded because '${tracking.unmappedRef}' could not be fetched from remote '${tracking.remote}'`,
       );
     }
     target = "FETCH_HEAD";
+  } else if (tracking.upstreamRef !== undefined && !(await refExists(path, tracking.upstreamRef))) {
+    // The branch is configured to follow a ref that is gone, for example deleted on the remote
+    // and pruned by the fetch above.
+    return skipped("not fast-forwarded because its upstream branch no longer exists");
   }
   const before = await headCommit(path);
   const merge = await runCommand(["git", "merge", "--ff-only", target], {

@@ -42,7 +42,12 @@ import {
   InvalidProjectRenameError,
 } from "./project/rename";
 import { checkoutPathForProject, resolveProjects } from "./project/resolve";
-import { executeUpPlan, type UpExecuteOptions, type UpExecution } from "./up/execute";
+import {
+  executeUpPlan,
+  type UpExecuteOptions,
+  type UpExecutePlanOptions,
+  type UpExecution,
+} from "./up/execute";
 import { createUpPlan } from "./up/plan";
 import { definedProperties } from "./utils/definedProperties";
 
@@ -634,12 +639,11 @@ export async function up(workspaceRoot: string, options: UpExecuteOptions = {}) 
   return executeUpPlan(upPlanFor(state), withFetchTimeout(state, options));
 }
 
-/** Applies `up.fetch_idle_timeout_seconds` unless the caller already chose a timeout. */
-function withFetchTimeout(state: WorkspaceState, options: UpExecuteOptions): UpExecuteOptions {
+/** Adds `up.fetch_idle_timeout_seconds` from the configuration, the one source of that limit. */
+function withFetchTimeout(state: WorkspaceState, options: UpExecuteOptions): UpExecutePlanOptions {
   return {
     ...options,
-    fetchIdleTimeoutMs:
-      options.fetchIdleTimeoutMs ?? state.loaded.config.up.fetch_idle_timeout_seconds * 1000,
+    fetchIdleTimeoutMs: state.loaded.config.up.fetch_idle_timeout_seconds * 1000,
   };
 }
 

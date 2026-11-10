@@ -70,7 +70,7 @@ export const projectConfigSchema = z
   .strict();
 
 /** Seconds `herakles up` lets one remote fetch stay silent when the config does not say. */
-export const DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS = 60;
+const DEFAULT_FETCH_IDLE_TIMEOUT_SECONDS = 60;
 
 /** Lowercase kebab-case, used for plugin names and plugin command route words. */
 export const kebabCasePattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;

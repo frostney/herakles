@@ -82,6 +82,7 @@ describe("command runner", () => {
     const started = Date.now();
     const result = await runCommand(["sh", "-c", "sleep 30 & echo $!; exit 0"], {
       timeoutMs: 200,
+      releasePipesAfterExit: true,
     });
     const child = Number(result.stdout.trim());
     try {
@@ -105,6 +106,7 @@ describe("command runner", () => {
       const result = await runCommand(["sh", "-c", "sleep 8 & echo $!"], {
         timeoutMs: 3000,
         resetTimeoutOnOutput: true,
+        releasePipesAfterExit: true,
       });
       console.log(result.stdout.trim());
     `;
@@ -128,6 +130,29 @@ describe("command runner", () => {
       }
     }
   }, 15_000);
+
+  test("reads output to its end by default, even what a leftover child writes after the exit", async () => {
+    // The shell exits at once; a background child writes a second line half a second later,
+    // longer than the pipe grace period a caller can opt into.
+    const command = ["sh", "-c", "(sleep 1; echo late) & echo early"];
+
+    const everything = await runCommand(command);
+    expect(everything.stdout).toBe("early\nlate\n");
+
+    const cutOff = await runCommand(command, { releasePipesAfterExit: true });
+    expect(cutOff.stdout).toBe("early\n");
+  });
+
+  test("with pipes released on exit, output that keeps arriving extends the wait", async () => {
+    // Four lines 200ms apart after the shell has exited: each one is inside the 500ms quiet
+    // period of the one before, so all of them are read.
+    const result = await runCommand(
+      ["sh", "-c", "(for i in 1 2 3 4; do sleep 0.2; echo tick$i; done) & echo first"],
+      { releasePipesAfterExit: true },
+    );
+
+    expect(result.stdout).toBe("first\ntick1\ntick2\ntick3\ntick4\n");
+  });
 
   test("returns a 127 result for a missing executable when failure is allowed", async () => {
     const result = await runCommand(["herakles-missing-tool", "--version"], {

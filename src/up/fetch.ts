@@ -14,69 +14,53 @@ export type RemoteFetchFailure = {
 /** What the checked-out HEAD tracks, which decides whether it can be fast-forwarded. */
 export type HeadTracking =
   | { kind: "detached" }
+  /** On a branch that has no commits yet. */
+  | { kind: "unborn" }
   | { kind: "no-upstream" }
   | {
       kind: "tracking";
       /** The upstream's remote; `.` when the upstream is a local branch. */
       remote: string;
+      /** The remote-tracking (or local) ref `@{upstream}` names, when the branch has one. */
+      upstreamRef?: string;
       /**
        * Set when the branch's merge ref has no remote-tracking branch (a single-branch clone, or
-       * a ref outside `remote.<name>.fetch`). A plain fetch never updates it, so it has to be
-       * fetched by name and merged from FETCH_HEAD, as `git pull` does.
+       * a ref outside `remote.<name>.fetch`). A plain `git fetch <remote>` fetches that ref
+       * anyway, because it is the current branch's merge ref, and leaves it in FETCH_HEAD, which
+       * is then what `git pull` merges.
        */
       unmappedRef?: string;
     };
 
 /**
- * Fetches every remote that `git fetch --all` would, plus `trackingRemote` even when it is
- * marked skipFetchAll (the fast-forward needs a current ref from it), all at once. A remote that
- * hangs or fails is named, bounded by `idleTimeoutMs` and does not stop the others, and running
- * them side by side means N silent remotes cost one limit, not N. One `git fetch --all` has a
- * single timeout for every remote and cannot say which remote hung; killing it would also skip
- * the remotes after it. Results come back in remote order. Failures are returned, not thrown.
+ * Fetches every remote that `git fetch --all` would, one after another like it does, plus
+ * `trackingRemote` even when it is marked skipFetchAll (the fast-forward needs a current ref from
+ * it). The tracking remote goes last, so FETCH_HEAD, which holds a merge ref that no
+ * remote-tracking branch follows, comes from its fetch. A remote that hangs or fails is named,
+ * bounded by `idleTimeoutMs` and does not stop the others. One `git fetch --all` has a single
+ * timeout for every remote and cannot say which remote hung; killing it would also skip the
+ * remotes after it. Failures are returned, not thrown.
  *
  * The limit is inactivity, not total time: `git fetch --progress` keeps writing while it works,
  * so a large fetch that makes progress finishes, and a fetch that goes silent (an ssh session
  * waiting for a login approval) is stopped after `idleTimeoutMs`. A server that computes a very
- * large pack without sending anything for that long is also stopped; raise
- * `up.fetch_idle_timeout_seconds` for such a remote.
+ * large pack without sending anything for that long is also stopped, and so is a fetch that waits
+ * for a person at a credential prompt (prompts use the terminal, not the pipes); give such a
+ * remote a credential helper or agent, or raise `up.fetch_idle_timeout_seconds`.
  */
 export async function fetchRemotes(
   cwd: string,
   idleTimeoutMs: number,
   trackingRemote?: string,
 ): Promise<{ fetched: string[]; failures: RemoteFetchFailure[] }> {
-  const remotes = await fetchableRemotes(cwd, trackingRemote);
-  // Parallel fetches would overwrite each other's FETCH_HEAD, and nothing reads it here.
-  const results = await Promise.all(
-    remotes.map((remote) =>
-      runFetch(
-        cwd,
-        ["--no-write-fetch-head", "--prune", "--", remote],
-        { remote, subject: `fetch from remote '${remote}'` },
-        idleTimeoutMs,
-      ),
-    ),
-  );
-  return {
-    fetched: remotes.filter((_, index) => results[index] === undefined),
-    failures: results.flatMap((failure) => (failure ? [failure] : [])),
-  };
-}
-
-/** Fetches the branch's merge ref by name, which leaves its tip in FETCH_HEAD. */
-export function fetchUpstreamRef(
-  cwd: string,
-  remote: string,
-  ref: string,
-  idleTimeoutMs: number,
-): Promise<RemoteFetchFailure | undefined> {
-  return runFetch(
-    cwd,
-    ["--", remote, ref],
-    { remote, subject: `fetch of '${ref}' from remote '${remote}'` },
-    idleTimeoutMs,
-  );
+  const fetched: string[] = [];
+  const failures: RemoteFetchFailure[] = [];
+  for (const remote of await fetchableRemotes(cwd, trackingRemote)) {
+    const failure = await fetchRemote(cwd, remote, idleTimeoutMs);
+    if (failure) failures.push(failure);
+    else fetched.push(remote);
+  }
+  return { fetched, failures };
 }
 
 /** The checked-out branch's upstream, or why there is none. */
@@ -91,9 +75,16 @@ export async function headTracking(cwd: string): Promise<HeadTracking> {
     { cwd },
   );
   const current = refs.stdout.split("\n").find((line) => line.startsWith("*"));
-  if (current === undefined) return { kind: "detached" };
+  if (current === undefined) {
+    // A branch with no commits has no ref yet, so for-each-ref lists nothing for it either.
+    const symbolic = await runCommand(["git", "symbolic-ref", "--quiet", "HEAD"], {
+      cwd,
+      allowFailure: true,
+    });
+    return { kind: symbolic.exitCode === 0 ? "unborn" : "detached" };
+  }
   const [branch = "", upstream, remote] = current.slice(1).trim().split(/\s+/);
-  if (upstream) return { kind: "tracking", remote: remote ?? "" };
+  if (upstream) return { kind: "tracking", remote: remote ?? "", upstreamRef: upstream };
   // No remote-tracking branch for the merge ref. git still knows what the branch tracks.
   const configuredRemote = await configValue(cwd, `branch.${branch}.remote`);
   const unmappedRef = await configValue(cwd, `branch.${branch}.merge`);
@@ -106,6 +97,15 @@ export async function headTracking(cwd: string): Promise<HeadTracking> {
 /** The commit HEAD points at. */
 export async function headCommit(cwd: string): Promise<string> {
   return (await runCommand(["git", "rev-parse", "HEAD"], { cwd })).stdout.trim();
+}
+
+/** Whether `ref` names a commit, for example after a fetch pruned it. */
+export async function refExists(cwd: string, ref: string): Promise<boolean> {
+  const result = await runCommand(["git", "rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+    cwd,
+    allowFailure: true,
+  });
+  return result.exitCode === 0;
 }
 
 async function configValue(cwd: string, key: string): Promise<string | undefined> {
@@ -132,25 +132,28 @@ async function fetchableRemotes(cwd: string, trackingRemote?: string): Promise<s
       .map((line) => /^remote\.(.+)\.skipfetchall true$/i.exec(line.trim()))
       .flatMap((match) => (match?.[1] === undefined ? [] : [match[1]])),
   );
-  return listed.stdout
+  const names = listed.stdout
     .split("\n")
     .map((line) => line.trim())
     .filter((name) => name !== "" && (name === trackingRemote || !skip.has(name)));
+  return names.includes(trackingRemote ?? "")
+    ? [...names.filter((name) => name !== trackingRemote), trackingRemote as string]
+    : names;
 }
 
-async function runFetch(
+async function fetchRemote(
   cwd: string,
-  args: readonly string[],
-  target: { remote: string; subject: string },
+  remote: string,
   idleTimeoutMs: number,
 ): Promise<RemoteFetchFailure | undefined> {
-  const { remote, subject } = target;
+  const subject = `fetch from remote '${remote}'`;
   try {
-    const result = await runCommand(["git", "fetch", "--progress", ...args], {
+    const result = await runCommand(["git", "fetch", "--progress", "--prune", "--", remote], {
       cwd,
       allowFailure: true,
       timeoutMs: idleTimeoutMs,
       resetTimeoutOnOutput: true,
+      releasePipesAfterExit: true,
     });
     if (result.exitCode === 0) return undefined;
     const detail = failureDetail(result.stderr);
