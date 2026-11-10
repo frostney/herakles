@@ -1,5 +1,5 @@
-import { mkdir, readdir, rm } from "node:fs/promises";
-import { dirname } from "node:path";
+import { lstat, mkdir, mkdtemp, readdir, rename, rm } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { CommandTimeoutError, runCommand } from "../utils/command";
 import { formatDuration } from "../utils/text";
 import { approvalNote, failureDetail } from "./output";
@@ -9,6 +9,8 @@ export type CloneOutcome = {
   message: string;
 };
 
+const PATH_TAKEN = "something is already at the clone path";
+
 /**
  * Clones `repository` (`owner/name`) to `path` with `gh repo clone`, bounded by inactivity like
  * a remote fetch: `--progress` makes git report on stderr while it transfers and checks out, and
@@ -17,83 +19,107 @@ export type CloneOutcome = {
  * gh's own steps print nothing: its API lookup before the clone and, for a fork, its fetch of
  * the `upstream` remote afterwards; either one staying silent that long stops the clone too.
  *
- * The clone first creates `path` as an empty directory and clones into it (git accepts an empty
- * destination). Creating it fails if anything is at `path`, for example something another
- * process put there since the plan was made; then nothing is cloned and nothing is touched. A
- * clone that times out is skipped, one that fails is failed. Either way the directory is
- * removed, because the next `up` would take any directory at `path` for an existing clone, and
- * the message says so when the clone had left something in it. Failures are returned, not
- * thrown.
+ * Nothing is created at `path` until the clone is complete: gh clones into a new hidden
+ * directory beside it (git accepts an empty destination, and discovery skips hidden folders),
+ * which is renamed to `path` when gh succeeds. Only that staging directory is ever removed, so
+ * a clone that times out (skipped) or fails (failed) leaves nothing that the next `up` would
+ * take for an existing clone, and nothing another process put at `path` is touched. If
+ * something is at `path` before the clone starts or by the time it finishes, the project is
+ * skipped and `path` is left alone. Failures are returned, not thrown.
  */
 export async function cloneRepository(
   repository: string,
   path: string,
   idleTimeoutMs: number,
 ): Promise<CloneOutcome> {
+  if (await pathExists(path))
+    return { status: "skipped", message: `not cloned because ${PATH_TAKEN}` };
   await mkdir(dirname(path), { recursive: true });
-  if (!(await claimPath(path))) {
-    return {
-      status: "skipped",
-      message: "not cloned because something is already at the clone path",
-    };
-  }
+  const staging = await mkdtemp(join(dirname(path), `.${basename(path)}.clone-`));
   const subject = `clone of ${repository}`;
   try {
-    const result = await runCommand(["gh", "repo", "clone", repository, path, "--", "--progress"], {
-      allowFailure: true,
-      timeoutMs: idleTimeoutMs,
-      resetTimeoutOnOutput: true,
-      releasePipesAfterExit: true,
-      // An HTTPS clone whose credential helper has nothing fails at once instead of waiting on
-      // the terminal until the idle limit. ssh is left alone, as for fetches.
-      env: { GIT_TERMINAL_PROMPT: "0" },
-    });
-    if (result.exitCode === 0) return { status: "done", message: "cloned" };
+    const result = await runCommand(
+      ["gh", "repo", "clone", repository, staging, "--", "--progress"],
+      {
+        allowFailure: true,
+        timeoutMs: idleTimeoutMs,
+        resetTimeoutOnOutput: true,
+        releasePipesAfterExit: true,
+        // An HTTPS clone whose credential helper has nothing fails at once instead of waiting on
+        // the terminal until the idle limit. ssh is left alone, as for fetches.
+        env: { GIT_TERMINAL_PROMPT: "0" },
+      },
+    );
+    if (result.exitCode === 0) return await moveIntoPlace(staging, path);
     const detail = failureDetail(result.stderr);
     return {
       status: "failed",
       message:
         `${subject} failed with ${result.exitCode}${detail ? `: ${detail}` : ""}` +
-        (await removeUnfinishedClone(path)) +
+        (await removeStaging(staging, "the unfinished clone")) +
         approvalNote(`${result.stderr}\n${result.stdout}`),
     };
   } catch (error) {
-    if (!(error instanceof CommandTimeoutError)) throw error;
+    if (!(error instanceof CommandTimeoutError)) {
+      await removeStaging(staging, "the unfinished clone");
+      throw error;
+    }
     return {
       status: "skipped",
       message:
         `${subject} timed out after ${formatDuration(idleTimeoutMs)} without output` +
-        `${await removeUnfinishedClone(path)}; skipped` +
+        `${await removeStaging(staging, "the unfinished clone")}; skipped` +
         approvalNote(`${error.stderr}\n${error.stdout}`),
     };
   }
 }
 
-/** Creates `path` as an empty directory; false when something is already there. */
-async function claimPath(path: string): Promise<boolean> {
+/**
+ * Renames the finished clone to `path`. The rename fails when another process has put a file or
+ * a non-empty directory there meanwhile; that is left alone and the new clone is removed.
+ */
+async function moveIntoPlace(staging: string, path: string): Promise<CloneOutcome> {
   try {
-    await mkdir(path);
-    return true;
+    await rename(staging, path);
+    return { status: "done", message: "cloned" };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
-    throw error;
+    const code = (error as NodeJS.ErrnoException).code;
+    const removed = await removeStaging(staging, "the new clone");
+    if (code === "ENOTEMPTY" || code === "EEXIST" || code === "ENOTDIR") {
+      return { status: "skipped", message: `not moved into place because ${PATH_TAKEN}${removed}` };
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      status: "failed",
+      message: `could not move the clone into place: ${reason}${removed}`,
+    };
   }
 }
 
 /**
- * Removes the directory a clone that did not finish was given, and says so when the clone had
- * left something in it. git empties it when the transfer fails or it is stopped with SIGTERM,
- * but not when it is killed, and it keeps the repository when only the checkout fails; gh fails
- * after a complete clone when its fork setup does.
+ * Removes this clone's staging directory, which no other process knows about, and says so when
+ * the clone had left something in it. git empties it when the transfer fails or it is stopped
+ * with SIGTERM, but not when it is killed, and it keeps the repository when only the checkout
+ * fails; gh fails after a complete clone when its fork setup does.
  */
-async function removeUnfinishedClone(path: string): Promise<string> {
+async function removeStaging(staging: string, what: string): Promise<string> {
   try {
-    const leftovers = (await readdir(path)).length > 0;
-    await rm(path, { recursive: true, force: true });
-    return leftovers ? "; removed the unfinished clone" : "";
+    const leftovers = (await readdir(staging)).length > 0;
+    await rm(staging, { recursive: true, force: true });
+    return leftovers ? `; removed ${what}` : "";
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
     const reason = error instanceof Error ? error.message : String(error);
-    return `; could not remove the unfinished clone: ${reason}`;
+    return `; could not remove ${what} at ${staging}: ${reason}`;
+  }
+}
+
+/** Whether anything is at `path`, a dangling symlink included. */
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch {
+    return false;
   }
 }
