@@ -74,6 +74,8 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
           cwd: await app.projectCheckoutDirectory(workspaceRoot, project),
         });
       },
+      fetchRemotes: (project, fetchOptions = {}) =>
+        app.fetchProjectRemotes(workspaceRoot, project, fetchOptions.trackingRemote),
     },
     gh: {
       run: async (args, runOptions = {}) =>

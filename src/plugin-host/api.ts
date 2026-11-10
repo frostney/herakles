@@ -9,8 +9,16 @@
 import type { BaseArgs, CommandContext, TypedCommandParameters } from "@stricli/core";
 import type { HeraklesConfig } from "../config/schema";
 import type { CanonicalPathPlan, Project, ValidationResult } from "../domain";
+import type { RemoteFetchFailure, RemoteFetchResult } from "../up/fetch";
 
-export type { CanonicalPathPlan, HeraklesConfig, Project, ValidationResult };
+export type {
+  CanonicalPathPlan,
+  HeraklesConfig,
+  Project,
+  RemoteFetchFailure,
+  RemoteFetchResult,
+  ValidationResult,
+};
 
 /**
  * The plugin API version this Herakles build implements. Additive changes keep
@@ -143,6 +151,22 @@ export type PluginContext = {
       args: readonly string[],
       options?: ToolRunOptions,
     ): Promise<CommandResult>;
+    /**
+     * Fetch the project's remotes the way `herakles up` does: the remotes
+     * `git fetch --all` would, one after another, with `git fetch --prune`.
+     * A remote that stays silent for `up.fetch_idle_timeout_seconds` is
+     * stopped, and a remote that fails or is stopped does not stop the
+     * others. Each one gets a failure whose message names the remote and,
+     * when the output holds one, a Tailscale SSH check URL. Those failures
+     * are returned; it throws when the checkout is missing, git cannot run,
+     * or git cannot list the remotes or read their `remote.<name>.skipFetchAll`
+     * settings.
+     * `trackingRemote` is fetched even when that setting is true, and last.
+     */
+    fetchRemotes(
+      project: Project,
+      options?: { trackingRemote?: string },
+    ): Promise<RemoteFetchResult>;
   };
   readonly gh: {
     /** Run the GitHub CLI with an argument list, optionally in a project's checkout. */

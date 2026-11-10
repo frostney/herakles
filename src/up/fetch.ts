@@ -11,6 +11,12 @@ export type RemoteFetchFailure = {
   message: string;
 };
 
+/** The remotes a fetch reached, and one failure per remote that did not answer or failed. */
+export type RemoteFetchResult = {
+  fetched: string[];
+  failures: RemoteFetchFailure[];
+};
+
 /** What the checked-out HEAD tracks, which decides whether it can be fast-forwarded. */
 export type HeadTracking =
   | { kind: "detached" }
@@ -53,7 +59,7 @@ export async function fetchRemotes(
   cwd: string,
   idleTimeoutMs: number,
   trackingRemote?: string,
-): Promise<{ fetched: string[]; failures: RemoteFetchFailure[] }> {
+): Promise<RemoteFetchResult> {
   const fetched: string[] = [];
   const failures: RemoteFetchFailure[] = [];
   for (const remote of await fetchableRemotes(cwd, trackingRemote)) {

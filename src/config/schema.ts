@@ -119,8 +119,8 @@ export const heraklesConfigSchema = z
     up: z
       .object({
         exclude_topics: z.array(z.string()).default(["no-up"]),
-        // Longest `herakles up` waits without any output from one remote fetch before it skips
-        // that remote.
+        // Longest `herakles up` (and the plugin context's `git.fetchRemotes`, which the sync
+        // plugin uses) waits without any output from one remote fetch before it skips that remote.
         fetch_idle_timeout_seconds: z
           .number()
           .int()
