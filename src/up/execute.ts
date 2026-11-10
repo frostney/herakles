@@ -1,8 +1,7 @@
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
 import type { UpPlan, UpPlanItem } from "../domain";
 import { runCommand } from "../utils/command";
+import { cloneRepository } from "./clone";
 import { fetchRemotes, headCommit, headTracking, refExists } from "./fetch";
 
 export type UpExecution = {
@@ -24,9 +23,9 @@ export type UpExecuteOptions = {
 
 export type UpExecutePlanOptions = UpExecuteOptions & {
   /**
-   * Longest one remote fetch may stay silent before it is skipped. Required: the caller resolves
-   * it (`app.up` takes `up.fetch_idle_timeout_seconds` from the synced configuration), so the
-   * default lives in the config schema only.
+   * Longest one remote fetch, or the clone of a missing project, may stay silent before it is
+   * skipped. Required: the caller resolves it (`app.up` takes `up.fetch_idle_timeout_seconds`
+   * from the synced configuration), so the default lives in the config schema only.
    */
   fetchIdleTimeoutMs: number;
 };
@@ -88,9 +87,8 @@ async function executeItem(item: UpPlanItem, fetchIdleTimeoutMs: number): Promis
     if (!project.owner) {
       return { item, status: "failed", message: "missing GitHub owner" };
     }
-    await mkdir(dirname(project.path), { recursive: true });
-    await runCommand(["gh", "repo", "clone", `${project.owner}/${project.repo}`, project.path]);
-    return { item, status: "done", message: "cloned" };
+    const repository = `${project.owner}/${project.repo}`;
+    return { item, ...(await cloneRepository(repository, project.path, fetchIdleTimeoutMs)) };
   }
   if (!existsSync(project.path)) {
     return { item, status: "failed", message: "expected clone path is missing" };
