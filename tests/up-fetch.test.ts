@@ -6,7 +6,13 @@ import { fetchRemotes } from "../src/up/fetch";
 import { withEnvironment } from "./helpers/environment";
 
 function git(cwd: string, ...args: string[]) {
-  const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  // Pass process.env explicitly so git sees the isolation withEnvironment sets.
+  const result = Bun.spawnSync(["git", ...args], {
+    cwd,
+    env: process.env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
 }
 
