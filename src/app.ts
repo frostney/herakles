@@ -471,7 +471,7 @@ export async function upProjects(
   const targets = [...new Set(resolved)];
   const plan = applyValidationIssuesToUpPlan(createUpPlan(targets), targets, state.validation);
   const byProject = new Map<string, UpExecution[]>();
-  for (const execution of await executeUpPlan(plan, options)) {
+  for (const execution of await executeUpPlan(plan, withFetchTimeout(state, options))) {
     const id = execution.item.project.id;
     byProject.set(id, [...(byProject.get(id) ?? []), execution]);
   }
@@ -627,7 +627,16 @@ export async function upPlan(workspaceRoot: string): Promise<UpPlan> {
 }
 
 export async function up(workspaceRoot: string, options: UpExecuteOptions = {}) {
-  return executeUpPlan(await upPlan(workspaceRoot), options);
+  const plan = await upPlan(workspaceRoot);
+  return executeUpPlan(plan, withFetchTimeout(await loadWorkspace(workspaceRoot), options));
+}
+
+/** Applies `up.fetch_timeout_seconds` unless the caller already chose a timeout. */
+function withFetchTimeout(state: WorkspaceState, options: UpExecuteOptions): UpExecuteOptions {
+  return {
+    ...options,
+    fetchTimeoutMs: options.fetchTimeoutMs ?? state.loaded.config.up.fetch_timeout_seconds * 1000,
+  };
 }
 
 export async function doctor(
