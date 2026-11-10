@@ -200,6 +200,21 @@ describe("workspace up execution", () => {
     }
   });
 
+  test("never replaces an empty directory another process created at the clone path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "herakles-up-clone-empty-"));
+    const clone = join(root, "tool");
+    await withFakeGit({ status: "", occupy: clone, occupyEmpty: true }, async () => {
+      const result = await runPlan(clonePlan(clone));
+
+      expect(result[0]?.status).toBe("skipped");
+      expect(result[0]?.message).toBe(
+        "not moved into place because something is already at the clone path; removed the new clone",
+      );
+      expect(await readdir(root)).toEqual(["tool"]);
+      expect(await readdir(clone)).toEqual([]);
+    });
+  });
+
   test("fetches dirty worktrees but skips the fast-forward", async () => {
     const clone = await existingClone("herakles-up-dirty-");
     await withFakeGit({ status: " M README.md\n" }, async (logPath) => {
@@ -657,6 +672,8 @@ type FakeGitOptions = {
   clone?: "hang" | "silent" | "trickle" | "fail" | "refused";
   /** A path the fake `gh repo clone` fills with `notes.md` first, like another process would. */
   occupy?: string;
+  /** Only create `occupy` as an empty directory. */
+  occupyEmpty?: boolean;
 };
 
 // A killed fake must not leave its sleep child running: it would hold the output pipes open.
@@ -787,7 +804,7 @@ printf 'gh prompt=%s\\n' "$GIT_TERMINAL_PROMPT" >> "$HERAKLES_GIT_LOG"
 if [ "$1 $2 $3" = "repo clone frostney/tool" ]; then
   if [ -n "$HERAKLES_GH_OCCUPY" ]; then
     mkdir -p "$HERAKLES_GH_OCCUPY"
-    echo "keep me" > "$HERAKLES_GH_OCCUPY/notes.md"
+    [ -n "$HERAKLES_GH_OCCUPY_EMPTY" ] || echo "keep me" > "$HERAKLES_GH_OCCUPY/notes.md"
   fi
   if [ "$HERAKLES_GH_CLONE" = refused ]; then
     echo "fatal: repository not found" >&2
@@ -854,6 +871,7 @@ exit 0
       HERAKLES_GIT_CHILDREN: join(bin, "children.log"),
       HERAKLES_GH_CLONE: options.clone ?? "",
       HERAKLES_GH_OCCUPY: options.occupy ?? "",
+      HERAKLES_GH_OCCUPY_EMPTY: options.occupyEmpty ? "1" : "",
       // The fake records what a fetch sees; the code under test must be what sets it.
       GIT_TERMINAL_PROMPT: undefined,
     },

@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readdir, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, rename, rm, rmdir } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { CommandTimeoutError, runCommand } from "../utils/command";
 import { formatDuration } from "../utils/text";
@@ -21,11 +21,11 @@ const PATH_TAKEN = "something is already at the clone path";
  *
  * Nothing is created at `path` until the clone is complete: gh clones into a new hidden
  * directory beside it (git accepts an empty destination, and discovery skips hidden folders),
- * which is renamed to `path` when gh succeeds. Only that staging directory is ever removed, so
- * a clone that times out (skipped) or fails (failed) leaves nothing that the next `up` would
- * take for an existing clone, and nothing another process put at `path` is touched. If
- * something is at `path` before the clone starts or by the time it finishes, the project is
- * skipped and `path` is left alone. Failures are returned, not thrown.
+ * which is moved to `path` when gh succeeds. Only that staging directory is ever removed, so a
+ * clone that times out (skipped) or fails (failed) leaves nothing that the next `up` would take
+ * for an existing clone, and nothing another process put at `path`, not even an empty
+ * directory, is touched. If something is at `path` before the clone starts or by the time it
+ * finishes, the project is skipped and `path` is left alone. Failures are returned, not thrown.
  */
 export async function cloneRepository(
   repository: string,
@@ -75,25 +75,40 @@ export async function cloneRepository(
 }
 
 /**
- * Renames the finished clone to `path`. The rename fails when another process has put a file or
- * a non-empty directory there meanwhile; that is left alone and the new clone is removed.
+ * Moves the finished clone to `path`. A plain rename would replace an empty directory another
+ * process created there meanwhile, and Node has no rename that refuses to, so `path` is first
+ * claimed with a non-recursive mkdir, which fails if anything is there, and the clone is renamed
+ * onto that empty directory of our own. If the rename still fails (another process wrote into
+ * the claimed directory), the claim is undone with rmdir, which removes only an empty directory.
+ * Whatever was in the way is left alone and the new clone is removed.
  */
 async function moveIntoPlace(staging: string, path: string): Promise<CloneOutcome> {
+  const taken = async () => ({
+    status: "skipped" as const,
+    message: `not moved into place because ${PATH_TAKEN}${await removeStaging(staging, "the new clone")}`,
+  });
+  try {
+    await mkdir(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return taken();
+    return cannotMove(staging, error);
+  }
   try {
     await rename(staging, path);
     return { status: "done", message: "cloned" };
   } catch (error) {
+    await rmdir(path).catch(() => undefined);
     const code = (error as NodeJS.ErrnoException).code;
-    const removed = await removeStaging(staging, "the new clone");
-    if (code === "ENOTEMPTY" || code === "EEXIST" || code === "ENOTDIR") {
-      return { status: "skipped", message: `not moved into place because ${PATH_TAKEN}${removed}` };
-    }
-    const reason = error instanceof Error ? error.message : String(error);
-    return {
-      status: "failed",
-      message: `could not move the clone into place: ${reason}${removed}`,
-    };
+    if (code === "ENOTEMPTY" || code === "EEXIST") return taken();
+    return cannotMove(staging, error);
   }
+}
+
+/** The clone could not be moved into place for a reason other than something in the way. */
+async function cannotMove(staging: string, error: unknown): Promise<CloneOutcome> {
+  const removed = await removeStaging(staging, "the new clone");
+  const reason = error instanceof Error ? error.message : String(error);
+  return { status: "failed", message: `could not move the clone into place: ${reason}${removed}` };
 }
 
 /**
