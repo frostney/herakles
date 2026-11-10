@@ -154,6 +154,30 @@ describe("command runner", () => {
     expect(result.stdout).toBe("first\ntick1\ntick2\ntick3\ntick4\n");
   });
 
+  test("a leftover child that writes forever cannot hold the caller past the drain cap", async () => {
+    // Output every 100ms is always inside the quiet period, so only the cap ends the wait. The
+    // cap is the smaller of 5 seconds and the timeout.
+    const started = Date.now();
+    const result = await runCommand(
+      ["sh", "-c", "(while :; do sleep 0.1; echo keepalive; done) & echo $!"],
+      { timeoutMs: 1000, resetTimeoutOnOutput: true, releasePipesAfterExit: true },
+    );
+    const child = Number(result.stdout.trim().split("\n")[0]);
+    try {
+      expect(result.exitCode).toBe(0);
+      expect(Date.now() - started).toBeLessThan(4000);
+      expect(Number.isInteger(child)).toBe(true);
+    } finally {
+      if (Number.isInteger(child) && child > 0) {
+        try {
+          process.kill(child, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+    }
+  });
+
   test("returns a 127 result for a missing executable when failure is allowed", async () => {
     const result = await runCommand(["herakles-missing-tool", "--version"], {
       allowFailure: true,

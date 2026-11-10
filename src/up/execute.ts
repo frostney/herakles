@@ -138,11 +138,13 @@ async function fastForwardClone(
   const upstreamFailed = failures.some((failure) => failure.remote === tracking.remote);
   let target = "@{upstream}";
   if (tracking.unmappedRef !== undefined) {
-    // The tracking remote's own fetch left the merge ref in FETCH_HEAD. If that fetch failed,
-    // FETCH_HEAD is from some other fetch and there is no older ref to fall back on.
-    if (upstreamFailed) {
+    // The tracking remote's own fetch left the merge ref in FETCH_HEAD. If that remote was not
+    // fetched in this run (its fetch failed, or `branch.<name>.remote` is a URL or path that
+    // `git remote` does not list), FETCH_HEAD is from some other fetch or from an earlier run,
+    // and there is no older ref to fall back on.
+    if (!fetched.includes(tracking.remote)) {
       return skipped(
-        `not fast-forwarded because '${tracking.unmappedRef}' could not be fetched from remote '${tracking.remote}'`,
+        `not fast-forwarded because '${tracking.unmappedRef}' was not fetched from remote '${tracking.remote}'`,
       );
     }
     target = "FETCH_HEAD";
@@ -168,9 +170,7 @@ async function fastForwardClone(
   }
   const status = problems.length === 0 ? "done" : "skipped";
   const progress = moved ? "fast-forwarded" : "already up to date";
-  const summary =
-    moved && fetched.length > 0 ? "fetched and fast-forwarded" : `${lead}; ${progress}`;
-  return outcome(item, status, summary, problems);
+  return outcome(item, status, `${lead}; ${progress}`, problems);
 }
 
 function fetchSummary(fetched: number, failed: number): string {

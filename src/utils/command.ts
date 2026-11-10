@@ -8,6 +8,8 @@ export type CommandOptions = {
   cwd?: string;
   allowFailure?: boolean;
   stdin?: string;
+  /** Added to the environment the command inherits. */
+  env?: Record<string, string>;
   /**
    * Longest the command may run. With `resetTimeoutOnOutput` it is the longest the command may
    * stay silent instead: every chunk on stdout or stderr starts the wait over.
@@ -17,8 +19,8 @@ export type CommandOptions = {
   /**
    * Treat the command as finished when it exits, even if a descendant it started (an ssh
    * ControlPersist master, say) still holds its output pipes open. After the exit the pipes are
-   * read until they have been quiet for a moment, then released so they cannot keep this process
-   * alive. Without it the output is always read to its end, which is what a caller that needs all
+   * read until they have been quiet for a moment (and for at most a few seconds in all, however
+   * long output keeps arriving), then released so they cannot keep this process alive. Without it the output is always read to its end, which is what a caller that needs all
    * of it wants.
    */
   releasePipesAfterExit?: boolean;
@@ -28,6 +30,8 @@ export type CommandOptions = {
 const KILL_GRACE_MS = 2000;
 /** How long a pipe may stay quiet after the command is gone before it is given up on. */
 const OUTPUT_DRAIN_MS = 500;
+/** The most time the pipes get after the command is gone, even while output keeps arriving. */
+const MAX_DRAIN_MS = 5000;
 
 const TIMED_OUT = Symbol("timed out");
 
@@ -75,7 +79,11 @@ export async function runCommand(
     ? proc.exited.then(async (code) => {
         watchdog?.stop();
         lastOutput.at = Date.now();
-        await drainWhileActive(streamsClosed, lastOutput);
+        await drainWhileActive(
+          streamsClosed,
+          lastOutput,
+          Math.min(MAX_DRAIN_MS, timeoutMs ?? MAX_DRAIN_MS),
+        );
         await releasePipes();
         return code;
       })
@@ -157,10 +165,18 @@ async function settleWithin(promise: Promise<unknown>, ms: number): Promise<bool
   }
 }
 
-/** Waits until the pipes close, or have been quiet for the drain period; data extends the wait. */
-async function drainWhileActive(streamsClosed: Promise<unknown>, lastOutput: { at: number }) {
+/**
+ * Waits until the pipes close, or have been quiet for the drain period; data extends the wait,
+ * but never past `maxMs` in total, so a descendant that keeps writing cannot hold the caller.
+ */
+async function drainWhileActive(
+  streamsClosed: Promise<unknown>,
+  lastOutput: { at: number },
+  maxMs: number,
+) {
+  const hardStop = Date.now() + maxMs;
   for (;;) {
-    const remaining = lastOutput.at + OUTPUT_DRAIN_MS - Date.now();
+    const remaining = Math.min(lastOutput.at + OUTPUT_DRAIN_MS, hardStop) - Date.now();
     if (remaining <= 0 || (await settleWithin(streamsClosed, remaining))) return;
   }
 }
@@ -293,7 +309,7 @@ function spawnProcess(argv: readonly string[], options: CommandOptions) {
   try {
     const proc = Bun.spawn([...argv], {
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-      env: process.env,
+      env: { ...process.env, ...options.env },
       stdin: options.stdin === undefined ? "ignore" : new Response(options.stdin),
       stdout: "pipe",
       stderr: "pipe",

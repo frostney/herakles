@@ -76,7 +76,7 @@ describe("workspace up against real repositories", () => {
       const next = commit(origin, "second");
 
       const moved = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
-      expect(moved?.message).toBe("fetched and fast-forwarded");
+      expect(moved?.message).toBe("fetched; fast-forwarded");
       expect(git(clone, "rev-parse", "HEAD")).toBe(next);
 
       const unchanged = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
@@ -95,7 +95,7 @@ describe("workspace up against real repositories", () => {
 
       const result = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
 
-      expect(result?.message).toBe("fetched and fast-forwarded");
+      expect(result?.message).toBe("fetched; fast-forwarded");
       expect(git(clone, "rev-parse", "HEAD")).toBe(next);
     });
   });
@@ -113,8 +113,31 @@ describe("workspace up against real repositories", () => {
 
       const result = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
 
-      expect(result?.message).toBe("fetched and fast-forwarded");
+      expect(result?.message).toBe("fetched; fast-forwarded");
       expect(git(clone, "rev-parse", "HEAD")).toBe(next);
+    });
+  });
+
+  test("leaves a branch alone whose remote is a URL git remote does not list, whatever FETCH_HEAD holds", async () => {
+    await withIsolatedGit(async (root) => {
+      const origin = createOrigin(root);
+      git(origin, "switch", "--quiet", "-c", "other");
+      commit(origin, "unrelated work");
+      git(origin, "switch", "--quiet", "main");
+      const clone = join(root, "clone");
+      git(root, "clone", "--quiet", origin, clone);
+      const before = git(clone, "rev-parse", "HEAD");
+      // FETCH_HEAD now holds another branch's tip, as a stale or foreign fetch would leave it.
+      git(clone, "fetch", "--quiet", "origin", "other");
+      git(clone, "config", "branch.main.remote", origin);
+      git(clone, "config", "branch.main.merge", "refs/heads/other");
+      git(clone, "update-ref", "-d", "refs/remotes/origin/main");
+
+      const result = (await executeUpPlan(plan(clone), { fetchIdleTimeoutMs: 60_000 }))[0];
+
+      expect(result?.status).toBe("skipped");
+      expect(result?.message).toContain("was not fetched from remote");
+      expect(git(clone, "rev-parse", "HEAD")).toBe(before);
     });
   });
 

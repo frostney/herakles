@@ -91,7 +91,7 @@ describe("workspace up execution", () => {
       const log = await readFile(logPath, "utf8");
 
       expect(result[0]?.status).toBe("done");
-      expect(result[0]?.message).toBe("fetched and fast-forwarded");
+      expect(result[0]?.message).toBe("fetched; fast-forwarded");
       expect(log).toContain("fetch --progress --prune -- origin");
       expect(log).not.toContain("fetch --all");
       expect(log).toContain("merge --ff-only @{upstream}");
@@ -171,7 +171,7 @@ describe("workspace up execution", () => {
       expect(Date.now() - started).toBeLessThan(10_000);
       expect(result[0]?.status).toBe("skipped");
       expect(result[0]?.message).toBe(
-        "fetched and fast-forwarded; fetch from remote 'backup' timed out after 300ms without " +
+        "fetched; fast-forwarded; fetch from remote 'backup' timed out after 300ms without " +
           `output; skipped ${APPROVAL_NOTE}`,
       );
       // The remote after the silent one was still fetched, and the local fast-forward still ran.
@@ -191,7 +191,7 @@ describe("workspace up execution", () => {
 
       expect(Date.now() - started).toBeGreaterThan(900);
       expect(result[0]?.status).toBe("done");
-      expect(result[0]?.message).toBe("fetched and fast-forwarded");
+      expect(result[0]?.message).toBe("fetched; fast-forwarded");
     });
   });
 
@@ -241,7 +241,7 @@ describe("workspace up execution", () => {
 
       expect(result[0]?.status).toBe("skipped");
       expect(result[0]?.message).toBe(
-        "fetched and fast-forwarded; fetch from remote 'mirror' failed with 128: " +
+        "fetched; fast-forwarded; fetch from remote 'mirror' failed with 128: " +
           "fatal: unable to access 'mirror': connection refused; skipped",
       );
     });
@@ -280,7 +280,7 @@ describe("workspace up execution", () => {
 
       expect(result[0]?.status).toBe("skipped");
       expect(result[0]?.message).toBe(
-        "fetched and fast-forwarded; fetch from remote 'backup' failed with 128: " +
+        "fetched; fast-forwarded; fetch from remote 'backup' failed with 128: " +
           `fatal: Could not read from remote repository.; skipped ${APPROVAL_NOTE}`,
       );
     });
@@ -324,7 +324,7 @@ describe("workspace up execution", () => {
       // Without this the merge would use a ref nothing refreshes and still say "fetched".
       expect(log).toContain("fetch --progress --prune -- origin");
       expect(log).not.toContain("-- mirror");
-      expect(result[0]?.message).toBe("fetched and fast-forwarded");
+      expect(result[0]?.message).toBe("fetched; fast-forwarded");
     });
   });
 
@@ -342,13 +342,43 @@ describe("workspace up execution", () => {
       const log = await readFile(logPath, "utf8");
 
       expect(result[0]?.status).toBe("done");
-      expect(result[0]?.message).toBe("fetched and fast-forwarded");
+      expect(result[0]?.message).toBe("fetched; fast-forwarded");
       // One fetch per remote, the plain kind: git adds the current branch's merge ref itself.
       expect(log.match(/^git fetch/gm)).toHaveLength(2);
       expect(log).not.toContain("refs/heads/next\n");
       expect(log.indexOf("-- backup")).toBeLessThan(log.indexOf("-- origin"));
       expect(log).toContain("merge --ff-only FETCH_HEAD");
       expect(log).not.toContain("@{upstream}");
+    });
+  });
+
+  test("fetches with terminal prompts off so an HTTPS remote cannot wait on the tty", async () => {
+    const clone = await existingClone("herakles-up-prompt-");
+    await withFakeGit({ status: "" }, async (logPath) => {
+      await runPlan(plan(clone));
+
+      expect(await readFile(logPath, "utf8")).toContain("prompt=0");
+      expect(process.env.GIT_TERMINAL_PROMPT).toBeUndefined();
+    });
+  });
+
+  test("does not merge FETCH_HEAD when the branch's remote is a URL that git remote does not list", async () => {
+    const clone = await existingClone("herakles-up-url-remote-");
+    const options = {
+      status: "",
+      remotes: "origin",
+      upstream: "* main",
+      branchRemote: "https://example.test/repo.git",
+      branchMerge: "refs/heads/next",
+    };
+    await withFakeGit(options, async (logPath) => {
+      const result = await runPlan(plan(clone));
+
+      expect(result[0]?.status).toBe("skipped");
+      expect(result[0]?.message).toBe(
+        "fetched; not fast-forwarded because 'refs/heads/next' was not fetched from remote 'https://example.test/repo.git'",
+      );
+      expect(await readFile(logPath, "utf8")).not.toContain("merge --ff-only");
     });
   });
 
@@ -366,7 +396,7 @@ describe("workspace up execution", () => {
 
       expect(result[0]?.status).toBe("skipped");
       expect(result[0]?.message).toBe(
-        "nothing fetched; not fast-forwarded because 'refs/heads/next' could not be fetched from remote 'origin'; " +
+        "nothing fetched; not fast-forwarded because 'refs/heads/next' was not fetched from remote 'origin'; " +
           "fetch from remote 'origin' failed with 128: fatal: unable to access 'origin': connection refused; skipped",
       );
       expect(await readFile(logPath, "utf8")).not.toContain("merge --ff-only");
@@ -559,6 +589,7 @@ case "$1" in
       [ "$after" = 1 ] && remote="$arg"
       [ "$arg" = "--" ] && after=1
     done
+    printf 'prompt=%s\\n' "$GIT_TERMINAL_PROMPT" >> "$HERAKLES_GIT_LOG"
     for name in $HERAKLES_GIT_SLOW; do
       if [ "$name" = "$remote" ]; then
         echo "start $remote" >> "$HERAKLES_GIT_LOG"
@@ -641,6 +672,8 @@ exit 0
       HERAKLES_GIT_APPROVAL: options.approvalRemotes ?? "",
       HERAKLES_GIT_SKIP_FETCH_ALL: options.skipFetchAll ?? "",
       HERAKLES_GIT_CHILDREN: join(bin, "children.log"),
+      // The fake records what a fetch sees; the code under test must be what sets it.
+      GIT_TERMINAL_PROMPT: undefined,
     },
     () => run(logPath, bin),
   );

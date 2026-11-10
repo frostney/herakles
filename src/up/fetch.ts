@@ -44,9 +44,10 @@ export type HeadTracking =
  * The limit is inactivity, not total time: `git fetch --progress` keeps writing while it works,
  * so a large fetch that makes progress finishes, and a fetch that goes silent (an ssh session
  * waiting for a login approval) is stopped after `idleTimeoutMs`. A server that computes a very
- * large pack without sending anything for that long is also stopped, and so is a fetch that waits
- * for a person at a credential prompt (prompts use the terminal, not the pipes); give such a
- * remote a credential helper or agent, or raise `up.fetch_idle_timeout_seconds`.
+ * large pack without sending anything for that long is also stopped, and so is an ssh fetch that
+ * waits for a person at a passphrase prompt (prompts use the terminal, not the pipes); give such
+ * a remote an agent, or raise `up.fetch_idle_timeout_seconds`. HTTPS credential prompts are
+ * switched off (`GIT_TERMINAL_PROMPT=0`), so those fail at once.
  */
 export async function fetchRemotes(
   cwd: string,
@@ -154,6 +155,10 @@ async function fetchRemote(
       timeoutMs: idleTimeoutMs,
       resetTimeoutOnOutput: true,
       releasePipesAfterExit: true,
+      // An HTTPS remote without a credential helper fails at once with git's own error instead
+      // of waiting on the terminal until the idle limit. ssh is left alone: its configuration
+      // (core.sshCommand, an agent) is the user's.
+      env: { GIT_TERMINAL_PROMPT: "0" },
     });
     if (result.exitCode === 0) return undefined;
     const detail = failureDetail(result.stderr);
