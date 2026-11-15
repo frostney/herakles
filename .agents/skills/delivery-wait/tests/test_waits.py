@@ -86,7 +86,7 @@ if "per_page=" in endpoint and "expectedRestPageSize" in scenario:
 if "user" in args:
     output({"login":"maintainer"})
 if endpoint.endswith("/pulls/comments/10"):
-    output({"id":10,"pull_request_url":"a pull request in a private repository","body":"finding","user":{"login":"reviewer"}})
+    output({"id":10,"pull_request_url":"https://api.github.com/repos/owner/repo/pulls/7","body":"finding","user":{"login":"reviewer"}})
 if endpoint.endswith("/pulls/7"):
     output(scenario["restPull"])
 if "/check-runs" in endpoint:
@@ -264,7 +264,7 @@ class WaitCommandsTest(unittest.TestCase):
             },
             "tag":{"ref":None,"release":None},
             "workflow":{"id":44,"head_sha":"head-1","status":"completed","conclusion":"success","html_url":"https://example.invalid/run"},
-            "thread":{"id":"thread-1","isResolved":False,"pullRequest":{"number":7,"headRefOid":"head-1","repository":{"nameWithOwner":"a private repository"}}},
+            "thread":{"id":"thread-1","isResolved":False,"pullRequest":{"number":7,"headRefOid":"head-1","repository":{"nameWithOwner":"owner/repo"}}},
         }
         defaults.update(values)
         self.scenario.write_text(json.dumps(defaults))
@@ -272,7 +272,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_terminal_checks_satisfy_without_model_polling(self) -> None:
         self.write_scenario()
         result, output = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--check", "CI", "--deadline", self.deadline(), "--interval", "0.01",
         )
         self.assertEqual(result.returncode, 0)
@@ -282,7 +282,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_delivery_inspect_takes_one_snapshot_without_checkpoint(self) -> None:
         self.write_scenario()
         result, output = self.run_json(
-            DELIVERY, "inspect", "checks-terminal", "--repo", "a private repository",
+            DELIVERY, "inspect", "checks-terminal", "--repo", "owner/repo",
             "--pr", "7", "--head", "head-1", "--check", "CI",
         )
         self.assertEqual(result.returncode, 0)
@@ -298,11 +298,11 @@ class WaitCommandsTest(unittest.TestCase):
             )
         )
         _, inspected = self.run_json(
-            DELIVERY, "inspect", "checks-terminal", "--repo", "a private repository",
+            DELIVERY, "inspect", "checks-terminal", "--repo", "owner/repo",
             "--pr", "7", "--head", "head-1", "--check", "CI",
         )
         _, waited = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--check", "CI", "--deadline", self.deadline(), "--interval", "0.01",
         )
         self.assertEqual(inspected["state"], "satisfied")
@@ -316,7 +316,7 @@ class WaitCommandsTest(unittest.TestCase):
             pull=pull("head-1", [check("CI", "IN_PROGRESS", "SUCCESS")])
         )
         _, output = self.run_json(
-            DELIVERY, "inspect", "checks-terminal", "--repo", "a private repository",
+            DELIVERY, "inspect", "checks-terminal", "--repo", "owner/repo",
             "--pr", "7", "--head", "head-1", "--check", "CI",
         )
         self.assertEqual(output["state"], "waiting")
@@ -332,7 +332,7 @@ class WaitCommandsTest(unittest.TestCase):
             )
         )
         _, output = self.run_json(
-            DELIVERY, "inspect", "checks-terminal", "--repo", "a private repository",
+            DELIVERY, "inspect", "checks-terminal", "--repo", "owner/repo",
             "--pr", "7", "--head", "head-1", "--check", "CI",
         )
         self.assertEqual(output["state"], "waiting")
@@ -340,7 +340,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_wait_rejects_a_deadline_without_timezone(self) -> None:
         self.write_scenario()
         result, output = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo",
             "--pr", "7", "--head", "head-1", "--check", "CI",
             "--deadline", "2026-08-12T12:00:00", "--interval", "0.01",
         )
@@ -351,7 +351,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_head_change_invalidates(self) -> None:
         self.write_scenario(pull=pull("head-2", []))
         _, output = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--check", "CI", "--deadline", self.deadline(), "--interval", "0.01",
         )
         self.assertEqual(output["state"], "invalidated")
@@ -361,7 +361,7 @@ class WaitCommandsTest(unittest.TestCase):
         self.write_scenario()
         past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
         _, output = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo",
             "--pr", "7", "--head", "head-1", "--check", "CI",
             "--deadline", past, "--interval", "0.01",
         )
@@ -375,7 +375,7 @@ class WaitCommandsTest(unittest.TestCase):
             restStatuses=[],
         )
         _, output = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--check", "CI", "--deadline", self.deadline(), "--interval", "0.01",
         )
         self.assertEqual(output["state"], "satisfied")
@@ -392,7 +392,7 @@ class WaitCommandsTest(unittest.TestCase):
             restStatuses=[],
         )
         _, output = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--check", "CI", "--deadline", self.deadline(), "--interval", "0.01",
         )
         self.assertEqual(output["state"], "satisfied")
@@ -405,11 +405,11 @@ class WaitCommandsTest(unittest.TestCase):
         state = self.directory / "wait.json"
         state.write_text(json.dumps({
             "schemaVersion":1, "kind":"checks-terminal",
-            "identity":{"repo":"a private repository","pr":7,"head":"head-1","runId":None,"tag":None,"checks":["CI"],"assets":[]},
+            "identity":{"repo":"owner/repo","pr":7,"head":"head-1","runId":None,"tag":None,"checks":["CI"],"assets":[]},
             "observation":{"head":"head-1","checks":[]}, "digest":"old", "updatedAt":"earlier",
         }))
         _, output = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--check", "CI", "--deadline", self.deadline(), "--interval", "0.01", "--state", str(state),
         )
         self.assertEqual(output["state"], "changed")
@@ -417,7 +417,7 @@ class WaitCommandsTest(unittest.TestCase):
     def named_check_wait(self, *checks: str, state: Path | None = None, seconds: float = 0.3) -> dict:
         deadline = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
         return self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", *(part for name in checks for part in ("--check", name)),
             "--deadline", deadline, "--interval", "0.05",
             *(("--state", str(state)) if state else ()),
@@ -472,7 +472,7 @@ class WaitCommandsTest(unittest.TestCase):
             check("CI", "COMPLETED", "FAILURE"), check("Deploy", "IN_PROGRESS", None),
         ]))
         _, inspected = self.run_json(
-            DELIVERY, "inspect", "checks-terminal", "--repo", "a private repository",
+            DELIVERY, "inspect", "checks-terminal", "--repo", "owner/repo",
             "--pr", "7", "--head", "head-1", "--check", "CI", "--check", "Deploy",
         )
         self.assertEqual(inspected["state"], "changed")
@@ -556,7 +556,7 @@ class WaitCommandsTest(unittest.TestCase):
             with self.subTest(conclusion=conclusion):
                 self.write_scenario(pull=pull("head-1", [check("CI", "COMPLETED", conclusion)]))
                 _, output = self.run_json(
-                    DELIVERY, "inspect", "checks-terminal", "--repo", "a private repository",
+                    DELIVERY, "inspect", "checks-terminal", "--repo", "owner/repo",
                     "--pr", "7", "--head", "head-1", "--check", "CI",
                 )
                 self.assertEqual(output["state"], "changed")
@@ -610,7 +610,7 @@ class WaitCommandsTest(unittest.TestCase):
         deadline = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
         timing = ("--deadline", deadline, "--interval", "0.05") if command == "wait" else ()
         return self.run_json(
-            DELIVERY, command, "pr-merged", "--repo", "a private repository", "--pr", "7", "--head", "head-1", *timing,
+            DELIVERY, command, "pr-merged", "--repo", "owner/repo", "--pr", "7", "--head", "head-1", *timing,
         )[1]
 
     def test_pr_merged_reports_a_merge(self) -> None:
@@ -664,7 +664,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_digestless_checkpoint_does_not_turn_a_satisfied_review_into_changed(self) -> None:
         state = self.directory / "review.json"
         arguments = (
-            REVIEW, "wait", "--repo", "a private repository", "--pr", "7", "--head", "head-1",
+            REVIEW, "wait", "--repo", "owner/repo", "--pr", "7", "--head", "head-1",
             "--policy", str(self.policy), "--interval", "0.01", "--state", str(state),
         )
         self.write_digestless_checkpoint(*arguments)
@@ -675,7 +675,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_digestless_checkpoint_does_not_turn_a_pending_wait_into_changed(self) -> None:
         state = self.directory / "wait.json"
         arguments = (
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--check", "CI", "--interval", "0.01", "--state", str(state),
         )
         self.write_digestless_checkpoint(*arguments)
@@ -712,7 +712,7 @@ class WaitCommandsTest(unittest.TestCase):
             "observation":{"head":"head-1","checks":[]}, "digest":"old", "updatedAt":"earlier",
         }))
         _, output = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--check", "CI", "--deadline", self.deadline(), "--interval", "0.01", "--state", str(state),
         )
         self.assertEqual(output["state"], "invalidated")
@@ -722,7 +722,7 @@ class WaitCommandsTest(unittest.TestCase):
         state = self.directory / "wait.json"
         Path(f"{state}.lock").write_text("99999999:stale\n")
         _, output = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--check", "CI", "--deadline", self.deadline(),
             "--interval", "0.01", "--state", str(state),
         )
@@ -732,7 +732,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_review_convergence_uses_policy_and_thread_state(self) -> None:
         self.write_scenario()
         _, output = self.run_json(
-            REVIEW, "inspect", "--repo", "a private repository", "--pr", "7", "--head", "head-1", "--policy", str(self.policy),
+            REVIEW, "inspect", "--repo", "owner/repo", "--pr", "7", "--head", "head-1", "--policy", str(self.policy),
         )
         self.assertEqual(output["state"], "satisfied")
         self.assertEqual(output["observation"]["unresolvedThreads"], 0)
@@ -740,7 +740,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_review_wait_retries_racing_census_then_reports_changed_head(self) -> None:
         self.write_scenario(reviewHeadsByRequest=["head-1", "head-2", "head-2", "head-2"])
         result, output = self.run_json(
-            REVIEW, "wait", "--repo", "a private repository", "--pr", "7", "--head", "head-1",
+            REVIEW, "wait", "--repo", "owner/repo", "--pr", "7", "--head", "head-1",
             "--policy", str(self.policy), "--deadline", self.deadline(), "--interval", "0.01",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -757,7 +757,7 @@ class WaitCommandsTest(unittest.TestCase):
             "terminal_review_states":["APPROVED", "COMMENTED"],
         }]}))
         _, output = self.run_json(
-            REVIEW, "inspect", "--repo", "a private repository", "--pr", "7",
+            REVIEW, "inspect", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--policy", str(self.policy),
         )
         self.assertEqual(output["state"], "satisfied")
@@ -771,7 +771,7 @@ class WaitCommandsTest(unittest.TestCase):
         }]
         self.scenario.write_text(json.dumps(scenario))
         _, output = self.run_json(
-            REVIEW, "wait", "--repo", "a private repository", "--pr", "7", "--head", "head-1", "--policy", str(self.policy),
+            REVIEW, "wait", "--repo", "owner/repo", "--pr", "7", "--head", "head-1", "--policy", str(self.policy),
             "--deadline", (datetime.now(timezone.utc) + timedelta(seconds=.08)).isoformat(), "--interval", "0.02",
         )
         self.assertEqual(output["state"], "judgment-required")
@@ -805,7 +805,7 @@ class WaitCommandsTest(unittest.TestCase):
         self.scenario.write_text(json.dumps(scenario))
 
         _, output = self.run_json(
-            REVIEW, "inspect", "--repo", "a private repository", "--pr", "7",
+            REVIEW, "inspect", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--policy", str(self.policy),
         )
 
@@ -843,7 +843,7 @@ class WaitCommandsTest(unittest.TestCase):
                 else:
                     self.policy.write_text(content)
                 result, output = self.run_json(
-                    REVIEW, "inspect", "--repo", "a private repository", "--pr", "7",
+                    REVIEW, "inspect", "--repo", "owner/repo", "--pr", "7",
                     "--head", "head-1", "--policy", str(self.policy),
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -864,13 +864,13 @@ class WaitCommandsTest(unittest.TestCase):
         self.write_scenario()
         self.policy.unlink()
         _, output = self.run_json(
-            REVIEW, "inspect", "--repo", "a private repository", "--pr", "7",
+            REVIEW, "inspect", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--policy", str(self.policy),
         )
         self.assertEqual(output["state"], "waiting")
         self.assertEqual(output["observation"]["findingSurfaceCount"], 0)
         _, output = self.run_json(
-            REVIEW, "inspect", "--repo", "a private repository", "--pr", "7",
+            REVIEW, "inspect", "--repo", "owner/repo", "--pr", "7",
             "--head", "old-head", "--policy", str(self.policy),
         )
         self.assertEqual(output["state"], "invalidated")
@@ -880,7 +880,7 @@ class WaitCommandsTest(unittest.TestCase):
         self.policy.unlink()
         state = self.directory / "review.json"
         result, output = self.run_json(
-            REVIEW, "wait", "--repo", "a private repository", "--pr", "7",
+            REVIEW, "wait", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--policy", str(self.policy),
             "--deadline", self.deadline(), "--state", str(state),
         )
@@ -905,7 +905,7 @@ class WaitCommandsTest(unittest.TestCase):
                 }]
                 self.scenario.write_text(json.dumps(scenario))
                 _, output = self.run_json(
-                    REVIEW, "inspect", "--repo", "a private repository", "--pr", "7",
+                    REVIEW, "inspect", "--repo", "owner/repo", "--pr", "7",
                     "--head", "head-1", "--policy", str(self.policy),
                 )
                 self.assertEqual(output["state"], expected)
@@ -921,7 +921,7 @@ class WaitCommandsTest(unittest.TestCase):
         }]
         self.scenario.write_text(json.dumps(scenario))
         _, output = self.run_json(
-            REVIEW, "inspect", "--repo", "a private repository", "--pr", "7",
+            REVIEW, "inspect", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--policy", str(self.policy),
         )
         self.assertEqual(output["state"], "judgment-required")
@@ -939,7 +939,7 @@ class WaitCommandsTest(unittest.TestCase):
         self.scenario.write_text(json.dumps(scenario))
         state = self.directory / "review.json"
         arguments = (
-            "wait", "--repo", "a private repository", "--pr", "7", "--head", "head-1",
+            "wait", "--repo", "owner/repo", "--pr", "7", "--head", "head-1",
             "--policy", str(self.policy), "--deadline", self.deadline(),
             "--interval", "0.01", "--state", str(state),
         )
@@ -959,7 +959,7 @@ class WaitCommandsTest(unittest.TestCase):
         scenario["review"]["commits"]["nodes"][0]["commit"]["statusCheckRollup"] = None
         self.scenario.write_text(json.dumps(scenario))
         result, output = self.run_json(
-            REVIEW, "inspect", "--repo", "a private repository", "--pr", "7",
+            REVIEW, "inspect", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--policy", str(self.policy),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -970,7 +970,7 @@ class WaitCommandsTest(unittest.TestCase):
         self.write_scenario()
         state = self.directory / "review.json"
         identity = {
-            "repo":"a private repository", "pr":7, "head":"head-1",
+            "repo":"owner/repo", "pr":7, "head":"head-1",
             "policyDigest": hashlib.sha256(
                 json.dumps(json.loads(self.policy.read_text()), sort_keys=True, separators=(",", ":")).encode()
             ).hexdigest(),
@@ -980,7 +980,7 @@ class WaitCommandsTest(unittest.TestCase):
             "observation":{}, "digest":"prior", "updatedAt":"earlier",
         }))
         _, output = self.run_json(
-            REVIEW, "wait", "--repo", "a private repository", "--pr", "7",
+            REVIEW, "wait", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--policy", str(self.policy),
             "--deadline", self.deadline(), "--interval", "0.01", "--state", str(state),
         )
@@ -996,7 +996,7 @@ class WaitCommandsTest(unittest.TestCase):
         self.scenario.write_text(json.dumps(scenario))
         state = self.directory / "review.json"
         self.run_json(
-            REVIEW, "wait", "--repo", "a private repository", "--pr", "7", "--head", "head-1",
+            REVIEW, "wait", "--repo", "owner/repo", "--pr", "7", "--head", "head-1",
             "--policy", str(self.policy), "--deadline",
             (datetime.now(timezone.utc) + timedelta(seconds=.05)).isoformat(),
             "--interval", "0.01", "--state", str(state),
@@ -1009,7 +1009,7 @@ class WaitCommandsTest(unittest.TestCase):
         marker = "<!-- known-good-route-operation:op-1 -->"
         self.write_scenario(comments=[{"id":777,"body":f"already done {marker}"}])
         _, output = self.run_json(
-            REVIEW, "reply", "--repo", "a private repository", "--pr", "7", "--comment-id", "10",
+            REVIEW, "reply", "--repo", "owner/repo", "--pr", "7", "--comment-id", "10",
             "--head", "head-1", "--body", "Fixed with regression coverage.", "--operation-id", "op-1",
         )
         self.assertEqual(output["state"], "operational-error")
@@ -1018,7 +1018,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_resolve_operation_is_explicit(self) -> None:
         self.write_scenario()
         _, output = self.run_json(
-            REVIEW, "resolve", "--repo", "a private repository", "--pr", "7", "--head", "head-1", "--thread-id", "thread-1",
+            REVIEW, "resolve", "--repo", "owner/repo", "--pr", "7", "--head", "head-1", "--thread-id", "thread-1",
         )
         self.assertEqual(output["state"], "satisfied")
         self.assertTrue(output["observation"]["resolved"])
@@ -1033,7 +1033,7 @@ class WaitCommandsTest(unittest.TestCase):
 
     def census_wait(self, *extra: str, deadline: str | None = None) -> tuple[subprocess.CompletedProcess[str], dict]:
         return self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--all-workflows", *extra,
             "--deadline", deadline or self.deadline(), "--interval", "0.01",
         )
@@ -1041,7 +1041,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_checks_terminal_without_a_selector_names_all_workflows(self) -> None:
         self.write_scenario()
         result, output = self.run_json(
-            DELIVERY, "wait", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "wait", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--deadline", self.deadline(), "--interval", "0.01",
         )
         self.assertEqual(result.returncode, 2)
@@ -1055,7 +1055,7 @@ class WaitCommandsTest(unittest.TestCase):
         partial = census(workflow_run(101, matrix_jobs(4), status="in_progress", conclusion=None))
         self.write_scenario(census=[partial])
         _, inspected = self.run_json(
-            DELIVERY, "inspect", "checks-terminal", "--repo", "a private repository",
+            DELIVERY, "inspect", "checks-terminal", "--repo", "owner/repo",
             "--pr", "7", "--head", "head-1", "--all-workflows",
         )
         self.assertEqual(inspected["state"], "waiting")
@@ -1116,7 +1116,7 @@ class WaitCommandsTest(unittest.TestCase):
     def test_all_workflows_inspect_cannot_confirm_stability(self) -> None:
         self.write_scenario(census=[census(workflow_run(101, matrix_jobs(2)))])
         _, output = self.run_json(
-            DELIVERY, "inspect", "checks-terminal", "--repo", "a private repository",
+            DELIVERY, "inspect", "checks-terminal", "--repo", "owner/repo",
             "--pr", "7", "--head", "head-1", "--all-workflows",
         )
         self.assertEqual(output["state"], "waiting")
@@ -1177,7 +1177,7 @@ class WaitCommandsTest(unittest.TestCase):
             restChecks={"check_runs": [{"name": "CI", "status": "completed", "conclusion": "success"}]},
         )
         result, output = self.run_json(
-            DELIVERY, "inspect", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "inspect", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--check", "CI", "--rest-page-size", "5",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1195,7 +1195,7 @@ class WaitCommandsTest(unittest.TestCase):
             census=[census(workflow_run(101, matrix_jobs(1)))],
         )
         result, output = self.run_json(
-            DELIVERY, "inspect", "checks-terminal", "--repo", "a private repository", "--pr", "7",
+            DELIVERY, "inspect", "checks-terminal", "--repo", "owner/repo", "--pr", "7",
             "--head", "head-1", "--all-workflows", "--check", "CI", "--rest-page-size", "5",
         )
         self.assertEqual(result.returncode, 0, result.stderr)

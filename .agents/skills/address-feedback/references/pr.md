@@ -58,6 +58,8 @@ reviews, summaries, suggestions, and nitpicks. A rate-limited, incomplete,
 errored, missing, or head-ambiguous verdict is pending rather than passed.
 CodeRabbit's [`bot-skip` state](pr-readiness.md#coderabbit) exempts a bot-authored
 PR from its review gate; continue handling findings and the remaining gates.
+Its `not-active` state means nothing shows the repository uses CodeRabbit, so
+it is no gate and its adapter posts no trigger.
 
 ## Workflow
 
@@ -162,8 +164,8 @@ PR from its review gate; continue handling findings and the remaining gates.
     with `delivery-wait`'s `workflow-terminal` wait, then recheck. If the
     gate still holds or the host cannot wait, return `ready` and unmerged
     with the default branch's state as the blocker. After the merge, sync the local
-    default branch, remove only
-    clean worktrees owned by this run, and report the merged PR, final head,
-    validation, reviews, and cleanup. For a native
+    default branch,
+    [remove merged worktrees](../../git-workflow/SKILL.md#remove-merged-worktrees),
+    and report the merged PR, final head, validation, reviews, and cleanup. For a native
     stack member, return `ready` without merging so the stack owner can recheck
     it.

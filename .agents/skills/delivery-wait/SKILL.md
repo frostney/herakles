@@ -87,7 +87,7 @@ through `--state`.
 
 ## Invocation
 
-`wait <kind> --repo a private repository --deadline <ISO 8601> [--interval <seconds>]
+`wait <kind> --repo <owner/repo> --deadline <ISO 8601> [--interval <seconds>]
 [--state <path>] [--json]` runs a wait; `inspect <kind>` takes the
 same identity flags without `--deadline`, `--interval`, or `--state`. Each kind
 requires its own identity flags:

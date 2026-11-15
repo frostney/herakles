@@ -855,7 +855,7 @@ def destination(args, root):
     if args.operation == "pr":
         match = REPOSITORY_ARGUMENT.fullmatch(args.repo)
         if not match:
-            raise GuardError(f"--repo takes [HOST/]a private repository, not {args.repo!r}")
+            raise GuardError(f"--repo takes [HOST/]OWNER/REPO, not {args.repo!r}")
         host, slug = (match.group("host") or "github.com").lower(), f"{match.group('owner')}/{match.group('repo')}"
     else:
         host, slug = remote_repository(root, args.remote or push_remote(root))
@@ -999,7 +999,7 @@ def main(argv=None):
     for command in (staged, outgoing):
         command.add_argument("--remote", help="the remote being pushed to; defaults to the branch's push remote")
     pr = commands.add_parser("pr", help="rewrite PR title and body files in place")
-    pr.add_argument("--repo", required=True, help="the pull request's base repository, [HOST/]a private repository")
+    pr.add_argument("--repo", required=True, help="the pull request's base repository, [HOST/]OWNER/REPO")
     pr.add_argument("--title-file")
     pr.add_argument("--body-file")
     for command in (staged, outgoing, pr):

@@ -84,7 +84,7 @@ to a full draft review.
    > Created on behalf of @username using ModelName.
 
 8. Run [`template-check`](../template-check/SKILL.md#running-a-check) on the
-   draft with `--kind issue --body FILE`, adding `--repo a private repository` outside
+   draft with `--kind issue --body FILE`, adding `--repo OWNER/REPO` outside
    the target repository's checkout and `--template-name` when the
    repository has several templates, and fix every heading problem it
    reports.
